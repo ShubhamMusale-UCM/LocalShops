@@ -1,0 +1,67 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: citylocalshop-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: citylocalshop
+      POSTGRES_PASSWORD: citylocalshop
+      POSTGRES_DB: citylocalshop
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U citylocalshop -d citylocalshop"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: citylocalshop-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: citylocalshop-api
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql://citylocalshop:citylocalshop@postgres:5432/citylocalshop?schema=public
+      REDIS_URL: redis://redis:6379
+      PORT: 5000
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "5000:5000"
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: citylocalshop-nginx
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
+volumes:
+  postgres_data:
+  redis_data:

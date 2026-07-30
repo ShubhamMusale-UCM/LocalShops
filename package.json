@@ -1,0 +1,25 @@
+{
+  "name": "citylocalshop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CityLocalShop — Hyperlocal Shop Discovery & Commerce Platform",
+  "workspaces": [
+    "packages/*",
+    "server",
+    "apps/*"
+  ],
+  "scripts": {
+    "server:dev": "npm run dev --workspace=server",
+    "server:build": "npm run build --workspace=server",
+    "mobile:start": "npm run start --workspace=apps/mobile",
+    "mobile:android": "npm run android --workspace=apps/mobile",
+    "mobile:web": "npm run web --workspace=apps/mobile",
+    "admin:dev": "npm run dev --workspace=apps/web-admin",
+    "prisma:generate": "npm run prisma:generate --workspace=server",
+    "prisma:migrate": "npm run prisma:migrate --workspace=server",
+    "prisma:seed": "npm run prisma:seed --workspace=server"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

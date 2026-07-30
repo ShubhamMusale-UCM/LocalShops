@@ -1,0 +1,1 @@
+import { nearbyShopsSchema } from "./src/modules/shop/shop.validator"; console.log(nearbyShopsSchema.safeParse({ lat: "12", lng: "77", radius: "5" })); console.log(nearbyShopsSchema.safeParse({ lat: "12", lng: "77" }));

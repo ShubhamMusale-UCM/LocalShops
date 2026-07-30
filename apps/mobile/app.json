@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "CityLocalShop",
+    "slug": "city-local-shop",
+    "scheme": "citylocalshop",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "updates": {
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/dummy-project-id"
+    },
+    "splash": {
+      "backgroundColor": "#FF6B35",
+      "resizeMode": "contain"
+    },
+    "androidStatusBar": {
+      "barStyle": "dark-content",
+      "backgroundColor": "#00000000",
+      "translucent": true
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.citylocalshop.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "We need your location to show nearby shops and products.",
+        "NSLocationAlwaysUsageDescription": "We need your location for delivery tracking.",
+        "NSCameraUsageDescription": "Take photos of your products to list them."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#FF6B35"
+      },
+      "package": "com.citylocalshop.app",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA"
+      ],
+      "googleServicesFile": "./google-services.json",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBiWtQ-V6__CjAPXx0m-KDHac4y_D1Dux0"
+        }
+      }
+    },
+    "plugins": [
+      "expo-location",
+      "expo-camera",
+      "expo-notifications",
+      "expo-image-picker",
+      "expo-updates"
+    ]
+  }
+}

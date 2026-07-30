@@ -1,0 +1,395 @@
+// This is your Prisma schema file for CityLocalShop
+// Hyperlocal Shop Discovery & Commerce Platform
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis]
+}
+
+// ============= ENUMS =============
+
+enum UserRole {
+  BUYER
+  SELLER
+  ADMIN
+}
+
+enum SubscriptionPlan {
+  FREE
+  STARTER
+  PROFESSIONAL
+  PREMIUM
+}
+
+enum OrderStatus {
+  PLACED
+  CONFIRMED
+  PREPARING
+  READY_FOR_PICKUP
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum SentimentType {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+}
+
+// ============= MODELS =============
+
+model User {
+  id               String    @id @default(uuid())
+  phone            String    @unique
+  email            String?   @unique
+  name             String
+  avatar           String?
+  role             UserRole  @default(BUYER)
+  referralCode     String    @unique
+  referredBy       String?
+  isVerified       Boolean   @default(false)
+  fcmToken         String?
+
+  // Location
+  latitude         Float?
+  longitude        Float?
+  address          String?
+  city             String?
+  pincode          String?
+
+  // Relations
+  shops            Shop[]
+  orders           Order[]
+  reviews          Review[]
+  savedShops       SavedShop[]
+  notifications    Notification[]
+  referralEarnings ReferralEarning[]
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model Shop {
+  id                String           @id @default(uuid())
+  ownerId           String
+  owner             User             @relation(fields: [ownerId], references: [id])
+
+  name              String
+  slug              String           @unique
+  description       String
+  logo              String?
+  coverImage        String?
+  photos            String[]
+
+  // Contact
+  phone             String
+  whatsapp          String?
+  email             String?
+  website           String?
+
+  // Location
+  address           String
+  landmark          String?
+  city              String
+  state             String
+  pincode           String
+  latitude          Float
+  longitude         Float
+
+  // Business Info
+  category          String
+  subCategories     String[]
+  gstNumber         String?
+  operatingHours    Json
+  isOpen            Boolean          @default(true)
+
+  // Trust & Ratings
+  trustScore        Float            @default(0)
+  averageRating     Float            @default(0)
+  totalReviews      Int              @default(0)
+  totalOrders       Int              @default(0)
+  isVerified        Boolean          @default(false)
+  verifiedAt        DateTime?
+
+  // Subscription
+  subscriptionPlan  SubscriptionPlan @default(FREE)
+  subscriptionStart DateTime?
+  subscriptionEnd   DateTime?
+
+  // Delivery
+  deliveryEnabled   Boolean          @default(false)
+  deliveryRadius    Float?
+  minOrderDelivery  Float?
+
+  // Relations
+  products          Product[]
+  orders            Order[]
+  reviews           Review[]
+  stories           ShopStory[]
+  promotedListings  PromotedListing[]
+  savedBy           SavedShop[]
+  analytics         ShopAnalytics[]
+
+  isActive          Boolean          @default(true)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([latitude, longitude])
+  @@index([city, category])
+  @@index([subscriptionPlan])
+}
+
+model Product {
+  id               String    @id @default(uuid())
+  shopId           String
+  shop             Shop      @relation(fields: [shopId], references: [id])
+
+  name             String
+  description      String
+  shortDescription String?
+
+  // Pricing
+  price            Float
+  mrp              Float?
+  discount         Float?
+
+  // Media
+  images           String[]
+  video            String?
+
+  // Categorization
+  category         String
+  subCategory      String?
+  tags             String[]
+  brand            String?
+
+  // Inventory
+  inStock          Boolean   @default(true)
+  quantity         Int?
+  unit             String?
+
+  // Search
+  searchVector     String?
+
+  // Stats
+  viewCount        Int       @default(0)
+  orderCount       Int       @default(0)
+  averageRating    Float     @default(0)
+
+  // Relations
+  reviews          Review[]
+  orderItems       OrderItem[]
+  cartItems        CartItem[]
+  promotedListing  PromotedListing?
+
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([shopId, category])
+  @@index([name])
+  @@index([price])
+}
+
+model Order {
+  id                String        @id @default(uuid())
+  orderNumber       String        @unique
+  userId            String
+  user              User          @relation(fields: [userId], references: [id])
+  shopId            String
+  shop              Shop          @relation(fields: [shopId], references: [id])
+
+  items             OrderItem[]
+
+  // Pricing
+  subtotal          Float
+  deliveryFee       Float         @default(0)
+  platformFee       Float         @default(0)
+  discount          Float         @default(0)
+  total             Float
+
+  // Status
+  status            OrderStatus   @default(PLACED)
+  statusHistory     Json[]
+
+  // Delivery
+  isDelivery        Boolean       @default(false)
+  deliveryAddress   String?
+  deliveryLatitude  Float?
+  deliveryLongitude Float?
+  estimatedDelivery DateTime?
+  deliveredAt       DateTime?
+
+  // Payment
+  paymentMethod     String
+  paymentStatus     String        @default("PENDING")
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+
+  // Communication
+  buyerNote         String?
+  sellerNote        String?
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([shopId])
+  @@index([status])
+}
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id])
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  quantity  Int
+  price     Float
+  total     Float
+}
+
+model Review {
+  id                 String        @id @default(uuid())
+  userId             String
+  user               User          @relation(fields: [userId], references: [id])
+  shopId             String
+  shop               Shop          @relation(fields: [shopId], references: [id])
+  productId          String?
+  product            Product?      @relation(fields: [productId], references: [id])
+
+  rating             Int
+  title              String?
+  comment            String
+  photos             String[]
+
+  // Sentiment
+  sentiment          SentimentType?
+  sentimentScore     Float?
+  sentimentKeywords  String[]
+
+  // Engagement
+  helpfulCount       Int           @default(0)
+  reportCount        Int           @default(0)
+  isVerifiedPurchase Boolean       @default(false)
+
+  sellerReply        String?
+  sellerRepliedAt    DateTime?
+
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([shopId])
+  @@index([productId])
+  @@index([sentiment])
+}
+
+model ShopStory {
+  id        String   @id @default(uuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id])
+  mediaUrl  String
+  mediaType String
+  caption   String?
+  viewCount Int      @default(0)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model PromotedListing {
+  id          String   @id @default(uuid())
+  shopId      String
+  shop        Shop     @relation(fields: [shopId], references: [id])
+  productId   String   @unique
+  product     Product  @relation(fields: [productId], references: [id])
+  budget      Float
+  spent       Float    @default(0)
+  impressions Int      @default(0)
+  clicks      Int      @default(0)
+  startDate   DateTime
+  endDate     DateTime
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model CartItem {
+  id        String   @id @default(uuid())
+  userId    String
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, productId])
+}
+
+model SavedShop {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, shopId])
+}
+
+
+model Subscription {
+  id            String           @id @default(uuid())
+  shopId        String
+  plan          SubscriptionPlan
+  amount        Float
+  razorpaySubId String?
+  startDate     DateTime
+  endDate       DateTime
+  isActive      Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  body      String
+  type      String
+  data      Json?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model ReferralEarning {
+  id             String   @id @default(uuid())
+  referrerId     String
+  referrer       User     @relation(fields: [referrerId], references: [id])
+  referredUserId String
+  type           String
+  amount         Float
+  isPaid         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+}
+
+model ShopAnalytics {
+  id             String   @id @default(uuid())
+  shopId         String
+  shop           Shop     @relation(fields: [shopId], references: [id])
+  date           DateTime @db.Date
+  views          Int      @default(0)
+  uniqueViews    Int      @default(0)
+  calls          Int      @default(0)
+  whatsappClicks Int      @default(0)
+  directions     Int      @default(0)
+  orders         Int      @default(0)
+  revenue        Float    @default(0)
+
+  @@unique([shopId, date])
+}

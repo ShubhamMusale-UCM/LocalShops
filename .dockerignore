@@ -1,0 +1,17 @@
+node_modules
+**/node_modules
+npm-debug.log
+.DS_Store
+.git
+.gitignore
+.vscode
+.idea
+**/.expo
+**/.expo-shared
+**/dist
+**/build
+coverage
+.env
+CityLocalShop/serviceAccountKey.json
+.env.*
+*.local

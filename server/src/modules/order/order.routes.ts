@@ -1,0 +1,21 @@
+import { Router } from 'express';
+import orderController from './order.controller';
+import { authenticate, authorize } from '../../middleware/auth.middleware';
+import { orderLimiter } from '../../middleware/rateLimiter.middleware';
+
+const router = Router();
+
+// All order routes require authentication
+router.use(authenticate);
+
+// Buyer routes
+router.post('/', orderLimiter, orderController.create.bind(orderController));
+router.get('/', orderController.getMyOrders.bind(orderController));
+router.get('/:id', orderController.getById.bind(orderController));
+router.post('/:id/cancel', orderController.cancel.bind(orderController));
+
+// Seller routes
+router.get('/shop/:shopId', authorize('SELLER', 'ADMIN'), orderController.getShopOrders.bind(orderController));
+router.put('/:id/status', authorize('SELLER', 'ADMIN'), orderController.updateStatus.bind(orderController));
+
+export default router;

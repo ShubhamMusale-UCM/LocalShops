@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "980828594488",
+    "project_id": "citylocalshops",
+    "storage_bucket": "citylocalshops.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:980828594488:android:5406feda85a2b02acfe1cd",
+        "android_client_info": {
+          "package_name": "com.citylocalshop.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBiWtQ-V6__CjAPXx0m-KDHac4y_D1Dux0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
