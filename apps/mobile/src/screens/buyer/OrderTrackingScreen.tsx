@@ -109,12 +109,12 @@ const OrderTrackingScreen: React.FC<{ route: any; navigation: any }> = ({ route,
           estimatedDelivery: payload.estimatedDelivery,
           items: Array.isArray(payload.items)
             ? payload.items.map((item: any) => ({
-                id: item.id,
-                productName: item.product?.name || `Product ${String(item.productId || '').slice(-6)}`,
-                quantity: Number(item.quantity || 0),
-                price: Number(item.price || 0),
-                total: Number(item.total || 0),
-              }))
+              id: item.id,
+              productName: item.product?.name || `Product ${String(item.productId || '').slice(-6)}`,
+              quantity: Number(item.quantity || 0),
+              price: Number(item.price || 0),
+              total: Number(item.total || 0),
+            }))
             : [],
           deliveryAddress: payload.deliveryAddress || 'Pickup from shop',
           total: Number(payload.total || 0),
@@ -259,21 +259,21 @@ const OrderTrackingScreen: React.FC<{ route: any; navigation: any }> = ({ route,
         <Button
           label="Share Order"
           variant="secondary"
-          onPress={() => {}}
+          onPress={() => { }}
           icon="share-social"
           style={{ marginBottom: spacing.md }}
         />
         <Button
           label="View Receipt"
           variant="secondary"
-          onPress={() => {}}
+          onPress={() => { }}
           icon="document-text"
           style={{ marginBottom: spacing.md }}
         />
         <Button
           label="Contact Support"
           variant="secondary"
-          onPress={() => {}}
+          onPress={() => { }}
           icon="help-circle"
         />
       </View>

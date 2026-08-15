@@ -47,7 +47,7 @@ const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
       // TESTING BYPASS: Razorpay integration commented out for testing
       // In production, uncomment the following code:
       // ═══════════════════════════════════════════════════════════════════
-      
+
       // const RazorpayCheckout = require('react-native-razorpay').default;
       // const options = {
       //   description: `Order ${order.id}`,
@@ -70,20 +70,20 @@ const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
       // TESTING MODE: Simulate successful payment without Razorpay
       // This allows testing order flow without actual payment processing
       // ═══════════════════════════════════════════════════════════════════
-      
+
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
+
       // BYPASS: Skip Razorpay verification and directly mark as successful
       // In production, call handlePaymentSuccess with Razorpay data instead
       setPaymentStatus('success');
       clearCart();
-      
+
       // Log for testing
       console.log('✅ TEST MODE: Order payment bypassed (no Razorpay verification)');
       console.log('Order ID:', order.id);
       console.log('Amount: ₹', amount);
       console.log('Note: Order is INITIATED status. In production, backend verifies Razorpay signature.');
-      
+
       setTimeout(() => {
         navigation.navigate('OrderTracking', { orderId: localOrderId });
       }, 2000);
@@ -107,7 +107,7 @@ const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
 
       setPaymentStatus('success');
       clearCart();
-      
+
       // Navigate to order tracking after 2 seconds
       setTimeout(() => {
         navigation.navigate('OrderTracking', { orderId: localOrderId });
@@ -191,7 +191,7 @@ const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
         {/* Order Summary */}
         <Card style={styles.summaryCard} shadow="md">
           <Text style={styles.sectionTitle}>Order Summary</Text>
-          
+
           <View style={styles.summaryRow}>
             <Text style={styles.label}>Order ID</Text>
             <Text style={styles.value}>{order.id}</Text>

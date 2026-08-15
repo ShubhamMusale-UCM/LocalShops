@@ -193,22 +193,8 @@ export const searchProducts = async (params: SearchParams) => {
     };
   });
 
-  const sponsoredListingIds = results
-    .map((item) => item.sponsoredListingId)
-    .filter((id): id is string => typeof id === 'string' && id.length > 0);
-
-  if (sponsoredListingIds.length > 0) {
-    await Promise.all(
-      sponsoredListingIds.map((id) =>
-        prisma.promotedListing
-          .update({
-            where: { id },
-            data: { impressions: { increment: 1 } },
-          })
-          .catch(() => null)
-      )
-    );
-  }
+  // Ad impressions are now tracked via a dedicated POST /ads/impression endpoint
+  // to avoid blocking search results and overcounting from API polling.
 
   // Sponsored listings are boosted for relevant searches.
   results.sort((a, b) => (b.sponsoredPriority || 0) - (a.sponsoredPriority || 0));

@@ -32,6 +32,7 @@ import { CATEGORIES } from '@citylocalshop/shared';
 import { useSearchStore } from '../../store/searchStore';
 import { useTheme } from '../../theme';
 import { useHideTabBarOnScroll } from '../../hooks/useHideTabBarOnScroll';
+import CircularSearchOverlay from '../../components/ui/CircularSearchOverlay';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -95,6 +96,7 @@ export default function CategoriesScreen() {
   const { colors, isDarkMode } = useTheme();
 
   const [search, setSearch] = useState('');
+  const [showSearchOverlay, setShowSearchOverlay] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState<string>(CATEGORIES[0].id);
 
   const { onScroll, scrollEventThrottle } = useHideTabBarOnScroll();
@@ -139,21 +141,16 @@ export default function CategoriesScreen() {
 
       {/* ─── Premium Header & Search ─── */}
       <View style={[styles.headerContainer, { paddingTop: insets.top + 12, backgroundColor: colors.card, borderBottomColor: colors.border }]}>
-        <View style={[styles.searchBarWrapper, { backgroundColor: isDarkMode ? colors.surface : '#F8FAFC', borderColor: isDarkMode ? '#0F766E' : '#CCFBF1' }]}>
+        <TouchableOpacity 
+          activeOpacity={0.9} 
+          onPress={() => setShowSearchOverlay(true)}
+          style={[styles.searchBarWrapper, { backgroundColor: isDarkMode ? colors.surface : '#F8FAFC', borderColor: isDarkMode ? '#0F766E' : '#CCFBF1' }]}
+        >
           <Ionicons name="search" size={20} color="#0D9488" />
-          <TextInput
-            style={[styles.searchInput, { color: colors.text }]}
-            placeholder="Search groceries, food, services..."
-            placeholderTextColor={colors.textSecondary}
-            value={search}
-            onChangeText={setSearch}
-          />
-          {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
-            </TouchableOpacity>
-          )}
-        </View>
+          <Text style={[styles.searchInput, { color: colors.textSecondary, paddingTop: 14 }]}>
+            Search groceries, food, services...
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {search.trim().length > 0 ? (
@@ -275,6 +272,18 @@ export default function CategoriesScreen() {
           </View>
         </View>
       )}
+      
+      <CircularSearchOverlay 
+        visible={showSearchOverlay} 
+        onClose={() => setShowSearchOverlay(false)} 
+        onSearch={(queryText) => {
+          setShowSearchOverlay(false);
+          setCategory('all');
+          useSearchStore.getState().setQuery(queryText);
+          navigation.navigate('Search');
+        }}
+        placeholder="Search groceries, food, services..."
+      />
     </View>
   );
 }

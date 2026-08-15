@@ -253,6 +253,30 @@ export const AdsController = {
       next(error);
     }
   },
+
+  /**
+   * Track sponsored impressions from buyer UI (fire and forget)
+   */
+  trackImpressions: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { adIds } = req.body;
+      
+      if (!Array.isArray(adIds)) {
+        res.status(400).json({ status: 'error', message: 'adIds must be an array' });
+        return;
+      }
+
+      // Execute asynchronously to not block the client
+      adsService.trackAdImpressions(adIds);
+
+      res.json({
+        status: 'success',
+        message: 'Impressions tracking queued',
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
 };
 
 export default AdsController;

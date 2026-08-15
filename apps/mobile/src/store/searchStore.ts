@@ -17,6 +17,8 @@ interface SearchState {
   setCategory: (category: string | null) => void;
   setFilters: (filters: Partial<SearchState['filters']>) => void;
   resetFilters: () => void;
+  isSearchOverlayVisible: boolean;
+  setSearchOverlayVisible: (visible: boolean) => void;
 }
 
 const DEFAULT_FILTERS = { radius: 50, sort: 'relevance' };
@@ -26,7 +28,9 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   recentSearches: [],
   selectedCategory: null,
   filters: { ...DEFAULT_FILTERS },
+  isSearchOverlayVisible: false,
 
+  setSearchOverlayVisible: (visible) => set({ isSearchOverlayVisible: visible }),
   setQuery: (query) => set({ query }),
 
   addRecentSearch: (query) => {

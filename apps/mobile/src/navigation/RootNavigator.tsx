@@ -79,12 +79,12 @@ export const RootNavigator = () => {
           <Stack.Screen
             name="ProductDetail"
             component={ProductDetailScreen}
-            options={{ animation: 'slide_from_right' }}
+            options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
           />
           <Stack.Screen
             name="ShopProfile"
             component={ShopProfileScreen}
-            options={{ animation: 'slide_from_right' }}
+            options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
           />
           <Stack.Screen
             name="ShopProducts"

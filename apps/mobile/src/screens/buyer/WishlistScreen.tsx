@@ -14,6 +14,9 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { useWishlistStore } from '../../store/wishlistStore';
 import { formatPrice } from '../../utils/formatters';
+import { GlassPanel, GlassCard, GlassButton } from '../../components/ui/Glassmorphism';
+import AmbientOrbs from '../../components/ui/AmbientOrbs';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 
 const WishlistScreen: React.FC = () => {
   const navigation = useNavigation<any>();
@@ -22,12 +25,17 @@ const WishlistScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={22} color={Colors.gray[900]} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Wishlist</Text>
-        <View style={{ width: 40 }} />
+      <AmbientOrbs />
+      <View style={{ zIndex: 10 }}>
+        <GlassPanel intensity={40} style={{ borderRadius: 0, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' }}>
+          <View style={styles.header}>
+            <GlassButton onPress={() => navigation.goBack()} style={styles.backBtn} intensity={20}>
+              <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
+            </GlassButton>
+            <Text style={styles.headerTitle}>Wishlist</Text>
+            <View style={{ width: 40 }} />
+          </View>
+        </GlassPanel>
       </View>
 
       <FlatList
@@ -35,32 +43,37 @@ const WishlistScreen: React.FC = () => {
         keyExtractor={(item) => item.productId}
         contentContainerStyle={{ padding: Spacing.screenHorizontal, paddingVertical: Spacing.md, flexGrow: 1 }}
         ListEmptyComponent={
-          <View style={styles.emptyWrap}>
-            <Ionicons name="heart-outline" size={44} color={Colors.gray[400]} />
+          <Animated.View entering={FadeInDown.delay(200)} style={styles.emptyWrap}>
+            <View style={styles.emptyIconBg}>
+              <Ionicons name="heart-outline" size={44} color="#06B6D4" />
+            </View>
             <Text style={styles.emptyTitle}>Your wishlist is empty</Text>
             <Text style={styles.emptySub}>Tap the heart on any product to save it here.</Text>
-          </View>
+          </Animated.View>
         }
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            onPress={() => navigation.navigate('ProductDetail', { productId: item.productId })}
-            activeOpacity={0.85}
-            style={styles.itemCard}
-          >
-            <Image
-              source={{ uri: item.image || 'https://placehold.co/120x120/F1F5F9/64748B?text=Product' }}
-              style={styles.itemImage}
-              resizeMode="cover"
-            />
-            <View style={styles.itemInfo}>
-              <Text style={styles.itemName} numberOfLines={2}>{item.name}</Text>
-              {!!item.shopName && <Text style={styles.shopName}>{item.shopName}</Text>}
-              <Text style={styles.price}>{formatPrice(item.price)}</Text>
-            </View>
-            <TouchableOpacity onPress={() => removeItem(item.productId)} style={styles.removeBtn}>
-              <Ionicons name="trash-outline" size={18} color={Colors.error} />
+        renderItem={({ item, index }) => (
+          <Animated.View entering={FadeInDown.delay(index * 50).springify()}>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('ProductDetail', { productId: item.productId })}
+              activeOpacity={0.85}
+            >
+              <GlassCard intensity={20} style={styles.itemCard}>
+                <Image
+                  source={{ uri: item.image || 'https://placehold.co/120x120/1E293B/94A3B8?text=Product' }}
+                  style={styles.itemImage}
+                  resizeMode="cover"
+                />
+                <View style={styles.itemInfo}>
+                  <Text style={styles.itemName} numberOfLines={2}>{item.name}</Text>
+                  {!!item.shopName && <Text style={styles.shopName}>{item.shopName}</Text>}
+                  <Text style={styles.price}>{formatPrice(item.price)}</Text>
+                </View>
+                <GlassButton onPress={() => removeItem(item.productId)} style={styles.removeBtn} intensity={30}>
+                  <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                </GlassButton>
+              </GlassCard>
             </TouchableOpacity>
-          </TouchableOpacity>
+          </Animated.View>
         )}
       />
     </View>
@@ -68,26 +81,22 @@ const WishlistScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.light.background },
+  container: { flex: 1, backgroundColor: '#050814' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.screenHorizontal,
     paddingVertical: Spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.gray[100],
-    backgroundColor: Colors.white,
   },
-  backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { ...Typography.h4, color: Colors.gray[900] },
+  backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { ...Typography.h4, color: '#FFFFFF' },
   itemCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.white,
     borderRadius: Spacing.radius.md,
     borderWidth: 1,
-    borderColor: Colors.gray[100],
+    borderColor: 'rgba(255,255,255,0.1)',
     padding: Spacing.sm,
     marginBottom: Spacing.md,
     gap: Spacing.sm,
@@ -96,7 +105,7 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 10,
-    backgroundColor: Colors.gray[100],
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
   itemInfo: {
     flex: 1,
@@ -104,22 +113,21 @@ const styles = StyleSheet.create({
   },
   itemName: {
     ...Typography.bodyMedium,
-    color: Colors.gray[900],
+    color: '#FFFFFF',
   },
   shopName: {
     ...Typography.caption,
-    color: Colors.gray[600],
+    color: '#94A3B8',
   },
   price: {
     ...Typography.bodyBold,
-    color: Colors.primary,
+    color: '#06B6D4',
     marginTop: 2,
   },
   removeBtn: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: `${Colors.error}12`,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -128,14 +136,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  emptyIconBg: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(6,182,212,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   emptyTitle: {
     ...Typography.h5,
-    color: Colors.gray[900],
-    marginTop: Spacing.md,
+    color: '#FFFFFF',
+    marginTop: Spacing.lg,
   },
   emptySub: {
     ...Typography.body,
-    color: Colors.gray[600],
+    color: '#94A3B8',
     marginTop: Spacing.xs,
     textAlign: 'center',
   },

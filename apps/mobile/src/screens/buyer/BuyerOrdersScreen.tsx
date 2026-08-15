@@ -35,6 +35,8 @@ import { useTheme } from '../../theme';
 import { orderService } from '../../services/orderService';
 import { useHideTabBarOnScroll } from '../../hooks/useHideTabBarOnScroll';
 import { getProductImageUrl } from '../../utils/image';
+import { GlassPanel, GlassCard, GlassButton } from '../../components/ui/Glassmorphism';
+import AmbientOrbs from '../../components/ui/AmbientOrbs';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -133,11 +135,11 @@ const OrderCard: React.FC<{
       style={{ marginBottom: 16 }}
     >
       <PressableScale onPress={() => onPress(item.id)}>
-        <View style={[styles.card, { backgroundColor: isDark ? '#151A2D' : '#FFFFFF' }]}>
+        <GlassCard style={styles.card} intensity={20}>
           {/* ── Top row ── */}
           <View style={styles.cardTop}>
             {/* Product thumbnail */}
-            <View style={[styles.thumb, { backgroundColor: isDark ? '#1E293B' : '#F1F5F9' }]}>
+            <View style={[styles.thumb, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }]}>
               {previewImage ? (
                 <Image source={{ uri: previewImage }} style={styles.thumbImg} />
               ) : (
@@ -181,7 +183,7 @@ const OrderCard: React.FC<{
           {/* ── Active order: timeline progress ── */}
           {isActive && config.progress > 0 && (
             <View style={styles.timelineSection}>
-              <View style={[styles.progressTrack, { backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }]}>
+              <View style={[styles.progressTrack, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }]}>
                 <LinearGradient
                   colors={[config.color + 'BB', config.color]}
                   start={{ x: 0, y: 0 }}
@@ -198,8 +200,8 @@ const OrderCard: React.FC<{
                       style={[
                         styles.stepDot,
                         {
-                          backgroundColor: passed ? config.color : (isDark ? '#1E293B' : '#E2E8F0'),
-                          borderColor: passed ? config.color : (isDark ? '#334155' : '#CBD5E1'),
+                          backgroundColor: passed ? config.color : (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'),
+                          borderColor: passed ? config.color : (isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'),
                         },
                       ]}
                     />
@@ -212,16 +214,7 @@ const OrderCard: React.FC<{
 
           {/* ── CTAs ── */}
           <View style={styles.actions}>
-            {isActive ? (
-              <TouchableOpacity
-                style={[styles.trackBtn, { backgroundColor: '#2563EB' }]}
-                onPress={() => onTrack(item.id)}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="navigate" size={14} color="#FFFFFF" />
-                <Text style={styles.trackBtnText}>Track Order</Text>
-              </TouchableOpacity>
-            ) : item.status === 'DELIVERED' ? (
+            {item.status === 'DELIVERED' ? (
               <TouchableOpacity
                 style={[styles.reorderBtn, { borderColor: '#22C55E' }]}
                 activeOpacity={0.8}
@@ -231,7 +224,7 @@ const OrderCard: React.FC<{
               </TouchableOpacity>
             ) : null}
             <TouchableOpacity
-              style={[styles.detailBtn, { backgroundColor: isDark ? '#1E293B' : '#F8FAFC' }]}
+              style={[styles.detailBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }]}
               onPress={() => onPress(item.id)}
               activeOpacity={0.8}
             >
@@ -239,7 +232,7 @@ const OrderCard: React.FC<{
               <Text style={[styles.detailText, { color: isDark ? '#94A3B8' : '#64748B' }]}>Details</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </GlassCard>
       </PressableScale>
     </Animated.View>
   );
@@ -326,31 +319,29 @@ export default function BuyerOrdersScreen() {
   );
 
   const renderHeader = () => (
-    <View>
+    <View style={{ zIndex: 10 }}>
       {/* Hero header */}
-      <LinearGradient
-        colors={isDark ? ['#1E3A8A', '#0F172A'] : ['#EFF6FF', '#DBEAFE']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+      <GlassPanel
+        intensity={30}
         style={[styles.hero, { paddingTop: insets.top + 16 }]}
       >
         <View style={styles.heroRow}>
           <View>
-            <Text style={[styles.eyebrow, { color: isDark ? '#93C5FD' : '#2563EB' }]}>MY ORDERS</Text>
-            <Text style={[styles.heroTitle, { color: isDark ? '#F8FAFC' : '#1E3A8A' }]}>
+            <Text style={[styles.eyebrow, { color: '#06B6D4' }]}>MY ORDERS</Text>
+            <Text style={[styles.heroTitle, { color: '#FFFFFF' }]}>
               Order History
             </Text>
           </View>
           {activeCount > 0 && (
-            <View style={[styles.activeBadge, { backgroundColor: '#2563EB' }]}>
+            <View style={[styles.activeBadge, { backgroundColor: '#06B6D4' }]}>
               <Text style={styles.activeBadgeText}>{activeCount} Active</Text>
             </View>
           )}
         </View>
-      </LinearGradient>
+      </GlassPanel>
 
       {/* Floating tab pills */}
-      <View style={[styles.tabRow, { backgroundColor: bg }]}>
+      <View style={[styles.tabRow, { backgroundColor: 'transparent' }]}>
         {TABS.map((t) => {
           const isActive = tab === t.key;
           return (
@@ -361,8 +352,8 @@ export default function BuyerOrdersScreen() {
               style={[
                 styles.tabPill,
                 {
-                  backgroundColor: isActive ? t.color : (isDark ? '#1E293B' : '#FFFFFF'),
-                  borderColor: isActive ? 'transparent' : border,
+                  backgroundColor: isActive ? t.color : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'),
+                  borderColor: isActive ? 'transparent' : 'rgba(255,255,255,0.1)',
                 },
               ]}
             >
@@ -392,8 +383,9 @@ export default function BuyerOrdersScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: bg }]}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
+    <View style={[styles.container, { backgroundColor: '#050814' }]}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      <AmbientOrbs />
 
       <FlatList
         data={filteredOrders}
@@ -441,8 +433,10 @@ const styles = StyleSheet.create({
   hero: {
     paddingHorizontal: 24,
     paddingBottom: 28,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     marginBottom: 0,
   },
   heroRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -489,11 +483,8 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 24,
     padding: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
   thumb: {

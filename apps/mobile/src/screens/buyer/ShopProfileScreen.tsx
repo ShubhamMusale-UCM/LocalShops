@@ -36,13 +36,16 @@ import {
 import { getProductImageUrl, sanitizeImageUrl } from '../../utils/image';
 import shopService from '../../services/shopService';
 import { useTheme } from '../../theme';
+import { TouchSpring } from '../../components/ui/TouchSpring';
+import { GlassPanel } from '../../components/ui/GlassPanel';
+import { BlurView } from 'expo-blur';
 
 // ─── Design System ────────────────────────────────────────────────────────────
 const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) => {
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.background,
+      backgroundColor: '#050814',
     },
     scroll: {
       flex: 1,
@@ -52,7 +55,7 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       top: 0,
       left: 0,
       right: 0,
-      backgroundColor: colors.primary,
+      backgroundColor: 'rgba(5, 8, 20, 0.85)',
       zIndex: 100,
       paddingBottom: 12,
       paddingHorizontal: 20,
@@ -60,7 +63,7 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     },
     stickyHeaderTitle: {
       fontSize: 17,
-      fontWeight: '700',
+      fontFamily: 'Outfit_700Bold',
       color: '#FFFFFF',
       letterSpacing: -0.2,
     },
@@ -70,17 +73,17 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       overflow: 'hidden',
     },
     coverBg: {
-      backgroundColor: colors.primaryDark,
+      backgroundColor: '#050814',
     },
     coverOverlay: {
-      backgroundColor: isDarkMode ? 'rgba(15,23,42,0.85)' : 'rgba(7,89,83,0.85)',
+      backgroundColor: 'rgba(15,23,42,0.85)',
     },
     coverCircle1: {
       position: 'absolute',
       width: 260,
       height: 260,
       borderRadius: 130,
-      backgroundColor: 'rgba(255,255,255,0.04)',
+      backgroundColor: 'rgba(56, 189, 248, 0.08)',
       top: -60,
       right: -60,
     },
@@ -89,7 +92,7 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       width: 160,
       height: 160,
       borderRadius: 80,
-      backgroundColor: 'rgba(255,255,255,0.03)',
+      backgroundColor: 'rgba(52, 211, 153, 0.06)',
       bottom: -40,
       left: -40,
     },
@@ -98,7 +101,7 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       width: 100,
       height: 100,
       borderRadius: 50,
-      backgroundColor: 'rgba(255,255,255,0.04)',
+      backgroundColor: 'rgba(56, 189, 248, 0.05)',
       top: 80,
       left: SCREEN_WIDTH * 0.3,
     },
@@ -110,16 +113,14 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       paddingTop: Platform.OS === 'ios' ? 54 : (StatusBar.currentHeight ?? 24) + 12,
     },
     coverActionBtn: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       backgroundColor: 'rgba(255,255,255,0.15)',
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.10)',
-      minHeight: 44,
-      minWidth: 44,
+      borderColor: 'rgba(255,255,255,0.1)',
     },
     coverActionRight: {
       flexDirection: 'row',
@@ -140,7 +141,7 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       height: 88,
       borderRadius: 44,
       borderWidth: 3,
-      borderColor: 'rgba(255,255,255,0.30)',
+      borderColor: 'rgba(255,255,255,0.3)',
       padding: 3,
       alignItems: 'center',
       justifyContent: 'center',
@@ -150,7 +151,7 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       height: '100%',
       borderRadius: 40,
       overflow: 'hidden',
-      backgroundColor: '#FFFFFF',
+      backgroundColor: '#050814',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -163,7 +164,7 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       width: '100%',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.primaryFaded,
+      backgroundColor: 'rgba(56, 189, 248, 0.15)',
     },
     onlineDot: {
       position: 'absolute',
@@ -173,7 +174,7 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       height: 14,
       borderRadius: 7,
       borderWidth: 2,
-      borderColor: '#FFFFFF',
+      borderColor: '#050814',
     },
     coverTextBlock: {
       alignItems: 'center',
@@ -181,7 +182,7 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     },
     shopName: {
       fontSize: 24,
-      fontWeight: '800',
+      fontFamily: 'Outfit_800ExtraBold',
       color: '#FFFFFF',
       letterSpacing: -0.5,
       textAlign: 'center',
@@ -189,8 +190,8 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     },
     shopCategory: {
       fontSize: 13,
+      fontFamily: 'Inter_400Regular',
       color: 'rgba(255,255,255,0.75)',
-      fontWeight: '400',
       textTransform: 'capitalize',
       marginBottom: 12,
     },
@@ -216,13 +217,14 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       borderColor: 'rgba(16,185,129,0.25)',
     },
     deliveryBadge: {
-      backgroundColor: 'rgba(13,148,136,0.20)',
-      borderColor: 'rgba(13,148,136,0.25)',
+      backgroundColor: 'rgba(56,189,248,0.20)',
+      borderColor: 'rgba(56,189,248,0.25)',
     },
     coverBadgeText: {
       fontSize: 11,
-      fontWeight: '700',
+      fontFamily: 'Outfit_700Bold',
       letterSpacing: 0.2,
+      color: '#FFFFFF',
     },
     openDot: {
       width: 6,
@@ -232,15 +234,14 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     statsCard: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: colors.surface,
+      backgroundColor: 'rgba(255,255,255,0.05)',
       marginHorizontal: 20,
       marginTop: -24,
-      borderRadius: radius.lg,
+      borderRadius: 24,
       paddingVertical: 16,
       paddingHorizontal: 8,
       borderWidth: 1,
-      borderColor: colors.border,
-      ...shadows.md,
+      borderColor: 'rgba(255,255,255,0.15)',
       zIndex: 10,
     },
     statPill: {
@@ -263,20 +264,21 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     },
     statValue: {
       fontSize: 16,
-      fontWeight: '800',
+      fontFamily: 'Outfit_800ExtraBold',
+      color: '#FFFFFF',
       letterSpacing: -0.3,
       lineHeight: 20,
     },
     statLabel: {
       fontSize: 10,
-      color: colors.textSecondary,
-      fontWeight: '500',
+      fontFamily: 'Inter_500Medium',
+      color: 'rgba(255,255,255,0.6)',
       lineHeight: 14,
     },
     statsCardDivider: {
       width: 1,
       height: 36,
-      backgroundColor: colors.border,
+      backgroundColor: 'rgba(255,255,255,0.1)',
     },
     actionsRow: {
       flexDirection: 'row',
@@ -296,16 +298,18 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: 'rgba(255,255,255,0.1)',
+      backgroundColor: 'rgba(255,255,255,0.05)',
     },
     actionLabel: {
       fontSize: 11,
-      fontWeight: '600',
+      fontFamily: 'Inter_600SemiBold',
+      color: '#FFFFFF',
       letterSpacing: 0.1,
     },
     sectionDivider: {
       height: 8,
-      backgroundColor: colors.background,
+      backgroundColor: 'rgba(255,255,255,0.02)',
       marginVertical: 4,
     },
     section: {
@@ -328,76 +332,76 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       width: 28,
       height: 28,
       borderRadius: 14,
-      backgroundColor: colors.primaryFaded,
+      backgroundColor: 'rgba(56, 189, 248, 0.15)',
       alignItems: 'center',
       justifyContent: 'center',
     },
     sectionTitle: {
       fontSize: 16,
-      fontWeight: '700',
-      color: colors.text,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FFFFFF',
       letterSpacing: -0.2,
     },
     sectionCountPill: {
-      backgroundColor: colors.primaryFaded,
+      backgroundColor: 'rgba(56, 189, 248, 0.15)',
       paddingHorizontal: 7,
       paddingVertical: 2,
       borderRadius: radius.full,
     },
     sectionCountText: {
       fontSize: 11,
-      fontWeight: '700',
-      color: colors.primary,
+      fontFamily: 'Outfit_700Bold',
+      color: '#38BDF8',
     },
     sectionAction: {
       fontSize: 13,
-      fontWeight: '700',
-      color: colors.primary,
+      fontFamily: 'Outfit_700Bold',
+      color: '#38BDF8',
     },
     aboutText: {
       fontSize: 14,
-      color: colors.textSecondary,
+      fontFamily: 'Inter_400Regular',
+      color: 'rgba(255,255,255,0.6)',
       lineHeight: 22,
-      fontWeight: '400',
       marginBottom: 14,
     },
     addressCard: {
       flexDirection: 'row',
       alignItems: 'flex-start',
-      backgroundColor: colors.surface,
-      borderRadius: radius.md,
+      backgroundColor: 'rgba(255,255,255,0.05)',
+      borderRadius: 20,
       padding: 14,
       gap: 12,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: 'rgba(255,255,255,0.1)',
       marginBottom: 10,
     },
     addressIconBox: {
       width: 36,
       height: 36,
       borderRadius: 18,
-      backgroundColor: colors.primaryFaded,
+      backgroundColor: 'rgba(56, 189, 248, 0.15)',
       alignItems: 'center',
       justifyContent: 'center',
       flexShrink: 0,
     },
     addressText: {
       fontSize: 13,
-      color: colors.text,
-      fontWeight: '500',
+      fontFamily: 'Inter_500Medium',
+      color: '#FFFFFF',
       lineHeight: 18,
       marginBottom: 2,
     },
     addressCity: {
       fontSize: 12,
-      color: colors.textSecondary,
-      fontWeight: '400',
+      fontFamily: 'Inter_400Regular',
+      color: 'rgba(255,255,255,0.5)',
     },
     addressMapBtn: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 3,
-      backgroundColor: colors.primaryFaded,
+      backgroundColor: 'rgba(56, 189, 248, 0.15)',
       paddingHorizontal: 10,
       paddingVertical: 6,
       borderRadius: radius.full,
@@ -405,15 +409,15 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     },
     addressMapText: {
       fontSize: 12,
-      fontWeight: '700',
-      color: colors.primary,
+      fontFamily: 'Outfit_700Bold',
+      color: '#38BDF8',
     },
     hoursCard: {
-      backgroundColor: colors.surface,
-      borderRadius: radius.md,
+      backgroundColor: 'rgba(255,255,255,0.05)',
+      borderRadius: 20,
       padding: 12,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: 'rgba(255,255,255,0.1)',
     },
     hoursHeader: {
       flexDirection: 'row',
@@ -422,8 +426,8 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     },
     hoursTitle: {
       fontSize: 13,
-      fontWeight: '600',
-      color: colors.text,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#FFFFFF',
       flex: 1,
     },
     openStatusPill: {
@@ -441,7 +445,7 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     },
     openStatusText: {
       fontSize: 11,
-      fontWeight: '700',
+      fontFamily: 'Outfit_700Bold',
     },
     productsListPadding: {
       paddingRight: 20,
@@ -449,16 +453,15 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     },
     productMiniCard: {
       width: 160,
-      backgroundColor: colors.surface,
-      borderRadius: radius.lg,
+      backgroundColor: 'rgba(255,255,255,0.05)',
+      borderRadius: 24,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: 'rgba(255,255,255,0.15)',
       overflow: 'hidden',
-      ...shadows.sm,
     },
     productMiniImage: {
       height: 120,
-      backgroundColor: colors.background,
+      backgroundColor: '#050814',
       position: 'relative',
     },
     productMiniPhoto: {
@@ -469,20 +472,20 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       flex: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.primaryFaded,
+      backgroundColor: 'rgba(255,255,255,0.05)',
     },
     miniDiscountBadge: {
       position: 'absolute',
       top: 8,
       left: 8,
-      backgroundColor: colors.error,
+      backgroundColor: '#EF4444',
       paddingHorizontal: 6,
       paddingVertical: 2,
       borderRadius: radius.full,
     },
     miniDiscountText: {
       fontSize: 9,
-      fontWeight: '800',
+      fontFamily: 'Outfit_800ExtraBold',
       color: '#FFFFFF',
     },
     productMiniInfo: {
@@ -491,8 +494,8 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     },
     productMiniName: {
       fontSize: 13,
-      fontWeight: '600',
-      color: colors.text,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#FFFFFF',
       lineHeight: 18,
       minHeight: 36,
     },
@@ -502,8 +505,8 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     },
     productMiniPrice: {
       fontSize: 14,
-      fontWeight: '800',
-      color: colors.primary,
+      fontFamily: 'Outfit_800ExtraBold',
+      color: '#38BDF8',
       letterSpacing: -0.3,
     },
     productMiniRating: {
@@ -513,8 +516,8 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     },
     productMiniRatingText: {
       fontSize: 11,
-      fontWeight: '600',
-      color: colors.warning,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#FBBF24',
     },
     emptyProducts: {
       alignItems: 'center',
@@ -524,80 +527,77 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       width: 60,
       height: 60,
       borderRadius: 30,
-      backgroundColor: colors.background,
+      backgroundColor: 'rgba(255,255,255,0.05)',
       alignItems: 'center',
       justifyContent: 'center',
       marginBottom: 12,
     },
     emptyProductsText: {
       fontSize: 14,
-      fontWeight: '600',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_600SemiBold',
+      color: 'rgba(255,255,255,0.6)',
       marginBottom: 4,
     },
     emptyProductsHint: {
       fontSize: 12,
-      color: colors.textTertiary,
-      fontWeight: '400',
+      fontFamily: 'Inter_400Regular',
+      color: 'rgba(255,255,255,0.4)',
     },
     trustCard: {
       flexDirection: 'row',
       alignItems: 'flex-start',
-      backgroundColor: isDarkMode ? '#102F20' : colors.successFaded,
-      borderRadius: radius.md,
+      backgroundColor: 'rgba(16, 185, 129, 0.1)',
+      borderRadius: 20,
       padding: 14,
       gap: 12,
       borderWidth: 1,
-      borderColor: isDarkMode ? 'rgba(16,185,129,0.30)' : 'rgba(16,185,129,0.15)',
+      borderColor: 'rgba(16,185,129,0.3)',
       borderLeftWidth: 3,
-      borderLeftColor: colors.success,
+      borderLeftColor: '#34D399',
     },
     trustIconBox: {
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: 'rgba(16,185,129,0.12)',
+      backgroundColor: 'rgba(16,185,129,0.2)',
       alignItems: 'center',
       justifyContent: 'center',
       flexShrink: 0,
     },
     trustTitle: {
       fontSize: 14,
-      fontWeight: '700',
-      color: colors.success,
+      fontFamily: 'Outfit_700Bold',
+      color: '#34D399',
       marginBottom: 4,
     },
     trustSubtitle: {
       fontSize: 12,
-      color: colors.textSecondary,
+      fontFamily: 'Inter_400Regular',
+      color: 'rgba(255,255,255,0.6)',
       lineHeight: 18,
-      fontWeight: '400',
     },
     floatingCta: {
       position: 'absolute',
       bottom: 0,
       left: 0,
       right: 0,
-      backgroundColor: colors.surface,
+      backgroundColor: 'transparent',
       paddingHorizontal: 20,
       paddingTop: 12,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
-      ...shadows.lg,
     },
     floatingCtaBtn: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       gap: 10,
-      backgroundColor: colors.primary,
-      borderRadius: radius.xl,
+      backgroundColor: '#38BDF8',
+      borderRadius: 24,
       paddingVertical: 16,
       minHeight: 56,
     },
     floatingCtaBtnText: {
       fontSize: 16,
-      fontWeight: '800',
+      fontFamily: 'Outfit_800ExtraBold',
       color: '#FFFFFF',
       letterSpacing: -0.2,
     },
@@ -611,14 +611,13 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-around',
-      backgroundColor: colors.surface,
-      borderRadius: radius.lg,
+      backgroundColor: 'rgba(255,255,255,0.05)',
+      borderRadius: 24,
       paddingVertical: 16,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: 'rgba(255,255,255,0.1)',
       marginTop: -24,
       marginHorizontal: 20,
-      ...shadows.md,
     },
     skeletonStat: {
       alignItems: 'center',
@@ -636,7 +635,7 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     },
     notFoundContainer: {
       flex: 1,
-      backgroundColor: colors.background,
+      backgroundColor: '#050814',
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: 32,
@@ -645,21 +644,22 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       width: 96,
       height: 96,
       borderRadius: 48,
-      backgroundColor: colors.surface,
+      backgroundColor: 'rgba(255,255,255,0.05)',
       alignItems: 'center',
       justifyContent: 'center',
       marginBottom: 20,
     },
     notFoundTitle: {
       fontSize: 22,
-      fontWeight: '800',
-      color: colors.text,
+      fontFamily: 'Outfit_800ExtraBold',
+      color: '#FFFFFF',
       marginBottom: 8,
       letterSpacing: -0.3,
     },
     notFoundSubtitle: {
       fontSize: 14,
-      color: colors.textSecondary,
+      fontFamily: 'Inter_400Regular',
+      color: 'rgba(255,255,255,0.6)',
       textAlign: 'center',
       lineHeight: 20,
       marginBottom: 28,
@@ -669,12 +669,12 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       paddingVertical: 13,
       borderRadius: radius.full,
       borderWidth: 1.5,
-      borderColor: colors.border,
+      borderColor: 'rgba(255,255,255,0.1)',
     },
     notFoundBtnText: {
       fontSize: 14,
-      fontWeight: '700',
-      color: colors.text,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FFFFFF',
     },
   });
 };
@@ -704,7 +704,6 @@ const ActionButton: React.FC<{
     const styles = getStyles(colors, radius, shadows, isDarkMode);
     const activeColor = color || colors.primary;
     const activeBg = bgColor || colors.primaryFaded;
-    const scaleAnim = useRef(new Animated.Value(1)).current;
     const entryAnim = useRef(new Animated.Value(0)).current;
     const entryTranslate = useRef(new Animated.Value(16)).current;
 
@@ -727,37 +726,17 @@ const ActionButton: React.FC<{
       }, 400 + index * 80);
     }, []);
 
-    const handlePressIn = () => {
-      Animated.spring(scaleAnim, {
-        toValue: 0.90,
-        damping: 12,
-        stiffness: 300,
-        useNativeDriver: true,
-      }).start();
-    };
-
-    const handlePressOut = () => {
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        damping: 10,
-        stiffness: 200,
-        useNativeDriver: true,
-      }).start();
-    };
-
     return (
       <Animated.View
         style={{
           opacity: entryAnim,
-          transform: [{ translateY: entryTranslate }, { scale: scaleAnim }],
+          transform: [{ translateY: entryTranslate }],
           alignItems: 'center',
           flex: 1,
         }}
       >
-        <Pressable
+        <TouchSpring
           onPress={onPress}
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
           style={styles.actionBtnPressable}
           accessibilityRole="button"
           accessibilityLabel={label}
@@ -766,7 +745,7 @@ const ActionButton: React.FC<{
             <Ionicons name={icon as any} size={22} color={activeColor} />
           </View>
           <Text style={[styles.actionLabel, { color }]}>{label}</Text>
-        </Pressable>
+        </TouchSpring>
       </Animated.View>
     );
   };
@@ -844,7 +823,6 @@ const ProductMiniCard: React.FC<{
   const styles = getStyles(colors, radius, shadows, isDarkMode);
   const entryAnim = useRef(new Animated.Value(0)).current;
   const entryTranslate = useRef(new Animated.Value(20)).current;
-  const pressScale = useRef(new Animated.Value(1)).current;
   const [imageError, setImageError] = useState(false);
 
   useEffect(() => {
@@ -865,24 +843,6 @@ const ProductMiniCard: React.FC<{
     }, 600 + index * 80);
   }, []);
 
-  const handlePressIn = () => {
-    Animated.spring(pressScale, {
-      toValue: 0.95,
-      damping: 14,
-      stiffness: 300,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(pressScale, {
-      toValue: 1,
-      damping: 12,
-      stiffness: 200,
-      useNativeDriver: true,
-    }).start();
-  };
-
   const imageUri = getProductImageUrl(item.images);
   const showImage = imageUri && !imageError;
 
@@ -894,13 +854,11 @@ const ProductMiniCard: React.FC<{
     <Animated.View
       style={{
         opacity: entryAnim,
-        transform: [{ translateX: entryTranslate }, { scale: pressScale }],
+        transform: [{ translateX: entryTranslate }],
       }}
     >
-      <Pressable
+      <TouchSpring
         onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
         style={styles.productMiniCard}
         accessibilityRole="button"
         accessibilityLabel={`${item.name}, ${formatPrice(item.price)}`}
@@ -945,7 +903,7 @@ const ProductMiniCard: React.FC<{
             </View>
           ) : null}
         </View>
-      </Pressable>
+      </TouchSpring>
     </Animated.View>
   );
 };
@@ -1301,10 +1259,16 @@ const ShopProfileScreen: React.FC<Props> = ({ navigation, route }) => {
           {
             opacity: headerBgOpacity,
             paddingTop: insets.top,
+            backgroundColor: 'transparent',
           },
         ]}
         pointerEvents="none"
       >
+        <BlurView
+          tint="dark"
+          intensity={80}
+          style={StyleSheet.absoluteFillObject}
+        />
         <Text style={styles.stickyHeaderTitle} numberOfLines={1}>
           {shop.name}
         </Text>
@@ -1568,9 +1532,26 @@ const ShopProfileScreen: React.FC<Props> = ({ navigation, route }) => {
             {
               paddingBottom: insets.bottom + 12,
               opacity: contentOpacity,
+              backgroundColor: 'transparent',
+              borderTopWidth: 0,
             },
           ]}
         >
+          <View
+            style={[StyleSheet.absoluteFillObject, { overflow: 'hidden' }]}
+          >
+            <BlurView
+              tint="dark"
+              intensity={80}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <View
+              style={[
+                StyleSheet.absoluteFillObject,
+                { backgroundColor: 'rgba(5, 8, 20, 0.5)' },
+              ]}
+            />
+          </View>
           <TouchableOpacity
             onPress={openShopProducts}
             style={styles.floatingCtaBtn}

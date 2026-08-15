@@ -45,6 +45,10 @@ import { openDirections, openWhatsApp, makeCall } from '../../utils/helpers';
 import { getProductImageUrl, getSingleImageUrl, sanitizeImageUrl } from '../../utils/image';
 import { useTheme } from '../../theme';
 import productService from '../../services/productService';
+import { MorphingButton } from '../../components/ui/MorphingButton';
+import { GlassPanel, GlassCard, GlassButton } from '../../components/ui/Glassmorphism';
+import AmbientOrbs from '../../components/ui/AmbientOrbs';
+import { KineticOrbProjectile } from '../../components/ui/KineticOrbProjectile';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const HEADER_HEIGHT = 300;
@@ -210,17 +214,10 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
       });
     }
 
-    addButtonScale.value = withSequence(
-      withSpring(0.95),
-      withSpring(1)
-    );
-
-    // Show success feedback
-    Alert.alert(
-      'Added to Cart',
-      `${product.name} has been added to your cart.`,
-      [{ text: 'View Cart', onPress: () => navigation.navigate('Cart') }, { text: 'Continue', style: 'cancel' }]
-    );
+    // Provide a small delay before navigating if user clicks View Cart, otherwise wait for morph animation.
+    setTimeout(() => {
+      // Show success feedback if needed, MorphingButton already provides visual success
+    }, 1000);
   }, [product, addItem, updateQuantity, quantity, cartItem]);
 
   const incrementQuantity = useCallback(() => {
@@ -284,12 +281,23 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const renderBackButton = () => (
     <Animated.View style={[styles.backButtonContainer, { top: insets.top + 12 }, headerAnimatedStyle]}>
-      <TouchableOpacity style={styles.iconButton} onPress={handleGoBack} activeOpacity={0.8}>
-        <Ionicons name="arrow-back" size={22} color="#1F2937" />
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.iconButton} onPress={handleShare} activeOpacity={0.8}>
-        <Ionicons name="share-outline" size={22} color="#1F2937" />
-      </TouchableOpacity>
+      <GlassPanel intensity={40} style={styles.iconButtonWrapper}>
+        <TouchableOpacity style={styles.iconButton} onPress={handleGoBack} activeOpacity={0.8}>
+          <Ionicons name="arrow-back" size={22} color={isDarkMode ? "#FFFFFF" : "#0F172A"} />
+        </TouchableOpacity>
+      </GlassPanel>
+      <View style={{ flexDirection: 'row', gap: 12 }}>
+        <GlassPanel intensity={40} style={styles.iconButtonWrapper}>
+          <TouchableOpacity style={styles.iconButton} onPress={handleShare} activeOpacity={0.8}>
+            <Ionicons name="share-outline" size={22} color={isDarkMode ? "#FFFFFF" : "#0F172A"} />
+          </TouchableOpacity>
+        </GlassPanel>
+        <GlassPanel intensity={40} style={styles.iconButtonWrapper}>
+          <TouchableOpacity style={styles.iconButton} onPress={handleToggleWishlist} activeOpacity={0.8}>
+            <Ionicons name={isWishlisted ? "heart" : "heart-outline"} size={22} color={isWishlisted ? '#EF4444' : '#FFFFFF'} />
+          </TouchableOpacity>
+        </GlassPanel>
+      </View>
     </Animated.View>
   );
 
@@ -299,130 +307,80 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
 
     return (
       <View style={styles.galleryContainer}>
-        <Animated.Image
-          source={{ uri: images[selectedIndex] }}
-          style={styles.heroImage}
-          resizeMode="contain"
-        />
-
-        {images.length > 1 && (
-          <>
-            <TouchableOpacity style={[styles.galleryNavBtn, styles.galleryNavLeft]} onPress={goToPrevImage}>
-              <Ionicons name="chevron-back" size={18} color="#FFFFFF" />
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.galleryNavBtn, styles.galleryNavRight]} onPress={goToNextImage}>
-              <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
-            </TouchableOpacity>
-
-            <View style={styles.galleryDotsWrap}>
-              {images.map((_, index) => (
-                <View key={index} style={[styles.galleryDot, index === selectedIndex && styles.galleryDotActive]} />
-              ))}
-            </View>
-          </>
-        )}
-
-        {images.length > 1 && (
-          <FlatList
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            data={images}
-            keyExtractor={(_, idx) => String(idx)}
-            style={styles.thumbnailContainer}
-            contentContainerStyle={styles.thumbnailContent}
-            renderItem={({ item: img, index }) => (
-              <TouchableOpacity
-                onPress={() => setSelectedImageIndex(index)}
-                style={[
-                  styles.thumbnail,
-                  selectedImageIndex === index && styles.thumbnailActive
-                ]}
-              >
-                <Image source={{ uri: getSingleImageUrl(img) }} style={styles.thumbnailImage} />
-              </TouchableOpacity>
-            )}
+        <GlassCard intensity={20} style={styles.imageCard}>
+          <Animated.Image
+            source={{ uri: images[selectedIndex] }}
+            style={styles.heroImage}
+            resizeMode="cover"
           />
+        </GlassCard>
+
+        {images.length > 1 && (
+          <View style={styles.thumbnailContainer}>
+            <FlatList
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              data={images}
+              keyExtractor={(_, idx) => String(idx)}
+              contentContainerStyle={styles.thumbnailContent}
+              renderItem={({ item: img, index }) => (
+                <TouchableOpacity
+                  onPress={() => setSelectedImageIndex(index)}
+                  activeOpacity={0.8}
+                >
+                  <GlassCard intensity={30} style={[styles.thumbnail, selectedImageIndex === index && styles.thumbnailActive]}>
+                    <Image source={{ uri: getSingleImageUrl(img) }} style={styles.thumbnailImage} />
+                  </GlassCard>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
         )}
       </View>
     );
   };
 
   const renderProductInfo = () => {
-    const hasBrand = Boolean(product.brand);
-    const hasMRP = product.mrp && product.mrp > product.price;
-    const discount = hasMRP
-      ? product.discount || calculateDiscount(product.price, product.mrp)
-      : 0;
-
     return (
       <Animated.View entering={FadeInDown} style={styles.infoContainer}>
-        <View style={styles.titleRow}>
-          <Text style={styles.productName}>{product.name}</Text>
-          <TouchableOpacity onPress={handleToggleWishlist} style={styles.wishlistIcon}>
-            <Ionicons
-              name={isWishlisted ? "heart" : "heart-outline"}
-              size={24}
-              color={isWishlisted ? '#EF4444' : colors.textSecondary}
-            />
-          </TouchableOpacity>
-        </View>
-
-        {hasBrand && (
-          <Badge text={product.brand} variant="secondary" style={styles.brandBadge} />
-        )}
-
-        <View style={styles.priceSection}>
-          <View style={styles.priceRow}>
-            <Text style={styles.price}>{formatPrice(product.price)}</Text>
-            {hasMRP && (
-              <Text style={styles.mrp}>₹{product.mrp}</Text>
-            )}
-            {discount > 0 && (
-              <LinearGradient
-                colors={['#EF4444', '#DC2626']}
-                style={styles.discountBadge}
-              >
-                <Text style={styles.discountText}>{discount}% OFF</Text>
-              </LinearGradient>
-            )}
+        <View style={styles.metaRow}>
+          <View style={styles.stockBadge}>
+            <View style={styles.stockDot} />
+            <Text style={styles.stockText}>IN STOCK • EXPRESS AIR</Text>
           </View>
-
-          {hasMRP && (
-            <Text style={styles.savingsText}>
-              You save ₹{(product.mrp - product.price).toFixed(2)} ({discount}%)
-            </Text>
-          )}
+          <View style={styles.ratingBadge}>
+            <Ionicons name="star" size={14} color="#FBBF24" />
+            <Text style={styles.ratingText}>{formatRating(product.averageRating || 0)}</Text>
+          </View>
         </View>
+
+        <Text style={styles.productName}>{product.name}</Text>
+        <Text style={styles.description}>{product.description}</Text>
 
         <View style={styles.statsRow}>
-          <View style={styles.stat}>
-            <Text style={styles.statValue}>⭐ {formatRating(product.averageRating || 0)}</Text>
-            <Text style={styles.statLabel}>Rating</Text>
-          </View>
-
-          <View style={styles.statDivider} />
-
-          <View style={styles.stat}>
+          <GlassPanel intensity={20} style={styles.statPanel}>
             <Text style={styles.statValue}>{product._count?.reviews || 0}</Text>
             <Text style={styles.statLabel}>Reviews</Text>
-          </View>
-
-          <View style={styles.statDivider} />
-
-          <View style={styles.stat}>
+          </GlassPanel>
+          <GlassPanel intensity={20} style={styles.statPanel}>
             <Text style={styles.statValue}>{product._count?.orderItems || 0}</Text>
             <Text style={styles.statLabel}>Sold</Text>
+          </GlassPanel>
+          <GlassPanel intensity={20} style={styles.statPanel}>
+            <Ionicons name="shield-checkmark" size={18} color={colors.primary} />
+            <Text style={styles.statLabel}>Verified</Text>
+          </GlassPanel>
+        </View>
+
+        <GlassCard intensity={25} style={styles.deliveryInfoCard}>
+          <View style={styles.deliveryIconWrapper}>
+            <Ionicons name="rocket-outline" size={20} color="#38BDF8" />
           </View>
-        </View>
-
-        <View style={styles.deliveryInfo}>
-          <Ionicons name="time-outline" size={20} color={colors.success} />
-          <Text style={styles.deliveryText}>
-            Delivery in 10-15 minutes • Free delivery above ₹500
-          </Text>
-        </View>
-
-        <Text style={styles.description}>{product.description}</Text>
+          <View style={styles.deliveryTextWrapper}>
+            <Text style={styles.deliveryTitle}>Lightning Delivery</Text>
+            <Text style={styles.deliverySub}>Expected in 10-15 minutes</Text>
+          </View>
+        </GlassCard>
       </Animated.View>
     );
   };
@@ -436,12 +394,8 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
 
     return (
       <Animated.View entering={FadeInUp.delay(100)}>
-        <Card style={styles.shopCard} shadow="md">
-          <TouchableOpacity
-            onPress={() => handleNavigateToShop(shop.id)}
-            style={styles.shopRow}
-            activeOpacity={0.7}
-          >
+        <GlassCard style={styles.shopCard} intensity={25} onPress={() => handleNavigateToShop(shop.id)}>
+          <View style={styles.shopRow}>
             <LinearGradient
               colors={isDarkMode ? [colors.background, colors.background] : ['#CCFBF1', '#F0FDF4']}
               style={styles.shopAvatar}
@@ -469,8 +423,8 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
               </View>
             </View>
 
-            <Ionicons name="chevron-forward" size={20} color={colors.primary} />
-          </TouchableOpacity>
+            <Ionicons name="chevron-forward" size={20} color="#06B6D4" />
+          </View>
 
           <View style={styles.shopActions}>
             {shop.whatsapp && (
@@ -483,7 +437,7 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
                   colors={['#25D366', '#128C7E']}
                   style={styles.actionGradient}
                 >
-                  <Ionicons name="logo-whatsapp" size={18} color="#FFFFFF" />
+                  <Ionicons name="logo-whatsapp" size={18} color={isDarkMode ? "#FFFFFF" : "#0F172A"} />
                   <Text style={styles.actionText}>WhatsApp</Text>
                 </LinearGradient>
               </TouchableOpacity>
@@ -498,7 +452,7 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
                 colors={['#3B82F6', '#2563EB']}
                 style={styles.actionGradient}
               >
-                <Ionicons name="call-outline" size={18} color="#FFFFFF" />
+                <Ionicons name="call-outline" size={18} color={isDarkMode ? "#FFFFFF" : "#0F172A"} />
                 <Text style={styles.actionText}>Call</Text>
               </LinearGradient>
             </TouchableOpacity>
@@ -512,12 +466,12 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
                 colors={['#8B5CF6', '#7C3AED']}
                 style={styles.actionGradient}
               >
-                <Ionicons name="navigate-outline" size={18} color="#FFFFFF" />
+                <Ionicons name="navigate-outline" size={18} color={isDarkMode ? "#FFFFFF" : "#0F172A"} />
                 <Text style={styles.actionText}>Directions</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>
-        </Card>
+        </GlassCard>
       </Animated.View>
     );
   };
@@ -536,10 +490,10 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
           const priceDiff = comp.price < product.price ? product.price - comp.price : 0;
 
           return (
-            <Card
+            <GlassCard
               key={comp.id}
               style={styles.compareCard}
-              shadow="sm"
+              intensity={25}
               onPress={() => handleNavigateToComparison(comp.id)}
             >
               <View style={styles.compareRow}>
@@ -565,9 +519,9 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
                   )}
                 </View>
 
-                <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.5)" />
               </View>
-            </Card>
+            </GlassCard>
           );
         })}
       </Animated.View>
@@ -577,62 +531,56 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
   const renderBottomBar = () => (
     <Animated.View
       entering={FadeInUp.delay(60)}
-      style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }, shadows.xl]}
+      style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}
     >
-      <View style={styles.bottomLeft}>
-        <Text style={styles.bottomPrice}>
-          {formatPrice(product.price * quantity)}
-        </Text>
-        {product.mrp && product.mrp > product.price && (
-          <Text style={styles.bottomMrp}>₹{(product.mrp * quantity).toFixed(2)}</Text>
-        )}
-        <Text style={styles.pricePerUnit}>
-          {product.unit || 'per item'}
-        </Text>
-      </View>
-
-      <View style={styles.bottomRight}>
-        <View style={styles.quantityStepper}>
-          <TouchableOpacity
-            onPress={decrementQuantity}
-            style={styles.quantityBtn}
-            activeOpacity={0.8}
-            disabled={quantity <= 1}
-          >
-            <Ionicons
-              name="remove"
-              size={18}
-              color={quantity <= 1 ? colors.textSecondary : '#FFFFFF'}
-            />
-          </TouchableOpacity>
-          <Text style={styles.quantityValue}>{quantity}</Text>
-          <TouchableOpacity
-            onPress={incrementQuantity}
-            style={styles.quantityBtn}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="add" size={18} color="#FFFFFF" />
-          </TouchableOpacity>
+      <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFillObject} />
+      <View style={[styles.bottomBarContent, { paddingBottom: insets.bottom + 12 }]}>
+        <View style={styles.bottomLeft}>
+          <Text style={styles.bottomPrice}>
+            {formatPrice(product.price * quantity)}
+          </Text>
+          {product.mrp && product.mrp > product.price && (
+            <Text style={styles.bottomMrp}>₹{(product.mrp * quantity).toFixed(2)}</Text>
+          )}
+          <Text style={styles.pricePerUnit}>
+            {product.unit || 'per item'}
+          </Text>
         </View>
 
-        <Animated.View style={addButtonAnimatedStyle}>
-          <TouchableOpacity
-            onPress={handleAddToCart}
-            disabled={!product.inStock}
-            activeOpacity={0.8}
-          >
-            <LinearGradient
-              colors={product.inStock ? [colors.primary, colors.primary + 'DD'] : ['#9CA3AF', '#6B7280']}
-              style={styles.addToCartButton}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
+        <View style={styles.bottomRight}>
+          <View style={styles.quantityStepper}>
+            <TouchableOpacity
+              onPress={decrementQuantity}
+              style={styles.quantityBtn}
+              activeOpacity={0.8}
+              disabled={quantity <= 1}
             >
-              <Text style={styles.addToCartText}>
-                {cartItem ? 'Update Cart' : 'Add to Cart'}
-              </Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </Animated.View>
+              <Ionicons
+                name="remove"
+                size={18}
+                color={quantity <= 1 ? colors.textSecondary : '#FFFFFF'}
+              />
+            </TouchableOpacity>
+            <Text style={styles.quantityValue}>{quantity}</Text>
+            <TouchableOpacity
+              onPress={incrementQuantity}
+              style={styles.quantityBtn}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add" size={18} color={isDarkMode ? "#FFFFFF" : "#0F172A"} />
+            </TouchableOpacity>
+          </View>
+
+          <MorphingButton
+            title={cartItem ? 'Update Cart' : 'Add to Cart'}
+            onPress={handleAddToCart}
+            defaultBgColor={product.inStock ? '#06B6D4' : '#9CA3AF'}
+            defaultTextColor="#FFFFFF"
+            activeBgColor="#22C55E" // success green
+            icon={cartItem ? 'refresh-outline' : 'cart-outline'}
+            style={{ flex: 1, marginLeft: 16 }}
+          />
+        </View>
       </View>
     </Animated.View>
   );
@@ -648,6 +596,7 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
 
   return (
     <View style={styles.container}>
+      <AmbientOrbs />
       <AnimatedScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
@@ -673,7 +622,7 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.background
+      backgroundColor: isDarkMode ? '#050814' : '#F8FAFC'
     },
     scrollView: {
       flex: 1,
@@ -690,201 +639,175 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       justifyContent: 'space-between',
       zIndex: 10,
     },
+    iconButtonWrapper: {
+      borderRadius: 99,
+      overflow: 'hidden',
+    },
     iconButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.surface + 'F0',
+      width: 44,
+      height: 44,
       alignItems: 'center',
       justifyContent: 'center',
-      ...shadows.sm,
     },
     galleryContainer: {
-      backgroundColor: colors.surface,
+      marginTop: 64,
+      paddingHorizontal: 16,
+      marginBottom: 20,
+    },
+    imageCard: {
+      width: '100%',
+      height: 280,
+      borderRadius: 32,
+      overflow: 'hidden',
+      padding: 0,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.15)',
     },
     heroImage: {
       width: '100%',
-      height: 340,
-      backgroundColor: colors.background,
-    },
-    galleryNavBtn: {
-      position: 'absolute',
-      top: '45%',
-      width: 34,
-      height: 34,
-      borderRadius: 17,
-      backgroundColor: 'rgba(15,23,42,0.45)',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    galleryNavLeft: {
-      left: 16,
-    },
-    galleryNavRight: {
-      right: 16,
-    },
-    galleryDotsWrap: {
-      position: 'absolute',
-      bottom: 84,
-      left: 0,
-      right: 0,
-      flexDirection: 'row',
-      justifyContent: 'center',
-      alignItems: 'center',
-      gap: 6,
-    },
-    galleryDot: {
-      width: 6,
-      height: 6,
-      borderRadius: 3,
-      backgroundColor: 'rgba(255,255,255,0.5)',
-    },
-    galleryDotActive: {
-      width: 16,
-      borderRadius: 8,
-      backgroundColor: '#FFFFFF',
+      height: '100%',
     },
     thumbnailContainer: {
-      position: 'absolute',
-      bottom: 16,
-      left: 0,
-      right: 0,
+      marginTop: 16,
     },
     thumbnailContent: {
-      paddingHorizontal: 16,
-      gap: 8,
+      gap: 12,
     },
     thumbnail: {
-      width: 56,
-      height: 56,
-      borderRadius: 12,
-      borderWidth: 2,
-      borderColor: 'transparent',
+      width: 64,
+      height: 64,
+      borderRadius: 16,
+      padding: 0,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.1)',
       overflow: 'hidden',
-      ...shadows.sm,
     },
     thumbnailActive: {
-      borderColor: colors.primary,
+      borderColor: '#38BDF8',
     },
     thumbnailImage: {
       width: '100%',
       height: '100%',
     },
     infoContainer: {
-      backgroundColor: colors.surface,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
-      marginTop: -20,
-      padding: 16,
+      paddingHorizontal: 20,
+      marginBottom: 24,
     },
-    titleRow: {
+    metaRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      alignItems: 'flex-start',
+      alignItems: 'center',
+      marginBottom: 12,
     },
-    productName: {
-      fontSize: 24,
-      fontWeight: '700',
-      color: colors.textPrimary,
-      flex: 1,
-      marginRight: 16,
-      lineHeight: 32,
-    },
-    wishlistIcon: {
-      padding: 4,
-    },
-    brandBadge: {
-      marginTop: 8,
-      alignSelf: 'flex-start',
-    },
-    priceSection: {
-      marginTop: 16,
-      paddingVertical: 8,
-    },
-    priceRow: {
+    stockBadge: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
-      flexWrap: 'wrap',
-    },
-    price: {
-      fontSize: 28,
-      fontWeight: '800',
-      color: colors.primary,
-    },
-    mrp: {
-      fontSize: 16,
-      color: colors.textSecondary,
-      textDecorationLine: 'line-through',
-    },
-    discountBadge: {
+      backgroundColor: 'rgba(16, 185, 129, 0.15)',
       paddingHorizontal: 10,
       paddingVertical: 4,
-      borderRadius: 8,
+      borderRadius: 99,
+      borderWidth: 1,
+      borderColor: 'rgba(16, 185, 129, 0.3)',
+      gap: 6,
     },
-    discountText: {
-      color: '#FFFFFF',
-      fontSize: 12,
-      fontWeight: '800',
+    stockDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: '#34D399',
     },
-    savingsText: {
-      fontSize: 13,
-      color: colors.success,
-      fontWeight: '600',
-      marginTop: 4,
+    stockText: {
+      fontSize: 10,
+      fontFamily: 'Outfit_700Bold',
+      color: '#34D399',
+      letterSpacing: 0.5,
     },
-    statsRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-around',
-      marginTop: 16,
-      paddingVertical: 12,
-      backgroundColor: colors.background,
-      borderRadius: radius.md
-    },
-    stat: {
-      alignItems: 'center',
-      flex: 1,
-    },
-    statValue: {
-      fontSize: 16,
-      fontWeight: '700',
-      color: colors.textPrimary
-    },
-    statLabel: {
-      fontSize: 12,
-      color: colors.textSecondary,
-      marginTop: 2
-    },
-    statDivider: {
-      width: 1,
-      backgroundColor: colors.border
-    },
-    deliveryInfo: {
+    ratingBadge: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
-      marginTop: 16,
-      padding: 12,
-      backgroundColor: isDarkMode ? '#102F20' : '#F0FDF4',
-      borderRadius: radius.md,
+      gap: 4,
     },
-    deliveryText: {
-      fontSize: 13,
-      fontWeight: '500',
-      color: colors.success,
-      flex: 1,
+    ratingText: {
+      fontSize: 14,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FBBF24',
+    },
+    productName: {
+      fontSize: 28,
+      fontFamily: 'Outfit_700Bold',
+      color: isDarkMode ? '#FFFFFF' : '#0F172A',
+      marginBottom: 8,
+      lineHeight: 34,
     },
     description: {
       fontSize: 14,
-      color: colors.textSecondary,
-      marginTop: 16,
+      fontFamily: 'Inter_300Light',
+      color: 'rgba(255,255,255,0.6)',
       lineHeight: 22,
+      marginBottom: 20,
+    },
+    statsRow: {
+      flexDirection: 'row',
+      gap: 12,
+      marginBottom: 20,
+    },
+    statPanel: {
+      flex: 1,
+      paddingVertical: 12,
+      alignItems: 'center',
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.08)',
+    },
+    statValue: {
+      fontSize: 18,
+      fontFamily: 'Outfit_700Bold',
+      color: isDarkMode ? '#FFFFFF' : '#0F172A',
+      marginBottom: 4,
+    },
+    statLabel: {
+      fontSize: 11,
+      fontFamily: 'Inter_400Regular',
+      color: 'rgba(255,255,255,0.5)',
+      marginTop: 4,
+    },
+    deliveryInfoCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 16,
+      borderRadius: 20,
+      gap: 16,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.1)',
+    },
+    deliveryIconWrapper: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: 'rgba(56, 189, 248, 0.15)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    deliveryTextWrapper: {
+      flex: 1,
+    },
+    deliveryTitle: {
+      fontSize: 14,
+      fontFamily: 'Outfit_700Bold',
+      color: isDarkMode ? '#FFFFFF' : '#0F172A',
+      marginBottom: 2,
+    },
+    deliverySub: {
+      fontSize: 12,
+      fontFamily: 'Inter_400Regular',
+      color: 'rgba(255,255,255,0.5)',
     },
     shopCard: {
       margin: 16,
-      padding: 16,
+      borderWidth: 0,
     },
     shopRow: {
+      padding: 16,
       flexDirection: 'row',
       alignItems: 'center'
     },
@@ -943,10 +866,12 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     shopActions: {
       flexDirection: 'row',
       justifyContent: 'space-around',
-      marginTop: 16,
+      marginTop: 0,
       paddingTop: 12,
+      paddingBottom: 16,
+      paddingHorizontal: 8,
       borderTopWidth: 1,
-      borderTopColor: colors.border
+      borderTopColor: 'rgba(255,255,255,0.1)'
     },
     actionBtn: {
       flex: 1,
@@ -964,7 +889,7 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     actionText: {
       fontSize: 13,
       fontWeight: '600',
-      color: '#FFFFFF',
+      color: isDarkMode ? '#FFFFFF' : '#0F172A',
     },
     section: {
       paddingHorizontal: 16,
@@ -973,14 +898,15 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
     sectionTitle: {
       fontSize: 18,
       fontWeight: '700',
-      color: colors.textPrimary,
+      color: '#FFF',
       marginBottom: 12,
     },
     compareCard: {
       marginBottom: 8,
-      padding: 12,
+      borderWidth: 0,
     },
     compareRow: {
+      padding: 12,
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center'
@@ -1027,14 +953,16 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       bottom: 0,
       left: 0,
       right: 0,
+      borderTopWidth: 1,
+      borderTopColor: 'rgba(255,255,255,0.15)',
+      overflow: 'hidden',
+    },
+    bottomBarContent: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      padding: 16,
-      backgroundColor: colors.surface,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
-      ...shadows.lg,
+      paddingHorizontal: 16,
+      paddingTop: 16,
     },
     bottomLeft: {
       flex: 1,
@@ -1079,7 +1007,7 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       textAlign: 'center',
       fontSize: 16,
       fontWeight: '700',
-      color: '#FFFFFF',
+      color: isDarkMode ? '#FFFFFF' : '#0F172A',
     },
     addToCartButton: {
       paddingHorizontal: 24,
@@ -1087,7 +1015,7 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       borderRadius: 12,
     },
     addToCartText: {
-      color: '#FFFFFF',
+      color: isDarkMode ? '#FFFFFF' : '#0F172A',
       fontSize: 15,
       fontWeight: '700',
     },

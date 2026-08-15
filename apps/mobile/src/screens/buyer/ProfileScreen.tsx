@@ -27,12 +27,14 @@ import { SUPPORT_PHONE } from '../../utils/constants';
 import { sanitizeImageUrl, getSingleImageUrl } from '../../utils/image';
 import api from '../../services/api';
 import { useTheme } from '../../theme';
+import { GlassPanel, GlassCard, GlassButton } from '../../components/ui/Glassmorphism';
+import AmbientOrbs from '../../components/ui/AmbientOrbs';
 
-const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean, topInset: number = 0) => {
+const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: ReturnType<typeof useTheme>['radius'], shadows: ReturnType<typeof useTheme>['shadows'], isDarkMode: boolean, topInset: number = 0) => {
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.background,
+      backgroundColor: '#050814',
     },
     stickyHeader: {
       position: 'absolute',
@@ -50,8 +52,8 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean, 
     },
     stickyTitle: {
       fontSize: 17,
-      fontWeight: '700',
-      color: colors.text,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FFFFFF',
     },
     scrollContent: {
       paddingBottom: 40,
@@ -61,16 +63,16 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean, 
       paddingTop: topInset + 16,
       paddingBottom: 24,
       borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-      backgroundColor: colors.surface,
+      borderBottomColor: 'rgba(255,255,255,0.05)',
       marginBottom: 20,
+      borderTopWidth: 0,
     },
     avatarContainer: {
       width: 96,
       height: 96,
       borderRadius: 48,
-      backgroundColor: colors.surface,
-      shadowColor: colors.primary,
+      backgroundColor: 'rgba(255,255,255,0.05)',
+      shadowColor: '#38BDF8',
       shadowOffset: { width: 0, height: 8 },
       shadowOpacity: 0.15,
       shadowRadius: 16,
@@ -80,17 +82,17 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean, 
     avatarFallback: {
       flex: 1,
       borderRadius: 48,
-      backgroundColor: colors.primaryFaded,
+      backgroundColor: 'rgba(56, 189, 248, 0.1)',
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 3,
-      borderColor: colors.surface,
+      borderColor: '#050814',
     },
     avatarImage: {
       flex: 1,
       borderRadius: 48,
       borderWidth: 3,
-      borderColor: colors.surface,
+      borderColor: '#050814',
     },
     verifiedBadge: {
       position: 'absolute',
@@ -99,23 +101,23 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean, 
       width: 26,
       height: 26,
       borderRadius: 13,
-      backgroundColor: colors.success,
+      backgroundColor: '#10B981',
       borderWidth: 3,
-      borderColor: colors.surface,
+      borderColor: '#050814',
       alignItems: 'center',
       justifyContent: 'center',
     },
     heroName: {
       fontSize: 24,
-      fontWeight: '800',
-      color: colors.text,
+      fontFamily: 'Outfit_800ExtraBold',
+      color: '#FFFFFF',
       marginBottom: 4,
       letterSpacing: -0.5,
     },
     heroSub: {
       fontSize: 14,
-      color: colors.textSecondary,
-      fontWeight: '500',
+      color: 'rgba(255,255,255,0.6)',
+      fontFamily: 'Inter_500Medium',
       marginBottom: 12,
     },
     heroPills: {
@@ -123,24 +125,19 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean, 
       gap: 8,
     },
     heroPill: {
-      backgroundColor: colors.backgroundAlt,
+      backgroundColor: 'rgba(255,255,255,0.05)',
       paddingHorizontal: 10,
       paddingVertical: 4,
       borderRadius: 99,
     },
     heroPillText: {
       fontSize: 12,
-      fontWeight: '600',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_600SemiBold',
+      color: 'rgba(255,255,255,0.6)',
     },
     bannerWrap: {
       marginHorizontal: 16,
       marginBottom: 24,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.15,
-      shadowRadius: 12,
-      elevation: 6,
     },
     roleBanner: {
       borderRadius: radius.lg,
@@ -166,13 +163,14 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean, 
     },
     proTitle: {
       fontSize: 16,
-      fontWeight: '800',
+      fontFamily: 'Outfit_800ExtraBold',
       color: '#FFFFFF',
       letterSpacing: 0.5,
     },
     proSub: {
       fontSize: 12,
       color: '#9CA3AF',
+      fontFamily: 'Inter_400Regular',
       marginTop: 2,
       flexWrap: 'wrap',
       flex: 1,
@@ -185,26 +183,21 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean, 
     },
     proBtnText: {
       fontSize: 13,
-      fontWeight: '700',
+      fontFamily: 'Inter_700Bold',
       color: '#FFFFFF',
     },
     listGroup: {
-      backgroundColor: colors.surface,
       marginHorizontal: 16,
       borderRadius: radius.lg,
       marginBottom: 24,
       borderWidth: 1,
-      borderColor: colors.border,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.02,
-      shadowRadius: 8,
-      elevation: 1,
+      borderColor: 'rgba(255,255,255,0.1)',
+      overflow: 'hidden',
     },
     groupLabel: {
       fontSize: 12,
-      fontWeight: '700',
-      color: colors.textTertiary,
+      fontFamily: 'Inter_700Bold',
+      color: 'rgba(255,255,255,0.4)',
       marginLeft: 32,
       marginBottom: 8,
       letterSpacing: 0.5,
@@ -235,26 +228,25 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean, 
     },
     listLabel: {
       fontSize: 16,
-      fontWeight: '500',
-      color: colors.text,
+      fontFamily: 'Inter_500Medium',
+      color: '#FFFFFF',
       flex: 1,
     },
     listValue: {
       fontSize: 14,
-      color: colors.textSecondary,
-      fontWeight: '500',
+      color: 'rgba(255,255,255,0.6)',
+      fontFamily: 'Inter_500Medium',
     },
     listDivider: {
       height: 1,
-      backgroundColor: colors.border,
+      backgroundColor: 'rgba(255,255,255,0.05)',
       marginLeft: 60,
     },
     dangerGroup: {
       marginHorizontal: 16,
-      backgroundColor: colors.surface,
       borderRadius: radius.lg,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: 'rgba(239, 68, 68, 0.3)',
       overflow: 'hidden',
     },
     dangerBtn: {
@@ -266,12 +258,13 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean, 
     },
     dangerBtnText: {
       fontSize: 16,
-      fontWeight: '700',
-      color: colors.error,
+      fontFamily: 'Inter_700Bold',
+      color: '#EF4444',
     },
     version: {
       fontSize: 12,
-      color: colors.textTertiary,
+      color: 'rgba(255,255,255,0.4)',
+      fontFamily: 'Inter_400Regular',
       textAlign: 'center',
       marginTop: 24,
       marginBottom: 8,
@@ -318,7 +311,7 @@ function GroupedListItem({
       </View>
       <Text style={s.listLabel} numberOfLines={1}>{label}</Text>
       {value ? <Text style={s.listValue}>{value}</Text> : null}
-      {!hideChevron && <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} style={{ marginLeft: 8 }} />}
+      {!hideChevron && <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.4)" style={{ marginLeft: 8 }} />}
     </View>
   );
 
@@ -409,6 +402,7 @@ export default function ProfileScreen() {
   return (
     <View style={s.container}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
+      <AmbientOrbs />
 
       {/* Floating Header on Scroll */}
       <View style={s.stickyHeader}>
@@ -422,14 +416,14 @@ export default function ProfileScreen() {
                 {
                   backgroundColor: isDarkMode ? 'rgba(15,23,42,0.96)' : 'rgba(255,255,255,0.96)',
                   borderBottomWidth: 1,
-                  borderBottomColor: colors.border,
+                  borderBottomColor: 'rgba(255,255,255,0.05)',
                 },
               ]}
             />
           )}
         </Animated.View>
         <View style={s.stickyHeaderInner}>
-          <Animated.Text style={[s.stickyTitle, { opacity: headerOpacity, color: colors.text }]}>
+          <Animated.Text style={[s.stickyTitle, { opacity: headerOpacity }]}>
             Profile
           </Animated.Text>
         </View>
@@ -442,15 +436,13 @@ export default function ProfileScreen() {
         contentContainerStyle={s.scrollContent}
       >
         {/* Hero Section */}
-        <View style={[s.heroSection, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
-          <LinearGradient colors={isDarkMode ? [colors.backgroundAlt, colors.background] : ['#EDFCF6', colors.background]} style={StyleSheet.absoluteFill} />
-
+        <GlassPanel intensity={30} style={s.heroSection}>
           <Animated.View style={[s.avatarContainer, { transform: [{ scale: avatarScale }, { translateY: avatarTranslate }] }]}>
             {sanitizeImageUrl(user?.avatar) ? (
               <Image source={{ uri: getSingleImageUrl(user?.avatar) }} style={s.avatarImage} />
             ) : (
               <View style={s.avatarFallback}>
-                <Text style={{ fontSize: 36, fontWeight: '700', color: colors.primary }}>{user?.name?.charAt(0)?.toUpperCase() || '👤'}</Text>
+                <Text style={{ fontSize: 36, fontWeight: '700', color: '#38BDF8' }}>{user?.name?.charAt(0)?.toUpperCase() || '👤'}</Text>
               </View>
             )}
             <View style={s.verifiedBadge}>
@@ -458,19 +450,19 @@ export default function ProfileScreen() {
             </View>
           </Animated.View>
 
-          <Text style={[s.heroName, { color: colors.text }]}>{user?.name || 'Guest User'}</Text>
+          <Text style={s.heroName}>{user?.name || 'Guest User'}</Text>
           <Text style={s.heroSub}>{user?.phone ? formatPhone(user.phone) : 'No phone connected'}</Text>
           <View style={s.heroPills}>
-            <View style={[s.heroPill, { backgroundColor: colors.backgroundAlt }]}>
-              <Text style={[s.heroPillText, { color: colors.textSecondary }]}>{user?.role || 'BUYER'} Account</Text>
+            <View style={s.heroPill}>
+              <Text style={s.heroPillText}>{user?.role || 'BUYER'} Account</Text>
             </View>
             {savedCity ? (
-              <View style={[s.heroPill, { backgroundColor: colors.backgroundAlt }]}>
-                <Text style={[s.heroPillText, { color: colors.textSecondary }]}>{savedCity}</Text>
+              <View style={s.heroPill}>
+                <Text style={s.heroPillText}>{savedCity}</Text>
               </View>
             ) : null}
           </View>
-        </View>
+        </GlassPanel>
 
         {/* Dynamic Mode Switcher or Shop Registration Banner */}
         <View style={s.bannerWrap}>
@@ -484,7 +476,7 @@ export default function ProfileScreen() {
                 colors={isDarkMode ? ['#1E293B', '#0F172A'] : ['#0D9488', '#0F766E']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                style={[s.roleBanner, { borderColor: colors.border }]}
+                style={[s.roleBanner, { borderColor: 'rgba(255,255,255,0.1)' }]}
               >
                 <View style={s.proLeft}>
                   <View style={[s.proIconRing, { backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.12)' : 'rgba(255, 255, 255, 0.18)' }]}>
@@ -510,7 +502,7 @@ export default function ProfileScreen() {
                 colors={isDarkMode ? ['#374151', '#1F2937'] : ['#D97706', '#B45309']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                style={[s.roleBanner, { borderColor: colors.border }]}
+                style={[s.roleBanner, { borderColor: 'rgba(255,255,255,0.1)' }]}
               >
                 <View style={s.proLeft}>
                   <View style={[s.proIconRing, { backgroundColor: isDarkMode ? 'rgba(251, 191, 36, 0.12)' : 'rgba(255, 255, 255, 0.18)' }]}>
@@ -530,13 +522,13 @@ export default function ProfileScreen() {
         </View>
 
         {/* Group 1: Buyer Actions */}
-        <Text style={[s.groupLabel, { color: colors.textSecondary }]}>YOUR ACTIVITY</Text>
-        <View style={[s.listGroup, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Text style={s.groupLabel}>YOUR ACTIVITY</Text>
+        <GlassCard intensity={20} style={s.listGroup}>
           <GroupedListItem
             isFirst
             icon="receipt"
             iconBg="rgba(13, 148, 136, 0.12)"
-            iconColor={colors.primary}
+            iconColor="#38BDF8"
             label="My Orders"
             onPress={() => navigation.navigate('BuyerOrders')}
             s={s}
@@ -545,7 +537,7 @@ export default function ProfileScreen() {
           <GroupedListItem
             icon="heart"
             iconBg="rgba(239, 68, 68, 0.12)"
-            iconColor={colors.error}
+            iconColor="#EF4444"
             label="Wishlist"
             onPress={() => navigation.navigate('Wishlist')}
             s={s}
@@ -555,7 +547,7 @@ export default function ProfileScreen() {
             isLast
             icon="gift"
             iconBg="rgba(245, 158, 11, 0.12)"
-            iconColor={colors.warning}
+            iconColor="#F59E0B"
             label="Referral Program"
             value={user?.referralCode || 'CLS50'}
             onPress={() => {
@@ -564,16 +556,16 @@ export default function ProfileScreen() {
             s={s}
             colors={colors}
           />
-        </View>
+        </GlassCard>
 
         {/* Group 2: Saved Address & Preferences */}
-        <Text style={[s.groupLabel, { color: colors.textSecondary }]}>PREFERENCES</Text>
-        <View style={[s.listGroup, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Text style={s.groupLabel}>PREFERENCES</Text>
+        <GlassCard intensity={20} style={s.listGroup}>
           <GroupedListItem
             isFirst
             icon="location"
-            iconBg={colors.infoFaded}
-            iconColor={colors.info}
+            iconBg="rgba(56, 189, 248, 0.1)"
+            iconColor="#38BDF8"
             label={savedAddress ? `Address: ${savedAddress}` : 'No Saved Address'}
             onPress={() => { }}
             hideChevron
@@ -583,7 +575,7 @@ export default function ProfileScreen() {
           <GroupedListItem
             icon={isDarkMode ? 'sunny' : 'moon'}
             iconBg={isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(139, 92, 246, 0.12)'}
-            iconColor={isDarkMode ? '#FBBF24' : colors.purple}
+            iconColor={isDarkMode ? '#FBBF24' : '#8B5CF6'}
             label={isDarkMode ? 'Light Mode' : 'Dark Mode'}
             onPress={toggleTheme}
             s={s}
@@ -593,22 +585,22 @@ export default function ProfileScreen() {
             isLast
             icon="share-social"
             iconBg="rgba(16, 185, 129, 0.12)"
-            iconColor={colors.success}
+            iconColor="#10B981"
             label="Share App"
             onPress={() => shareContent('CityLocalShop', 'Discover amazing local shops near you!')}
             s={s}
             colors={colors}
           />
-        </View>
+        </GlassCard>
 
         {/* Group 3: Support & Legal */}
-        <Text style={[s.groupLabel, { color: colors.textSecondary }]}>SUPPORT & LEGAL</Text>
-        <View style={[s.listGroup, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Text style={s.groupLabel}>SUPPORT & LEGAL</Text>
+        <GlassCard intensity={20} style={s.listGroup}>
           <GroupedListItem
             isFirst
             icon="chatbubble"
             iconBg="rgba(139, 92, 246, 0.12)"
-            iconColor={colors.purple}
+            iconColor="#8B5CF6"
             label="Help & Support"
             onPress={() => navigation.navigate('Help')}
             s={s}
@@ -617,7 +609,7 @@ export default function ProfileScreen() {
           <GroupedListItem
             icon="call"
             iconBg="rgba(16, 185, 129, 0.12)"
-            iconColor={colors.success}
+            iconColor="#10B981"
             label="Call Support"
             onPress={() => makeCall(SUPPORT_PHONE)}
             s={s}
@@ -625,8 +617,8 @@ export default function ProfileScreen() {
           />
           <GroupedListItem
             icon="document-text"
-            iconBg={colors.backgroundAlt}
-            iconColor={colors.textSecondary}
+            iconBg="rgba(255,255,255,0.05)"
+            iconColor="rgba(255,255,255,0.6)"
             label="Terms & Conditions"
             onPress={() => navigation.navigate('TermsAndConditions')}
             s={s}
@@ -634,8 +626,8 @@ export default function ProfileScreen() {
           />
           <GroupedListItem
             icon="shield-checkmark"
-            iconBg={colors.backgroundAlt}
-            iconColor={colors.textSecondary}
+            iconBg="rgba(255,255,255,0.05)"
+            iconColor="rgba(255,255,255,0.6)"
             label="Privacy Policy"
             onPress={() => navigation.navigate('PrivacyPolicy')}
             s={s}
@@ -644,24 +636,24 @@ export default function ProfileScreen() {
           <GroupedListItem
             isLast
             icon="arrow-undo"
-            iconBg={colors.backgroundAlt}
-            iconColor={colors.textSecondary}
+            iconBg="rgba(255,255,255,0.05)"
+            iconColor="rgba(255,255,255,0.6)"
             label="Refund Policy"
             onPress={() => navigation.navigate('RefundPolicy')}
             s={s}
             colors={colors}
           />
-        </View>
+        </GlassCard>
 
         {/* Danger Zone */}
-        <View style={[s.dangerGroup, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <GlassCard intensity={10} style={s.dangerGroup}>
           <TouchableOpacity style={s.dangerBtn} activeOpacity={0.8} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={20} color={colors.error} />
+            <Ionicons name="log-out-outline" size={20} color="#EF4444" />
             <Text style={s.dangerBtnText}>Log Out</Text>
           </TouchableOpacity>
-        </View>
+        </GlassCard>
 
-        <Text style={[s.version, { color: colors.textTertiary }]}>CityLocalShop v1.0.0</Text>
+        <Text style={s.version}>CityLocalShop v1.0.0</Text>
         <View style={{ height: 100 }} />
       </Animated.ScrollView>
     </View>

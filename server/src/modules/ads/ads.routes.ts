@@ -6,6 +6,7 @@ const router = Router();
 
 // Public route
 router.get('/trending', AdsController.getTrendingProducts);
+router.post('/impression', AdsController.trackImpressions);
 router.post('/:adId/click', AdsController.trackAdClick);
 
 // Protected routes for sellers

@@ -33,6 +33,9 @@ import { useAuthStore } from '../../store/authStore';
 import { useCartStore } from '../../store/cartStore';
 import paymentService from '../../services/paymentService';
 import api from '../../services/api';
+import { GlassPanel, GlassCard, GlassButton } from '../../components/ui/Glassmorphism';
+import AmbientOrbs from '../../components/ui/AmbientOrbs';
+import { BlurView } from 'expo-blur';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -41,7 +44,7 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.background,
+      backgroundColor: '#050814',
     },
     header: {
       flexDirection: 'row',
@@ -49,24 +52,20 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       justifyContent: 'space-between',
       paddingHorizontal: 16,
       paddingVertical: 12,
-      backgroundColor: colors.surface,
       borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      borderBottomColor: 'rgba(255,255,255,0.05)',
     },
     headerBtn: {
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: colors.backgroundAlt,
       alignItems: 'center',
       justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: colors.border,
     },
     headerTitle: {
       fontSize: 18,
-      fontWeight: '700',
-      color: colors.text,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FFFFFF',
       letterSpacing: -0.3,
     },
     headerSecure: {
@@ -75,13 +74,13 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       gap: 4,
       paddingHorizontal: 10,
       paddingVertical: 5,
-      backgroundColor: isDarkMode ? '#102F20' : '#D1FAE5',
+      backgroundColor: 'rgba(16, 185, 129, 0.1)',
       borderRadius: radius.full,
     },
     headerSecureText: {
       fontSize: 11,
-      fontWeight: '600',
-      color: colors.success,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#34D399',
     },
     stepIndicator: {
       flexDirection: 'row',
@@ -89,9 +88,8 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       justifyContent: 'center',
       paddingVertical: 16,
       paddingHorizontal: 32,
-      backgroundColor: colors.surface,
       borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      borderBottomColor: 'rgba(255,255,255,0.05)',
     },
     stepItem: {
       alignItems: 'center',
@@ -101,52 +99,53 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       width: 32,
       height: 32,
       borderRadius: 16,
-      backgroundColor: colors.backgroundAlt,
+      backgroundColor: 'rgba(255,255,255,0.05)',
       alignItems: 'center',
       justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.1)',
     },
     stepCircleActive: {
-      backgroundColor: colors.primary,
+      backgroundColor: 'rgba(56, 189, 248, 0.15)',
+      borderColor: '#38BDF8',
     },
     stepCircleCompleted: {
-      backgroundColor: colors.success,
+      backgroundColor: '#10B981',
+      borderColor: '#10B981',
     },
     stepLabel: {
       fontSize: 11,
-      fontWeight: '500',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_500Medium',
+      color: 'rgba(255,255,255,0.5)',
     },
     stepLabelActive: {
-      fontWeight: '700',
-      color: colors.text,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FFFFFF',
     },
     stepLine: {
       width: 40,
       height: 2,
-      backgroundColor: colors.border,
+      backgroundColor: 'rgba(255,255,255,0.1)',
       marginHorizontal: 8,
       marginBottom: 20,
       borderRadius: 1,
     },
     stepLineActive: {
-      backgroundColor: colors.success,
+      backgroundColor: '#10B981',
     },
     scrollView: {
       flex: 1,
     },
     sectionCard: {
-      backgroundColor: colors.surface,
       marginHorizontal: 16,
       marginTop: 12,
-      padding: 18,
-      borderRadius: radius.lg,
+      borderRadius: 24,
       borderWidth: 1,
-      borderColor: colors.border,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.04,
-      shadowRadius: 8,
-      elevation: 2,
+      borderColor: 'rgba(255,255,255,0.1)',
+      overflow: 'hidden',
+    },
+    sectionCardInner: {
+      padding: 18,
     },
     sectionHeader: {
       flexDirection: 'row',
@@ -162,14 +161,14 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       width: 34,
       height: 34,
       borderRadius: 10,
-      backgroundColor: colors.primaryFaded,
+      backgroundColor: 'rgba(56, 189, 248, 0.1)',
       alignItems: 'center',
       justifyContent: 'center',
     },
     sectionTitle: {
       fontSize: 16,
-      fontWeight: '700',
-      color: colors.text,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FFFFFF',
       letterSpacing: -0.2,
     },
     addNewBtn: {
@@ -178,39 +177,45 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       gap: 3,
       paddingHorizontal: 10,
       paddingVertical: 6,
-      backgroundColor: colors.primaryFaded,
+      backgroundColor: 'rgba(56, 189, 248, 0.15)',
       borderRadius: radius.full,
     },
     addNewText: {
       fontSize: 12,
-      fontWeight: '600',
-      color: colors.primary,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#38BDF8',
     },
     successBanner: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 10,
-      backgroundColor: isDarkMode ? '#102F20' : '#D1FAE5',
-      borderColor: isDarkMode ? 'rgba(16,185,129,0.30)' : '#A7F3D0',
+      backgroundColor: 'rgba(16, 185, 129, 0.1)',
+      borderColor: 'rgba(16, 185, 129, 0.2)',
       marginTop: 16,
+      borderWidth: 1,
+      borderRadius: 12,
+      padding: 10,
     },
     bannerIconBg: {
       width: 32,
       height: 32,
       borderRadius: 16,
-      backgroundColor: isDarkMode ? 'rgba(16,185,129,0.18)' : '#A7F3D0',
+      backgroundColor: 'rgba(16, 185, 129, 0.2)',
       alignItems: 'center',
       justifyContent: 'center',
     },
     successBannerText: {
       fontSize: 14,
-      fontWeight: '600',
-      color: colors.success,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#34D399',
       flex: 1,
     },
     warningBanner: {
-      backgroundColor: isDarkMode ? '#2D1F10' : '#FEF3C7',
-      borderColor: isDarkMode ? 'rgba(245,158,11,0.30)' : '#FDE68A',
+      backgroundColor: 'rgba(245, 158, 11, 0.1)',
+      borderColor: 'rgba(245, 158, 11, 0.2)',
+      borderWidth: 1,
+      borderRadius: 12,
+      padding: 10,
       marginTop: 16,
     },
     warningBannerTop: {
@@ -223,25 +228,25 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       width: 28,
       height: 28,
       borderRadius: 14,
-      backgroundColor: isDarkMode ? 'rgba(245,158,11,0.18)' : '#FDE68A',
+      backgroundColor: 'rgba(245, 158, 11, 0.2)',
       alignItems: 'center',
       justifyContent: 'center',
     },
     warningBannerText: {
       fontSize: 13,
-      fontWeight: '500',
-      color: isDarkMode ? '#FBBF24' : '#92400E',
+      fontFamily: 'Inter_500Medium',
+      color: '#FBBF24',
       flex: 1,
     },
     bannerTrack: {
       height: 5,
-      backgroundColor: colors.background,
+      backgroundColor: 'rgba(255,255,255,0.1)',
       borderRadius: 3,
       overflow: 'hidden',
     },
     bannerFill: {
       height: '100%',
-      backgroundColor: colors.warning,
+      backgroundColor: '#F59E0B',
       borderRadius: 3,
     },
     emptyAddressCard: {
@@ -251,53 +256,54 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       marginTop: 16,
       padding: 16,
       borderWidth: 1.5,
-      borderColor: colors.border,
+      borderColor: 'rgba(255,255,255,0.2)',
       borderStyle: 'dashed',
-      borderRadius: radius.md,
+      borderRadius: 16,
     },
     emptyAddressText: {
       fontSize: 14,
-      fontWeight: '500',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_500Medium',
+      color: 'rgba(255,255,255,0.6)',
     },
     addressCard: {
       flexDirection: 'row',
       alignItems: 'flex-start',
       padding: 14,
       borderWidth: 1.5,
-      borderColor: colors.border,
-      borderRadius: radius.md,
+      borderColor: 'rgba(255,255,255,0.05)',
+      backgroundColor: 'rgba(255,255,255,0.02)',
+      borderRadius: 16,
       marginTop: 14,
     },
     addressCardActive: {
-      borderColor: colors.primary,
-      backgroundColor: colors.primaryFaded,
+      borderColor: '#38BDF8',
+      backgroundColor: 'rgba(56, 189, 248, 0.05)',
     },
     radio: {
       width: 20,
       height: 20,
       borderRadius: 10,
       borderWidth: 2,
-      borderColor: colors.textTertiary,
+      borderColor: 'rgba(255,255,255,0.3)',
       marginRight: 12,
       marginTop: 2,
       alignItems: 'center',
       justifyContent: 'center',
     },
     radioActive: {
-      borderColor: colors.primary,
+      borderColor: '#38BDF8',
     },
     radioDot: {
       width: 10,
       height: 10,
       borderRadius: 5,
-      backgroundColor: colors.primary,
+      backgroundColor: '#38BDF8',
     },
     addressIconBg: {
       width: 36,
       height: 36,
       borderRadius: 10,
-      backgroundColor: colors.backgroundAlt,
+      backgroundColor: 'rgba(255,255,255,0.05)',
       alignItems: 'center',
       justifyContent: 'center',
       marginRight: 12,
@@ -313,44 +319,45 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
     },
     addressLabel: {
       fontSize: 14,
-      fontWeight: '700',
-      color: colors.text,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FFFFFF',
     },
     defaultTag: {
       paddingHorizontal: 7,
       paddingVertical: 2,
-      backgroundColor: isDarkMode ? '#102F20' : '#D1FAE5',
+      backgroundColor: 'rgba(16, 185, 129, 0.1)',
       borderRadius: 4,
     },
     defaultTagText: {
       fontSize: 10,
-      fontWeight: '600',
-      color: colors.success,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#34D399',
     },
     addressText: {
       fontSize: 13,
-      fontWeight: '400',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_400Regular',
+      color: 'rgba(255,255,255,0.6)',
       lineHeight: 18,
       marginBottom: 2,
     },
     addressMeta: {
       fontSize: 12,
-      fontWeight: '500',
-      color: colors.textTertiary,
+      fontFamily: 'Inter_500Medium',
+      color: 'rgba(255,255,255,0.4)',
     },
     paymentCard: {
       flexDirection: 'row',
       alignItems: 'center',
       padding: 14,
       borderWidth: 1.5,
-      borderColor: colors.border,
-      borderRadius: radius.md,
+      borderColor: 'rgba(255,255,255,0.05)',
+      backgroundColor: 'rgba(255,255,255,0.02)',
+      borderRadius: 16,
       marginBottom: 10,
     },
     paymentCardActive: {
-      borderColor: colors.primary,
-      backgroundColor: colors.primaryFaded,
+      borderColor: '#38BDF8',
+      backgroundColor: 'rgba(56, 189, 248, 0.05)',
     },
     paymentCardDisabled: {
       opacity: 0.5,
@@ -362,76 +369,77 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       alignItems: 'center',
       justifyContent: 'center',
       marginRight: 12,
+      backgroundColor: 'rgba(255,255,255,0.05)'
     },
     paymentInfo: {
       flex: 1,
     },
     paymentName: {
       fontSize: 14,
-      fontWeight: '700',
-      color: colors.text,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FFFFFF',
       marginBottom: 2,
     },
     paymentDesc: {
       fontSize: 11,
-      fontWeight: '400',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_400Regular',
+      color: 'rgba(255,255,255,0.5)',
     },
     comingSoonTag: {
       paddingHorizontal: 8,
       paddingVertical: 4,
-      backgroundColor: colors.backgroundAlt,
+      backgroundColor: 'rgba(255,255,255,0.05)',
       borderRadius: radius.full,
     },
     comingSoonText: {
       fontSize: 10,
-      fontWeight: '600',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_600SemiBold',
+      color: 'rgba(255,255,255,0.5)',
     },
     promoInputRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 10,
       borderWidth: 1.5,
-      borderColor: colors.border,
+      borderColor: 'rgba(255,255,255,0.1)',
       borderRadius: radius.md,
       paddingLeft: 14,
       paddingRight: 4,
       paddingVertical: 4,
       marginTop: 14,
-      backgroundColor: colors.backgroundAlt,
+      backgroundColor: 'rgba(255,255,255,0.02)',
     },
     promoInputFocused: {
-      borderColor: colors.primary,
-      backgroundColor: colors.surface,
+      borderColor: '#38BDF8',
+      backgroundColor: 'rgba(56, 189, 248, 0.05)',
     },
     promoInputApplied: {
-      borderColor: colors.success,
-      backgroundColor: isDarkMode ? '#102F20' : '#F0FDF4',
+      borderColor: '#10B981',
+      backgroundColor: 'rgba(16, 185, 129, 0.05)',
     },
     promoInput: {
       flex: 1,
       fontSize: 14,
-      fontWeight: '600',
-      color: colors.text,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#FFFFFF',
       paddingVertical: 10,
       letterSpacing: 1,
     },
     promoBtn: {
       paddingHorizontal: 16,
       paddingVertical: 10,
-      backgroundColor: colors.primary,
+      backgroundColor: '#38BDF8',
       borderRadius: radius.sm,
     },
     promoBtnApplied: {
-      backgroundColor: colors.success,
+      backgroundColor: '#10B981',
     },
     promoBtnDisabled: {
-      backgroundColor: colors.border,
+      backgroundColor: 'rgba(255,255,255,0.1)',
     },
     promoBtnText: {
       fontSize: 13,
-      fontWeight: '700',
+      fontFamily: 'Outfit_700Bold',
       color: '#FFFFFF',
     },
     promoSuccessRow: {
@@ -442,8 +450,8 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
     },
     promoSuccessText: {
       fontSize: 12,
-      fontWeight: '600',
-      color: colors.success,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#34D399',
     },
     summaryRow: {
       flexDirection: 'row',
@@ -453,42 +461,42 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
     },
     summaryLabel: {
       fontSize: 14,
-      fontWeight: '400',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_400Regular',
+      color: 'rgba(255,255,255,0.6)',
     },
     summaryValue: {
       fontSize: 14,
-      fontWeight: '600',
-      color: colors.text,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#FFFFFF',
     },
     freeValue: {
-      color: colors.success,
-      fontWeight: '700',
+      color: '#34D399',
+      fontFamily: 'Outfit_700Bold',
     },
     discountLabel: {
       fontSize: 14,
-      fontWeight: '600',
-      color: colors.success,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#34D399',
     },
     discountValue: {
       fontSize: 14,
-      fontWeight: '700',
-      color: colors.success,
+      fontFamily: 'Outfit_700Bold',
+      color: '#34D399',
     },
     summaryDivider: {
       height: 1,
-      backgroundColor: colors.border,
+      backgroundColor: 'rgba(255,255,255,0.1)',
       marginVertical: 14,
     },
     totalLabel: {
       fontSize: 16,
-      fontWeight: '700',
-      color: colors.text,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FFFFFF',
     },
     totalValue: {
       fontSize: 20,
-      fontWeight: '800',
-      color: colors.primary,
+      fontFamily: 'Outfit_800ExtraBold',
+      color: '#38BDF8',
       letterSpacing: -0.3,
     },
     bottomBar: {
@@ -502,33 +510,28 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       paddingHorizontal: 20,
       paddingTop: 16,
       paddingBottom: Platform.OS === 'ios' ? 34 : 16,
-      backgroundColor: colors.surface,
       borderTopWidth: 1,
-      borderTopColor: colors.border,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: -4 },
-      shadowOpacity: 0.08,
-      shadowRadius: 12,
-      elevation: 8,
+      borderTopColor: 'rgba(255,255,255,0.05)',
+      overflow: 'hidden',
     },
     bottomLeft: {
       flex: 1,
     },
     bottomLabel: {
       fontSize: 12,
-      fontWeight: '500',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_500Medium',
+      color: 'rgba(255,255,255,0.6)',
     },
     bottomTotal: {
       fontSize: 24,
-      fontWeight: '800',
-      color: colors.text,
+      fontFamily: 'Outfit_800ExtraBold',
+      color: '#FFFFFF',
       letterSpacing: -0.5,
     },
     bottomHint: {
       fontSize: 11,
-      fontWeight: '400',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_400Regular',
+      color: 'rgba(255,255,255,0.4)',
       marginTop: 1,
     },
     placeOrderBtn: {
@@ -538,28 +541,31 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       paddingHorizontal: 28,
       paddingVertical: 14,
       borderRadius: radius.md,
+      backgroundColor: '#38BDF8',
     },
     placeOrderText: {
       fontSize: 16,
-      fontWeight: '700',
+      fontFamily: 'Outfit_700Bold',
       color: '#FFFFFF',
     },
     modalOverlay: {
       flex: 1,
       justifyContent: 'flex-end',
-      backgroundColor: 'rgba(0,0,0,0.5)',
+      backgroundColor: 'rgba(0,0,0,0.6)',
     },
     modalSheet: {
-      backgroundColor: colors.surface,
-      borderTopLeftRadius: radius.xl,
-      borderTopRightRadius: radius.xl,
+      borderTopLeftRadius: 32,
+      borderTopRightRadius: 32,
       overflow: 'hidden',
+      backgroundColor: '#0A0F1F',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.1)',
     },
     modalHandle: {
-      width: 36,
+      width: 48,
       height: 4,
       borderRadius: 2,
-      backgroundColor: colors.border,
+      backgroundColor: 'rgba(255,255,255,0.2)',
       alignSelf: 'center',
       marginTop: 12,
       marginBottom: 4,
@@ -568,7 +574,7 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      paddingHorizontal: 20,
+      paddingHorizontal: 24,
       paddingVertical: 16,
     },
     modalHeaderLeft: {
@@ -577,62 +583,62 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       gap: 10,
     },
     modalTitle: {
-      fontSize: 18,
-      fontWeight: '700',
+      fontSize: 20,
+      fontFamily: 'Outfit_700Bold',
       color: '#FFFFFF',
     },
     modalCloseBtn: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      backgroundColor: 'rgba(255,255,255,0.2)',
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: 'rgba(255,255,255,0.1)',
       alignItems: 'center',
       justifyContent: 'center',
     },
     modalBody: {
-      padding: 20,
+      padding: 24,
       paddingBottom: Platform.OS === 'ios' ? 40 : 24,
     },
     inputLabel: {
       fontSize: 13,
-      fontWeight: '600',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_600SemiBold',
+      color: 'rgba(255,255,255,0.6)',
       marginBottom: 8,
     },
     inputWrap: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 10,
-      borderWidth: 1.5,
-      borderColor: colors.border,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.15)',
       borderRadius: radius.md,
-      paddingHorizontal: 14,
-      marginBottom: 16,
-      backgroundColor: colors.backgroundAlt,
+      paddingHorizontal: 16,
+      marginBottom: 20,
+      backgroundColor: 'rgba(255,255,255,0.05)',
     },
     modalInput: {
       flex: 1,
       paddingVertical: 14,
-      fontSize: 14,
-      fontWeight: '500',
-      color: colors.text,
+      fontSize: 15,
+      fontFamily: 'Inter_500Medium',
+      color: '#FFFFFF',
     },
     modalActions: {
       flexDirection: 'row',
       gap: 12,
-      marginTop: 8,
+      marginTop: 12,
     },
     modalCancelBtn: {
       flex: 1,
-      paddingVertical: 14,
+      paddingVertical: 16,
       borderRadius: radius.md,
-      backgroundColor: colors.backgroundAlt,
+      backgroundColor: 'rgba(255,255,255,0.1)',
       alignItems: 'center',
     },
     modalCancelText: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: colors.textSecondary,
+      fontSize: 15,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#FFFFFF',
     },
     modalSaveBtn: {
       flex: 1,
@@ -640,12 +646,13 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       overflow: 'hidden',
     },
     modalSaveGradient: {
-      paddingVertical: 14,
+      paddingVertical: 16,
       alignItems: 'center',
+      backgroundColor: '#38BDF8',
     },
     modalSaveText: {
-      fontSize: 14,
-      fontWeight: '700',
+      fontSize: 15,
+      fontFamily: 'Outfit_700Bold',
       color: '#FFFFFF',
     },
   });
@@ -675,47 +682,48 @@ const StepIndicator: React.FC<{ currentStep: number }> = ({ currentStep }) => {
   return (
     <AnimatedRN.View
       entering={FadeInDown.delay(100).springify().damping(14)}
-      style={styles.stepIndicator}
     >
-      {steps.map((step, idx) => (
-        <React.Fragment key={idx}>
-          <View style={styles.stepItem}>
-            <View
-              style={[
-                styles.stepCircle,
-                idx <= currentStep && styles.stepCircleActive,
-                idx < currentStep && styles.stepCircleCompleted,
-              ]}
-            >
-              {idx < currentStep ? (
-                <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-              ) : (
-                <Ionicons
-                  name={step.icon as React.ComponentProps<typeof Ionicons>['name']}
-                  size={14}
-                  color={idx <= currentStep ? '#FFFFFF' : colors.textTertiary}
-                />
-              )}
+      <GlassPanel intensity={20} style={styles.stepIndicator}>
+        {steps.map((step, idx) => (
+          <React.Fragment key={idx}>
+            <View style={styles.stepItem}>
+              <View
+                style={[
+                  styles.stepCircle,
+                  idx <= currentStep && styles.stepCircleActive,
+                  idx < currentStep && styles.stepCircleCompleted,
+                ]}
+              >
+                {idx < currentStep ? (
+                  <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                ) : (
+                  <Ionicons
+                    name={step.icon as React.ComponentProps<typeof Ionicons>['name']}
+                    size={14}
+                    color={idx <= currentStep ? '#FFFFFF' : colors.textTertiary}
+                  />
+                )}
+              </View>
+              <Text
+                style={[
+                  styles.stepLabel,
+                  idx <= currentStep && styles.stepLabelActive,
+                ]}
+              >
+                {step.label}
+              </Text>
             </View>
-            <Text
-              style={[
-                styles.stepLabel,
-                idx <= currentStep && styles.stepLabelActive,
-              ]}
-            >
-              {step.label}
-            </Text>
-          </View>
-          {idx < steps.length - 1 && (
-            <View
-              style={[
-                styles.stepLine,
-                idx < currentStep && styles.stepLineActive,
-              ]}
-            />
-          )}
-        </React.Fragment>
-      ))}
+            {idx < steps.length - 1 && (
+              <View
+                style={[
+                  styles.stepLine,
+                  idx < currentStep && styles.stepLineActive,
+                ]}
+              />
+            )}
+          </React.Fragment>
+        ))}
+      </GlassPanel>
     </AnimatedRN.View>
   );
 };
@@ -731,9 +739,12 @@ const SectionCard: React.FC<{
   return (
     <AnimatedRN.View
       entering={FadeInDown.delay(delay).springify().damping(14)}
-      style={[styles.sectionCard, style]}
     >
-      {children}
+      <GlassCard style={[styles.sectionCard, style]} intensity={15}>
+        <View style={styles.sectionCardInner}>
+          {children}
+        </View>
+      </GlassCard>
     </AnimatedRN.View>
   );
 };
@@ -779,18 +790,18 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
     () =>
       address
         ? [
-            {
-              id: 'current',
-              label: 'Home',
-              address,
-              city: city || 'Mumbai',
-              pincode: pincode || '400001',
-              latitude: latitude || 0,
-              longitude: longitude || 0,
-              isDefault: true,
-              icon: 'home',
-            },
-          ]
+          {
+            id: 'current',
+            label: 'Home',
+            address,
+            city: city || 'Mumbai',
+            pincode: pincode || '400001',
+            latitude: latitude || 0,
+            longitude: longitude || 0,
+            isDefault: true,
+            icon: 'home',
+          },
+        ]
         : [],
     [address, city, latitude, longitude, pincode]
   );
@@ -858,6 +869,14 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
       gradient: ['#8B5CF6', '#7C3AED'] as [string, string],
       description: 'Coming soon',
     },
+    {
+      id: 'apple_pay',
+      name: Platform.OS === 'ios' ? 'Apple Pay' : 'Google Pay',
+      icon: 'logo-apple',
+      enabled: true,
+      gradient: ['#000000', '#1A1A1A'] as [string, string],
+      description: 'Fast & Secure checkout',
+    },
   ];
 
   const finalTotal = appliedPromo ? total - appliedPromo.discount : total;
@@ -914,8 +933,8 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
         navigation.navigate('Payment', { order, amount: finalTotal, cartItems });
       } else if (selectedPayment === 'cod') {
         const order = await paymentService.createProductOrder(orderPayload);
-        const effectiveOrderId = (order as {id?: string, orderId?: string})?.id || (order as {id?: string, orderId?: string})?.orderId;
-        const pickupFallback = Boolean((order as {pickupFallback?: boolean})?.pickupFallback);
+        const effectiveOrderId = (order as { id?: string, orderId?: string })?.id || (order as { id?: string, orderId?: string })?.orderId;
+        const pickupFallback = Boolean((order as { pickupFallback?: boolean })?.pickupFallback);
         useCartStore.getState().clearCart();
         Alert.alert(
           'Order Confirmed! 🎉',
@@ -924,9 +943,9 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
             : `Order #${String(effectiveOrderId || '').slice(-8)} placed. Pay ₹${finalTotal.toFixed(0)} at delivery.`,
           [
             {
-              text: 'Track Order',
+              text: 'View Orders',
               onPress: () =>
-                navigation.navigate('OrderTracking', { orderId: effectiveOrderId }),
+                navigation.navigate('BuyerOrders'),
             },
             {
               text: 'Continue Shopping',
@@ -1113,6 +1132,20 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
                   <Text style={styles.comingSoonText}>Soon</Text>
                 </View>
               )}
+              {method.id === 'apple_pay' && isSelected && (
+                <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+                  <AnimatedRN.View
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 4,
+                      backgroundColor: '#06B6D4',
+                    }}
+                    entering={FadeInUp.springify().damping(12)}
+                  />
+                  <Text style={{ fontSize: 9, color: '#06B6D4', marginTop: 4, fontWeight: '700' }}>Biometric</Text>
+                </View>
+              )}
             </TouchableOpacity>
           );
         })}
@@ -1162,9 +1195,9 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
           onPress={
             appliedPromo
               ? () => {
-                  setAppliedPromo(null);
-                  setPromoCode('');
-                }
+                setAppliedPromo(null);
+                setPromoCode('');
+              }
               : handleApplyPromo
           }
           disabled={!promoCode.trim() && !appliedPromo}
@@ -1251,6 +1284,7 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
       entering={FadeInUp.delay(400).springify().damping(14)}
       style={styles.bottomBar}
     >
+      <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFillObject} />
       <View style={styles.bottomLeft}>
         <Text style={styles.bottomLabel}>Total</Text>
         <Text style={styles.bottomTotal}>₹{finalTotal.toFixed(0)}</Text>
@@ -1265,8 +1299,8 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
         <LinearGradient
           colors={
             !selectedAddress || !selectedPayment
-              ? [colors.textTertiary, colors.textSecondary]
-              : [colors.primary, colors.primaryDark]
+              ? ['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.05)']
+              : ['#06B6D4', '#0891B2']
           }
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
@@ -1277,9 +1311,13 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
           ) : (
             <>
               <Text style={styles.placeOrderText}>
-                {selectedPayment === 'cod' ? 'Place COD Order' : 'Pay Now'}
+                {selectedPayment === 'cod' ? 'Place COD Order' : selectedPayment === 'apple_pay' ? (Platform.OS === 'ios' ? 'Pay with Apple' : 'Pay with Google') : 'Pay Now'}
               </Text>
-              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+              {selectedPayment === 'apple_pay' ? (
+                <Ionicons name="finger-print" size={18} color="#FFFFFF" />
+              ) : (
+                <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+              )}
             </>
           )}
         </LinearGradient>
@@ -1295,6 +1333,7 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
         style={styles.modalOverlay}
       >
         <View style={styles.modalSheet}>
+          <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFillObject} />
           <View style={styles.modalHandle} />
 
           <LinearGradient
@@ -1377,7 +1416,7 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
                         latitude: latitude || 0,
                         longitude: longitude || 0,
                       })
-                      .catch(() => {});
+                      .catch(() => { });
 
                     setNewAddress('');
                     setNewPincode('');
@@ -1389,7 +1428,7 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
                 }}
               >
                 <LinearGradient
-                  colors={['#35C095', '#0E8D6D']}
+                  colors={['#06B6D4', '#0891B2']}
                   style={styles.modalSaveGradient}
                 >
                   <Text style={styles.modalSaveText}>Save Address</Text>
@@ -1405,20 +1444,26 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      <AmbientOrbs />
 
       {/* ─── Header ────────────────────── */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.headerBtn}
-        >
-          <Ionicons name="arrow-back" size={22} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Checkout</Text>
-        <View style={styles.headerSecure}>
-          <Ionicons name="shield-checkmark" size={14} color={colors.success} />
-          <Text style={styles.headerSecureText}>Secure</Text>
-        </View>
+      <View style={{ zIndex: 10 }}>
+        <GlassPanel intensity={40} style={{ borderRadius: 0, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' }}>
+          <View style={styles.header}>
+            <GlassButton
+              onPress={() => navigation.goBack()}
+              style={styles.headerBtn}
+              intensity={20}
+            >
+              <Ionicons name="arrow-back" size={22} color={colors.text} />
+            </GlassButton>
+            <Text style={styles.headerTitle}>Checkout</Text>
+            <View style={styles.headerSecure}>
+              <Ionicons name="shield-checkmark" size={14} color="#22C55E" />
+              <Text style={styles.headerSecureText}>Secure</Text>
+            </View>
+          </View>
+        </GlassPanel>
       </View>
 
       {/* ─── Step Indicator ────────────── */}

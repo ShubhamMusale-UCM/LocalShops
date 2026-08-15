@@ -1,5 +1,5 @@
 // components/navigation/AnimatedTabBar.tsx
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Platform,
   Animated,
   Pressable,
+  useWindowDimensions,
 } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { TabActions } from '@react-navigation/native';
@@ -15,35 +16,13 @@ import Reanimated, {
   useAnimatedStyle,
   interpolate,
   Extrapolation,
+  withSpring,
+  useSharedValue,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTabBarVisibility } from '../../contexts/TabBarVisibilityContext';
-
-// ─── Design System ──────────────────────────────────────────────────────────
-const DS = {
-  primary: '#0D9488',
-  primaryDark: '#0F766E',
-  primaryFaded: 'rgba(13, 148, 136, 0.10)',
-  primaryLight: '#CCFBF1',
-  success: '#10B981',
-  error: '#EF4444',
-  warning: '#F59E0B',
-  info: '#3B82F6',
-  purple: '#8B5CF6',
-  gray900: '#1F2937',
-  gray700: '#4B5563',
-  gray600: '#6B7280',
-  gray500: '#9CA3AF',
-  gray400: '#D1D5DB',
-  gray300: '#E5E7EB',
-  gray200: '#EEF2F6',
-  gray100: '#F3F4F6',
-  gray50: '#F9FAFB',
-  card: '#FFFFFF',
-  border: '#F1F5F9',
-  background: '#F8FAFC',
-  radius: { sm: 8, md: 12, lg: 16, xl: 24, full: 999 },
-};
+import { useTheme } from '../../theme';
+import { BlurView } from 'expo-blur';
 
 // ─── Smooth animation config (iPhone-level) ──────────────────────────────────
 const SPRING_SOFT = { damping: 22, stiffness: 250, useNativeDriver: true };
@@ -52,24 +31,24 @@ const SPRING_SNAP = { damping: 20, stiffness: 300, useNativeDriver: true };
 // ─── Tab Config ──────────────────────────────────────────────────────────────
 const TAB_CONFIG: Record<
   string,
-  { icon: string; iconFocused: string; label: string; color?: string }
+  { icon: string; iconFocused: string; label: string }
 > = {
-  Home: { icon: 'home-outline', iconFocused: 'home', label: 'Home', color: DS.primary },
-  Search: { icon: 'search-outline', iconFocused: 'search', label: 'Search', color: DS.info },
-  Categories: { icon: 'grid-outline', iconFocused: 'grid', label: 'Browse', color: DS.purple },
-  Saved: { icon: 'heart-outline', iconFocused: 'heart', label: 'Saved', color: '#EF4444' },
-  Cart: { icon: 'bag-outline', iconFocused: 'bag', label: 'Cart', color: DS.warning },
-  Profile: { icon: 'person-outline', iconFocused: 'person', label: 'Profile', color: DS.gray700 },
-  Dashboard: { icon: 'speedometer-outline', iconFocused: 'speedometer', label: 'Dashboard', color: DS.primary },
-  Products: { icon: 'cube-outline', iconFocused: 'cube', label: 'Products', color: DS.info },
-  Orders: { icon: 'receipt-outline', iconFocused: 'receipt', label: 'Orders', color: DS.warning },
-  Analytics: { icon: 'analytics-outline', iconFocused: 'analytics', label: 'Analytics', color: DS.purple },
-  SellerProfile: { icon: 'person-outline', iconFocused: 'person', label: 'Profile', color: DS.gray700 },
-  DeliveryDashboard: { icon: 'bicycle-outline', iconFocused: 'bicycle', label: 'Deliveries', color: DS.primary },
-  ActiveDelivery: { icon: 'navigate-outline', iconFocused: 'navigate', label: 'Active', color: DS.success },
-  DeliveryHistory: { icon: 'time-outline', iconFocused: 'time', label: 'History', color: DS.info },
-  Earnings: { icon: 'cash-outline', iconFocused: 'cash', label: 'Earnings', color: DS.warning },
-  DeliveryProfile: { icon: 'person-outline', iconFocused: 'person', label: 'Profile', color: DS.gray700 },
+  Home: { icon: 'home-outline', iconFocused: 'home', label: 'Home' },
+  Search: { icon: 'search-outline', iconFocused: 'search', label: 'Search' },
+  Categories: { icon: 'grid-outline', iconFocused: 'grid', label: 'Browse' },
+  Saved: { icon: 'heart-outline', iconFocused: 'heart', label: 'Saved' },
+  Cart: { icon: 'bag-outline', iconFocused: 'bag', label: 'Cart' },
+  Profile: { icon: 'person-outline', iconFocused: 'person', label: 'Profile' },
+  Dashboard: { icon: 'speedometer-outline', iconFocused: 'speedometer', label: 'Dashboard' },
+  Products: { icon: 'cube-outline', iconFocused: 'cube', label: 'Products' },
+  Orders: { icon: 'receipt-outline', iconFocused: 'receipt', label: 'Orders' },
+  Analytics: { icon: 'analytics-outline', iconFocused: 'analytics', label: 'Analytics' },
+  SellerProfile: { icon: 'person-outline', iconFocused: 'person', label: 'Profile' },
+  DeliveryDashboard: { icon: 'bicycle-outline', iconFocused: 'bicycle', label: 'Deliveries' },
+  ActiveDelivery: { icon: 'navigate-outline', iconFocused: 'navigate', label: 'Active' },
+  DeliveryHistory: { icon: 'time-outline', iconFocused: 'time', label: 'History' },
+  Earnings: { icon: 'cash-outline', iconFocused: 'cash', label: 'Earnings' },
+  DeliveryProfile: { icon: 'person-outline', iconFocused: 'person', label: 'Profile' },
 };
 
 interface AnimatedTabBarProps extends BottomTabBarProps {
@@ -77,7 +56,7 @@ interface AnimatedTabBarProps extends BottomTabBarProps {
 }
 
 // ─── Badge Component ─────────────────────────────────────────────────────────
-const TabBadge: React.FC<{ count: number }> = ({ count }) => {
+const TabBadge: React.FC<{ count: number; colors: any }> = ({ count, colors }) => {
   const scaleAnim = useRef(new Animated.Value(count > 0 ? 1 : 0)).current;
   const prevCount = useRef(count);
 
@@ -99,7 +78,7 @@ const TabBadge: React.FC<{ count: number }> = ({ count }) => {
 
   return (
     <Animated.View
-      style={[styles.badge, { transform: [{ scale: scaleAnim }], minWidth: count > 9 ? 20 : 18 }]}
+      style={[styles.badge, { backgroundColor: colors.error, transform: [{ scale: scaleAnim }], minWidth: count > 9 ? 20 : 18 }]}
     >
       <Text style={styles.badgeText}>{count > 99 ? '99+' : count}</Text>
     </Animated.View>
@@ -115,26 +94,21 @@ const TabItem: React.FC<{
   accessibilityLabel?: string;
   badgeCount?: number;
   tabIndex: number;
-}> = ({ routeName, isFocused, onPress, onLongPress, accessibilityLabel, badgeCount = 0, tabIndex }) => {
+  colors: any;
+}> = ({ routeName, isFocused, onPress, onLongPress, accessibilityLabel, badgeCount = 0, tabIndex, colors }) => {
   const config = TAB_CONFIG[routeName] ?? {
     icon: 'help-circle-outline',
     iconFocused: 'help-circle',
     label: routeName,
-    color: DS.primary,
   };
 
-  const activeColor = config.color ?? DS.primary;
+  const activeColor = colors.primary;
   const iconName = isFocused ? config.iconFocused : config.icon;
 
-  // Minimal: entry fade only, pill bg + icon scale on focus, press scale
   const entryOpacity = useRef(new Animated.Value(0)).current;
-  const bgScaleAnim = useRef(new Animated.Value(isFocused ? 1 : 0)).current;
   const iconScaleAnim = useRef(new Animated.Value(1)).current;
-  const labelOpacity = useRef(new Animated.Value(isFocused ? 1 : 0.55)).current;
-  const dotOpacity = useRef(new Animated.Value(isFocused ? 1 : 0)).current;
   const pressScale = useRef(new Animated.Value(1)).current;
 
-  // Entry: simple fade, stagger capped at 100ms total
   useEffect(() => {
     Animated.timing(entryOpacity, {
       toValue: 1,
@@ -144,25 +118,17 @@ const TabItem: React.FC<{
     }).start();
   }, []);
 
-  // Focus transition: soft spring
   useEffect(() => {
-    Animated.parallel([
-      Animated.spring(bgScaleAnim, { toValue: isFocused ? 1 : 0, ...SPRING_SOFT }),
-      Animated.spring(iconScaleAnim, { toValue: isFocused ? 1.08 : 1, ...SPRING_SOFT }),
-      Animated.timing(labelOpacity, { toValue: isFocused ? 1 : 0.55, duration: 150, useNativeDriver: true }),
-      Animated.spring(dotOpacity, { toValue: isFocused ? 1 : 0, ...SPRING_SOFT }),
-    ]).start();
+    Animated.spring(iconScaleAnim, { toValue: isFocused ? 1.08 : 1, ...SPRING_SOFT }).start();
   }, [isFocused]);
 
   const handlePressIn = useCallback(() => {
-    Animated.spring(pressScale, { toValue: 0.97, ...SPRING_SNAP }).start();
+    Animated.spring(pressScale, { toValue: 0.9, ...SPRING_SNAP }).start();
   }, []);
 
   const handlePressOut = useCallback(() => {
     Animated.spring(pressScale, { toValue: 1, ...SPRING_SOFT }).start();
   }, []);
-
-  const activeBgColor = activeColor + '15';
 
   return (
     <Animated.View style={[styles.tabItem, { opacity: entryOpacity }]}>
@@ -178,47 +144,18 @@ const TabItem: React.FC<{
         hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
       >
         <Animated.View style={[styles.tabItemInner, { transform: [{ scale: pressScale }] }]}>
-          {/* Icon container */}
           <View style={styles.iconWrapOuter}>
-            {/* Pill background */}
-            <Animated.View
-              style={[
-                styles.iconPill,
-                { backgroundColor: activeBgColor, transform: [{ scaleX: bgScaleAnim }], opacity: bgScaleAnim },
-              ]}
-            />
-            {/* Icon */}
             <Animated.View style={{ transform: [{ scale: iconScaleAnim }] }}>
               <Ionicons
                 name={iconName as any}
                 size={22}
-                color={isFocused ? activeColor : DS.gray400}
+                color={isFocused ? colors.textInverse : colors.textTertiary}
               />
             </Animated.View>
-            {/* Badge */}
             <View style={styles.badgeWrapper}>
-              <TabBadge count={badgeCount} />
+              <TabBadge count={badgeCount} colors={colors} />
             </View>
           </View>
-
-          {/* Label */}
-          <Animated.Text
-            style={[
-              styles.label,
-              { color: isFocused ? activeColor : DS.gray500, opacity: labelOpacity, fontWeight: isFocused ? '700' : '500' },
-            ]}
-            numberOfLines={1}
-          >
-            {config.label}
-          </Animated.Text>
-
-          {/* Active dot */}
-          <Animated.View
-            style={[
-              styles.activeDot,
-              { backgroundColor: activeColor, opacity: dotOpacity, transform: [{ scale: dotOpacity }] },
-            ]}
-          />
         </Animated.View>
       </Pressable>
     </Animated.View>
@@ -234,10 +171,14 @@ const AnimatedTabBar: React.FC<AnimatedTabBarProps> = ({
 }) => {
   const { translateY } = useTabBarVisibility();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const { colors, isDarkMode } = useTheme();
 
-  // Gentle entry: fade + tiny lift (16px only)
   const containerOpacity = useRef(new Animated.Value(0)).current;
   const containerEntry = useRef(new Animated.Value(16)).current;
+
+  // Sliding pill indicator
+  const indicatorPosition = useSharedValue(0);
 
   useEffect(() => {
     Animated.parallel([
@@ -246,7 +187,10 @@ const AnimatedTabBar: React.FC<AnimatedTabBarProps> = ({
     ]).start();
   }, []);
 
-  // Hide/show on scroll
+  useEffect(() => {
+    indicatorPosition.value = withSpring(state.index, { damping: 20, stiffness: 200 });
+  }, [state.index]);
+
   const reanimatedStyle = useAnimatedStyle(() => {
     const opacity = interpolate(translateY.value, [0, 30, 90], [1, 0.7, 0], Extrapolation.CLAMP);
     return {
@@ -255,7 +199,18 @@ const AnimatedTabBar: React.FC<AnimatedTabBarProps> = ({
     };
   });
 
-  const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 12);
+  const numTabs = state.routes.length;
+  // Calculate tab width: Screen width - horizontal padding (32)
+  const tabWidth = (width - 32) / numTabs;
+
+  const indicatorStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateX: indicatorPosition.value * tabWidth }],
+      width: tabWidth,
+    };
+  });
+
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 16 : 24);
 
   return (
     <Reanimated.View style={[styles.outerWrapper, { bottom: bottomInset }, reanimatedStyle]}>
@@ -265,6 +220,16 @@ const AnimatedTabBar: React.FC<AnimatedTabBarProps> = ({
           { opacity: containerOpacity, transform: [{ translateY: containerEntry }] },
         ]}
       >
+        <BlurView intensity={20} tint={isDarkMode ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+        <View style={StyleSheet.absoluteFillObject}>
+            <View style={{ flex: 1, backgroundColor: colors.surfaceElevated }} />
+        </View>
+
+        {/* Sliding Pill Indicator */}
+        <Reanimated.View style={[styles.indicatorWrapper, indicatorStyle]}>
+           <View style={[styles.indicatorPill, { backgroundColor: colors.primary }]} />
+        </Reanimated.View>
+
         <View style={styles.tabsRow}>
           {state.routes.map((route, index) => {
             const { options } = descriptors[route.key];
@@ -296,6 +261,7 @@ const AnimatedTabBar: React.FC<AnimatedTabBarProps> = ({
                 accessibilityLabel={options.tabBarAccessibilityLabel}
                 badgeCount={badgeCount}
                 tabIndex={index}
+                colors={colors}
               />
             );
           })}
@@ -314,80 +280,72 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   tabBarContainer: {
-    backgroundColor: DS.card,
-    borderRadius: DS.radius.xl + 8,
-    paddingHorizontal: 4,
-    paddingTop: 6,
-    paddingBottom: Platform.OS === 'ios' ? 6 : 8,
-    shadowColor: '#0F172A',
+    borderRadius: 999,
+    overflow: 'hidden',
+    height: 64,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.10,
+    shadowOpacity: 0.30,
     shadowRadius: 20,
     elevation: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(241,245,249,0.90)',
   },
   tabsRow: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    position: 'relative',
+    zIndex: 2,
+  },
+  indicatorWrapper: {
+    position: 'absolute',
+    height: '100%',
+    top: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  indicatorPill: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
   },
   tabItem: {
     flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    height: '100%',
   },
   tabPressable: {
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
+    height: '100%',
   },
   tabItemInner: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 4,
-    minHeight: 52,
   },
   iconWrapOuter: {
-    height: 36,
-    minWidth: 52,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
-    marginBottom: 2,
-  },
-  iconPill: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: DS.radius.full,
-  },
-  label: {
-    fontSize: 10,
-    letterSpacing: -0.1,
-    lineHeight: 14,
-    textAlign: 'center',
-  },
-  activeDot: {
-    width: 4,
-    height: 4,
-    borderRadius: DS.radius.full,
-    marginTop: 3,
   },
   badgeWrapper: {
     position: 'absolute',
-    top: -4,
-    right: 0,
+    top: -6,
+    right: -10,
     zIndex: 10,
   },
   badge: {
     height: 18,
-    borderRadius: DS.radius.full,
-    backgroundColor: DS.error,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: DS.card,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
     paddingHorizontal: 4,
   },
   badgeText: {

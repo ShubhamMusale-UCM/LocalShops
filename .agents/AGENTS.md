@@ -36,26 +36,23 @@ Hyperlocal Shop Discovery & Commerce Platform (Monorepo).
 - Do not touch files outside the scope of the assigned task.
 - If an API or library usage is uncertain, inspect existing workspace usage or request docs instead of hallucinating parameters.
 
-## Design Tokens & Theme Context (Blinkit/Instamart Style)
-- **Primary Color**: `#0D9488` (Teal/Blinkit-style green) | Dark: `#0F766E` | Light: `#CCFBF1` | Faded: `rgba(13, 148, 136, 0.1)`
+## Design Tokens & Theme Context (Dark Sky Blue / Neon Style)
+- **Backgrounds**: Screen: `#050814` (Deep Dark Blue/Black) | Card: `rgba(255,255,255,0.02)` | Modal Overlay: `rgba(0, 0, 0, 0.7)`
+- **Primary Color**: `#38BDF8` (Sky Blue) | Dark/Border: `rgba(56, 189, 248, 0.2)` | Faded: `rgba(56, 189, 248, 0.1)`
 - **Secondary/Action Colors**:
-  - Success: `#10B981` / `#059669`
-  - Error: `#EF4444` / `#DC2626`
-  - Warning: `#F59E0B` / `#D97706`
-  - Info: `#3B82F6` / `#2563EB`
-  - Purple: `#8B5CF6` / `#7C3AED`
-  - WhatsApp: `#25D366` / `#128C7E`
+  - Success: `#10B981`
+  - Error: `#EF4444`
+  - Warning: `#F59E0B`
+  - WhatsApp: `#25D366`
 - **Neutrals**:
-  - Text Primary: `#1F2937` (Gray 900) | Secondary: `#6B7280` (Gray 600) | Placeholder: `#9CA3AF` (Gray 500)
-  - Borders: `#F1F5F9` | Input Border: `#E2E8F0`
-  - Gray Scale: 50: `#F9FAFB`, 100: `#F3F4F6`, 200: `#EEF2F6`, 300: `#E5E7EB`, 400: `#D1D5DB`, 700: `#4B5563`, 800: `#374151`
-- **Backgrounds**: Screen: `#F8FAFC` | Card: `#FFFFFF` | Modal Overlay: `rgba(0, 0, 0, 0.5)`
-- **Typography Hierarchy**:
-  - Headings: 24px-32px (font-weight 700-800)
-  - Subheadings: 18px-20px (font-weight 600-700)
-  - Body: 14px-16px (font-weight 400-500)
-  - Captions: 11px-12px (font-weight 500)
-  - Price: 22px-28px (font-weight 700-800, color `#0D9488`)
+  - Text Primary: `#FFFFFF` | Text Secondary: `rgba(255,255,255,0.6)` | Placeholder: `rgba(255,255,255,0.4)`
+  - Borders: `rgba(255,255,255,0.05)` | Input Border: `rgba(255,255,255,0.1)`
+- **Typography Hierarchy (Use Inter & Outfit)**:
+  - Headings (Outfit): 20px-24px (font-weight 700-800)
+  - Subheadings (Inter): 16px-18px (font-weight 600-700)
+  - Body (Inter): 13px-14px (font-weight 400-500)
+  - Captions (Inter): 10px-12px (font-weight 500-600)
+  - Price (Outfit): 14px-18px (font-weight 800, color `#38BDF8`)
 - **Spacing Scale**: xs: 4px, sm: 8px, md: 12px, lg: 16px, xl: 20px, 2xl: 24px, screenHorizontal: 16px
 - **Border Radius**: sm: 8px, md: 12px, lg: 16px, xl: 24px, full: 999px
 - **Shadows**:
@@ -94,3 +91,16 @@ When running multiple agents in parallel, respect folder boundaries strictly:
 - `npx prisma migrate reset` or database drop commands
 - Any command containing `production` or `eas submit`
 - Direct editing of native build files inside `/android` or `/ios`
+
+## Overview of Setup Files Created
+
+| File | Purpose |
+|------|---------|
+| `AGENTS.md` | Central brain file for CityLocalShop (stack, Dark Sky Blue / Neon design tokens, conventions, domain splits, permissions). |
+| `AGENTS.md` (Root) | Global workspace pointer to `CityLocalShop/.agents/AGENTS.md`. |
+| `new-screen` SKILL | Skill for building standard React Native Expo screens with 4 UI states, Dark Sky Blue design tokens, & SafeAreaView. |
+| `api-service` SKILL | Skill for building typed Axios API services with Zod validation & standard error handling. |
+| `write-tests` SKILL | Skill for generating Jest + React Native Testing Library test suites. |
+| `/newfeature` Workflow | Custom macro command for building full feature skeletons. |
+| `/review` Workflow | Custom macro command for automated code and design system compliance reviews. |
+| `/optimize` Workflow | Custom macro command for performance & re-render optimizations. |

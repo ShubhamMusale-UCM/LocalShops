@@ -16,6 +16,14 @@ import { useLocationStore } from './src/store/locationStore';
 import { useAuthInit } from './src/hooks/useAuthInit';
 import { socketService } from './src/services/socketService';
 import { registerPushToken, setupNotificationListeners } from './src/services/notificationSetupService';
+import * as SplashScreen from 'expo-splash-screen';
+import { Asset } from 'expo-asset';
+import { ReanimatedWarmup } from './src/components/ui/ReanimatedWarmup';
+
+// Keep the splash screen visible while we fetch resources
+SplashScreen.preventAutoHideAsync().catch(() => {
+  // Ignore error if splash screen is already hidden
+});
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -51,6 +59,54 @@ const App = () => {
   const setPermission = useLocationStore((s) => s.setPermission);
   const setLocation = useLocationStore((s) => s.setLocation);
   const setLoading = useLocationStore((s) => s.setLoading);
+  
+  const [appIsReady, setAppIsReady] = React.useState(false);
+  const [assetsLoaded, setAssetsLoaded] = React.useState(false);
+  const [reanimatedWarmedUp, setReanimatedWarmedUp] = React.useState(false);
+
+  // Preload local assets
+  React.useEffect(() => {
+    async function loadAssets() {
+      try {
+        await Asset.loadAsync([
+          require('./assets/avatar.png'),
+          require('./assets/products_icon.png'),
+          require('./assets/shops_icon.png'),
+          require('./assets/explore_icon.png'),
+          require('./assets/cat_fruits_veggies.png'),
+          require('./assets/cat_dairy_eggs.png'),
+          require('./assets/cat_snacks_munchies.png'),
+          require('./assets/cat_beverages.png'),
+          require('./assets/cat_electronics.png'),
+          require('./assets/deal_saver.png'),
+          require('./assets/deal_lightning.png'),
+          require('./assets/prod_milk.png'),
+          require('./assets/prod_bread.png'),
+          require('./assets/prod_bananas.png'),
+          require('./assets/prod_apple.png'),
+        ]);
+      } catch (e) {
+        console.warn('Asset loading error:', e);
+      } finally {
+        setAssetsLoaded(true);
+      }
+    }
+    loadAssets();
+  }, []);
+
+  // Determine readiness
+  React.useEffect(() => {
+    if (fontsLoaded && isAuthHydrated && assetsLoaded && reanimatedWarmedUp) {
+      setAppIsReady(true);
+    }
+  }, [fontsLoaded, isAuthHydrated, assetsLoaded, reanimatedWarmedUp]);
+
+  // Hide splash screen
+  React.useEffect(() => {
+    if (appIsReady) {
+      SplashScreen.hideAsync();
+    }
+  }, [appIsReady]);
 
   React.useEffect(() => {
     if (!enableSocket || !accessToken) {
@@ -130,10 +186,10 @@ const App = () => {
     };
   }, [setLoading, setLocation, setPermission]);
 
-  if (!fontsLoaded || !isAuthHydrated) {
+  if (!appIsReady) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="large" />
+      <View style={{ flex: 1 }}>
+        <ReanimatedWarmup onWarmupComplete={() => setReanimatedWarmedUp(true)} />
       </View>
     );
   }
@@ -142,7 +198,7 @@ const App = () => {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
           <QueryClientProvider client={queryClient}>
-            <StatusBar style="dark" translucent={true} backgroundColor="transparent" />
+            <StatusBar style="auto" translucent={true} backgroundColor="transparent" />
             <RootNavigator />
           </QueryClientProvider>
         </SafeAreaProvider>

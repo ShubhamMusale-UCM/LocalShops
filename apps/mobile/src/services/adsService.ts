@@ -56,6 +56,8 @@ interface AdStats {
   ads: Ad[];
 }
 
+const trackedImpressionsCache = new Set<string>();
+
 const adsService = {
   getTrending: async (limit = 10) => {
     const response = await apiClient.get('/ads/trending', { params: { limit } });
@@ -85,6 +87,27 @@ const adsService = {
   trackClick: async (adId: string) => {
     const response = await apiClient.post(`/ads/${adId}/click`, {});
     return response.data?.data || response.data;
+  },
+
+  trackImpressions: async (adIds: string[]) => {
+    if (!adIds || adIds.length === 0) return;
+
+    // Deduplicate impressions on the frontend so we don't spam the server
+    // for the same ad in a single app session.
+    const untrackedIds = adIds.filter((id) => !trackedImpressionsCache.has(id));
+    
+    if (untrackedIds.length === 0) return;
+
+    // Mark as tracked
+    untrackedIds.forEach((id) => trackedImpressionsCache.add(id));
+
+    try {
+      await apiClient.post('/ads/impression', { adIds: untrackedIds });
+    } catch (error) {
+      console.warn('Failed to track impressions', error);
+      // If network fails, allow retrying later
+      untrackedIds.forEach((id) => trackedImpressionsCache.delete(id));
+    }
   },
 
   /**

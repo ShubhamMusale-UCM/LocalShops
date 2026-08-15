@@ -39,6 +39,9 @@ import { useCartStore, CartItem } from '../../store/cartStore';
 import { useAuthStore } from '../../store/authStore';
 import { sanitizeImageUrl, getSingleImageUrl } from '../../utils/image';
 import { useTheme } from '../../theme';
+import { GlassPanel, GlassCard, GlassButton } from '../../components/ui/Glassmorphism';
+import AmbientOrbs from '../../components/ui/AmbientOrbs';
+import { BlurView } from 'expo-blur';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -47,7 +50,7 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: colors.background,
+      backgroundColor: '#050814',
     },
     header: {
       flexDirection: 'row',
@@ -55,19 +58,15 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       justifyContent: 'space-between',
       paddingHorizontal: 16,
       paddingVertical: 12,
-      backgroundColor: colors.surface,
       borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      borderBottomColor: 'rgba(255,255,255,0.05)',
     },
     headerBtn: {
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: colors.background,
       alignItems: 'center',
       justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: colors.border,
     },
     headerCenter: {
       flexDirection: 'row',
@@ -76,12 +75,12 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
     },
     headerTitle: {
       fontSize: 18,
-      fontWeight: '700',
-      color: colors.text,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FFFFFF',
       letterSpacing: -0.3,
     },
     headerBadge: {
-      backgroundColor: colors.primary,
+      backgroundColor: '#38BDF8',
       paddingHorizontal: 8,
       paddingVertical: 2,
       borderRadius: radius.full,
@@ -90,7 +89,7 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
     },
     headerBadgeText: {
       fontSize: 12,
-      fontWeight: '700',
+      fontFamily: 'Outfit_700Bold',
       color: '#FFFFFF',
     },
     clearBtn: {
@@ -99,8 +98,8 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
     },
     clearBtnText: {
       fontSize: 14,
-      fontWeight: '600',
-      color: colors.error,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#EF4444',
     },
     emptyWrap: {
       flex: 1,
@@ -113,22 +112,22 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       width: 120,
       height: 120,
       borderRadius: 60,
-      backgroundColor: colors.primary + '15',
+      backgroundColor: 'rgba(56, 189, 248, 0.15)',
       alignItems: 'center',
       justifyContent: 'center',
       marginBottom: 24,
     },
     emptyTitle: {
       fontSize: 22,
-      fontWeight: '800',
-      color: colors.text,
+      fontFamily: 'Outfit_800ExtraBold',
+      color: '#FFFFFF',
       marginBottom: 8,
       letterSpacing: -0.3,
     },
     emptySubtitle: {
       fontSize: 14,
-      fontWeight: '400',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_400Regular',
+      color: 'rgba(255,255,255,0.6)',
       textAlign: 'center',
       lineHeight: 20,
       marginBottom: 28,
@@ -144,19 +143,17 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
     },
     emptyBtnText: {
       fontSize: 15,
-      fontWeight: '700',
+      fontFamily: 'Outfit_700Bold',
       color: '#FFFFFF',
     },
     scrollView: { flex: 1 },
     shopSection: {
       marginHorizontal: 16,
       marginTop: 12,
-      backgroundColor: colors.surface,
-      borderRadius: radius.lg,
+      borderRadius: 24,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: 'rgba(255,255,255,0.15)',
       overflow: 'hidden',
-      ...shadows.sm,
     },
     shopHeader: {
       flexDirection: 'row',
@@ -164,9 +161,8 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       justifyContent: 'space-between',
       paddingHorizontal: 16,
       paddingVertical: 14,
-      backgroundColor: colors.background,
       borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      borderBottomColor: 'rgba(255,255,255,0.1)',
     },
     shopHeaderLeft: {
       flexDirection: 'row',
@@ -177,28 +173,27 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       width: 36,
       height: 36,
       borderRadius: 10,
-      backgroundColor: colors.primary + '15',
+      backgroundColor: 'rgba(255,255,255,0.1)',
       alignItems: 'center',
       justifyContent: 'center',
     },
     shopName: {
       fontSize: 15,
-      fontWeight: '700',
-      color: colors.text,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FFFFFF',
       letterSpacing: -0.2,
     },
     shopMeta: {
       fontSize: 12,
-      fontWeight: '500',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_500Medium',
+      color: 'rgba(255,255,255,0.6)',
       marginTop: 1,
     },
     cartItemCard: {
       flexDirection: 'row',
       padding: 14,
-      backgroundColor: colors.surface,
       borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      borderBottomColor: 'rgba(255,255,255,0.05)',
     },
     cartImageWrap: {
       position: 'relative',
@@ -208,13 +203,13 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       width: 72,
       height: 72,
       borderRadius: radius.md,
-      backgroundColor: colors.background,
+      backgroundColor: '#050814',
     },
     cartImagePlaceholder: {
       width: 72,
       height: 72,
-      borderRadius: radius.md,
-      backgroundColor: colors.background,
+      borderRadius: 12,
+      backgroundColor: 'rgba(255,255,255,0.1)',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -222,14 +217,14 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       position: 'absolute',
       top: -4,
       left: -4,
-      backgroundColor: colors.error,
+      backgroundColor: '#EF4444',
       paddingHorizontal: 5,
       paddingVertical: 2,
       borderRadius: 4,
     },
     cartDiscountText: {
       fontSize: 9,
-      fontWeight: '800',
+      fontFamily: 'Outfit_800ExtraBold',
       color: '#FFFFFF',
     },
     cartItemDetails: {
@@ -238,15 +233,15 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
     },
     cartItemName: {
       fontSize: 14,
-      fontWeight: '600',
-      color: colors.text,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#FFFFFF',
       lineHeight: 18,
       marginBottom: 2,
     },
     cartItemUnit: {
       fontSize: 11,
-      fontWeight: '500',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_500Medium',
+      color: 'rgba(255,255,255,0.6)',
       marginBottom: 4,
     },
     cartPriceRow: {
@@ -257,14 +252,14 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
     },
     cartItemPrice: {
       fontSize: 15,
-      fontWeight: '700',
-      color: colors.text,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FFFFFF',
       letterSpacing: -0.2,
     },
     cartItemMrp: {
       fontSize: 12,
-      fontWeight: '500',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_500Medium',
+      color: 'rgba(255,255,255,0.5)',
       textDecorationLine: 'line-through',
     },
     cartItemBottom: {
@@ -274,32 +269,29 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
     },
     cartItemTotal: {
       fontSize: 16,
-      fontWeight: '800',
-      color: colors.primary,
+      fontFamily: 'Outfit_800ExtraBold',
+      color: '#38BDF8',
       letterSpacing: -0.3,
     },
     quantityStepper: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: colors.background,
-      borderRadius: radius.full,
+      backgroundColor: 'rgba(255,255,255,0.05)',
+      borderRadius: 20,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: 'rgba(255,255,255,0.15)',
       padding: 2,
     },
     stepperBtn: {
       width: 32,
       height: 32,
       borderRadius: 16,
-      backgroundColor: colors.surface,
+      backgroundColor: 'transparent',
       alignItems: 'center',
       justifyContent: 'center',
-      ...shadows.sm,
     },
     stepperBtnPrimary: {
-      backgroundColor: colors.primary,
-      shadowColor: colors.primary,
-      shadowOpacity: 0.2,
+      backgroundColor: '#06B6D4',
     },
     stepperCount: {
       minWidth: 32,
@@ -308,8 +300,8 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
     },
     stepperCountText: {
       fontSize: 15,
-      fontWeight: '700',
-      color: colors.text,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FFFFFF',
     },
     swipeDeleteWrap: {
       width: 80,
@@ -324,23 +316,23 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
     },
     swipeDeleteText: {
       fontSize: 11,
-      fontWeight: '600',
+      fontFamily: 'Inter_600SemiBold',
       color: '#FFFFFF',
     },
     summaryCard: {
-      backgroundColor: colors.surface,
       marginHorizontal: 16,
       marginTop: 16,
-      padding: 20,
-      borderRadius: radius.lg,
+      borderRadius: 24,
       borderWidth: 1,
-      borderColor: colors.border,
-      ...shadows.sm,
+      borderColor: 'rgba(255,255,255,0.15)',
+    },
+    summaryCardInner: {
+      padding: 20,
     },
     summaryTitle: {
       fontSize: 16,
-      fontWeight: '700',
-      color: colors.text,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FFFFFF',
       marginBottom: 16,
       letterSpacing: -0.2,
     },
@@ -357,32 +349,32 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
     },
     summaryLabel: {
       fontSize: 14,
-      fontWeight: '400',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_400Regular',
+      color: 'rgba(255,255,255,0.6)',
     },
     summaryValue: {
       fontSize: 14,
-      fontWeight: '600',
-      color: colors.text,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#FFFFFF',
     },
     summaryFree: {
-      color: colors.success,
-      fontWeight: '700',
+      color: '#34D399',
+      fontFamily: 'Outfit_700Bold',
     },
     summaryDivider: {
       height: 1,
-      backgroundColor: colors.border,
+      backgroundColor: 'rgba(255,255,255,0.1)',
       marginVertical: 14,
     },
     summaryTotalLabel: {
       fontSize: 16,
-      fontWeight: '700',
-      color: colors.text,
+      fontFamily: 'Outfit_700Bold',
+      color: '#FFFFFF',
     },
     summaryTotalValue: {
       fontSize: 20,
-      fontWeight: '800',
-      color: colors.primary,
+      fontFamily: 'Outfit_800ExtraBold',
+      color: '#38BDF8',
       letterSpacing: -0.3,
     },
     savingsStrip: {
@@ -392,12 +384,12 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       marginTop: 14,
       paddingTop: 14,
       borderTopWidth: 1,
-      borderTopColor: colors.border,
+      borderTopColor: 'rgba(255,255,255,0.1)',
     },
     savingsText: {
       fontSize: 13,
-      fontWeight: '600',
-      color: colors.success,
+      fontFamily: 'Inter_600SemiBold',
+      color: '#34D399',
     },
     checkoutBar: {
       position: 'absolute',
@@ -409,29 +401,28 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       justifyContent: 'space-between',
       paddingHorizontal: 20,
       paddingTop: 16,
-      backgroundColor: colors.surface,
       borderTopWidth: 1,
-      borderTopColor: colors.border,
-      ...shadows.md,
+      borderTopColor: 'rgba(255,255,255,0.1)',
+      overflow: 'hidden',
     },
     checkoutLeft: {
       flex: 1,
     },
     checkoutLabel: {
       fontSize: 12,
-      fontWeight: '500',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_500Medium',
+      color: 'rgba(255,255,255,0.6)',
     },
     checkoutTotal: {
       fontSize: 24,
-      fontWeight: '800',
-      color: colors.text,
+      fontFamily: 'Outfit_800ExtraBold',
+      color: '#FFFFFF',
       letterSpacing: -0.5,
     },
     checkoutHint: {
       fontSize: 11,
-      fontWeight: '400',
-      color: colors.textSecondary,
+      fontFamily: 'Inter_400Regular',
+      color: 'rgba(255,255,255,0.5)',
       marginTop: 1,
     },
     checkoutBtn: {
@@ -444,7 +435,7 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
     },
     checkoutBtnText: {
       fontSize: 16,
-      fontWeight: '700',
+      fontFamily: 'Outfit_700Bold',
       color: '#FFFFFF',
     },
   });
@@ -492,7 +483,7 @@ const QuantityStepper: React.FC<{
         <Ionicons
           name={quantity === 1 ? 'trash-outline' : 'remove'}
           size={quantity === 1 ? 14 : 16}
-          color={quantity === 1 ? colors.error : colors.primary}
+          color={quantity === 1 ? '#EF4444' : '#38BDF8'}
         />
       </TouchableOpacity>
 
@@ -539,7 +530,7 @@ const CartItemCard: React.FC<{
       activeOpacity={0.8}
     >
       <LinearGradient
-        colors={[colors.error, colors.error + "CC"]}
+        colors={['#EF4444', '#EF4444CC']}
         style={styles.swipeDeleteGradient}
       >
         <Ionicons name="trash-outline" size={22} color="#FFFFFF" />
@@ -570,7 +561,7 @@ const CartItemCard: React.FC<{
               />
             ) : (
               <View style={styles.cartImagePlaceholder}>
-                <Ionicons name="image-outline" size={24} color={colors.textSecondary} />
+                <Ionicons name="image-outline" size={24} color="rgba(255,255,255,0.6)" />
               </View>
             )}
             {discount > 0 && (
@@ -741,20 +732,25 @@ export default function CartScreen() {
   if (cartItems.length === 0) {
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
-            <Ionicons name="arrow-back" size={22} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>My Cart</Text>
-          <View style={{ width: 44 }} />
+        <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+        <AmbientOrbs />
+        <View style={{ zIndex: 10 }}>
+          <GlassPanel intensity={40} style={{ borderRadius: 0, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' }}>
+            <View style={styles.header}>
+              <GlassButton onPress={() => navigation.goBack()} style={styles.headerBtn} intensity={20}>
+                <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
+              </GlassButton>
+              <Text style={styles.headerTitle}>My Cart</Text>
+              <View style={{ width: 44 }} />
+            </View>
+          </GlassPanel>
         </View>
         <Animated.View
           entering={FadeInDown.delay(200).springify().damping(14)}
           style={styles.emptyWrap}
         >
           <View style={styles.emptyIconBg}>
-            <Ionicons name="bag-outline" size={56} color={colors.primary} />
+            <Ionicons name="bag-outline" size={56} color="#38BDF8" />
           </View>
           <Text style={styles.emptyTitle}>Your cart is empty</Text>
           <Text style={styles.emptySubtitle}>
@@ -765,7 +761,7 @@ export default function CartScreen() {
             activeOpacity={0.85}
           >
             <LinearGradient
-              colors={['#35C095', '#0E8D6D']}
+              colors={['#06B6D4', '#0891B2']}
               style={styles.emptyBtn}
             >
               <Ionicons name="storefront-outline" size={18} color="#FFFFFF" />
@@ -779,22 +775,27 @@ export default function CartScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      <AmbientOrbs />
 
       {/* ─── Header ──────────────── */}
-      <Animated.View style={[styles.header, headerAnimatedStyle]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
-          <Ionicons name="arrow-back" size={22} color={colors.text} />
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>My Cart</Text>
-          <View style={styles.headerBadge}>
-            <Text style={styles.headerBadgeText}>{itemCount}</Text>
+      <Animated.View style={[headerAnimatedStyle, { zIndex: 10 }]}>
+        <GlassPanel intensity={40} style={{ borderRadius: 0, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' }}>
+          <View style={styles.header}>
+            <GlassButton onPress={() => navigation.goBack()} style={styles.headerBtn} intensity={20}>
+              <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
+            </GlassButton>
+            <View style={styles.headerCenter}>
+              <Text style={styles.headerTitle}>My Cart</Text>
+              <View style={styles.headerBadge}>
+                <Text style={styles.headerBadgeText}>{itemCount}</Text>
+              </View>
+            </View>
+            <TouchableOpacity onPress={handleClearCart} style={styles.clearBtn}>
+              <Text style={styles.clearBtnText}>Clear</Text>
+            </TouchableOpacity>
           </View>
-        </View>
-        <TouchableOpacity onPress={handleClearCart} style={styles.clearBtn}>
-          <Text style={styles.clearBtnText}>Clear</Text>
-        </TouchableOpacity>
+        </GlassPanel>
       </Animated.View>
 
       {/* ─── Scrollable Content ──── */}
@@ -811,78 +812,81 @@ export default function CartScreen() {
             entering={FadeInDown.delay(shopIdx * 100 + 100)
               .springify()
               .damping(14)}
-            style={styles.shopSection}
           >
-            {/* Shop Header */}
-            <View style={styles.shopHeader}>
-              <View style={styles.shopHeaderLeft}>
-                <View style={styles.shopIconBg}>
-                  <Ionicons name="storefront" size={18} color={colors.primary} />
+            <GlassCard style={styles.shopSection} intensity={20}>
+              {/* Shop Header */}
+              <View style={styles.shopHeader}>
+                <View style={styles.shopHeaderLeft}>
+                  <View style={styles.shopIconBg}>
+                    <Ionicons name="storefront" size={18} color="#06B6D4" />
+                  </View>
+                  <View>
+                    <Text style={styles.shopName}>{shop.shopName}</Text>
+                    <Text style={styles.shopMeta}>
+                      {shop.items.length} {shop.items.length === 1 ? 'item' : 'items'}
+                    </Text>
+                  </View>
                 </View>
-                <View>
-                  <Text style={styles.shopName}>{shop.shopName}</Text>
-                  <Text style={styles.shopMeta}>
-                    {shop.items.length} {shop.items.length === 1 ? 'item' : 'items'}
-                  </Text>
-                </View>
+                <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.5)" />
               </View>
-              <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
-            </View>
 
-            {/* Items */}
-            {shop.items.map((item, idx) => (
-              <CartItemCard
-                key={item.productId}
-                item={item}
-                index={idx}
-                onRemove={handleRemoveItem}
-                onDecrease={handleDecrease}
-                onIncrease={handleIncrease}
-              />
-            ))}
+              {/* Items */}
+              {shop.items.map((item, idx) => (
+                <CartItemCard
+                  key={item.productId}
+                  item={item}
+                  index={idx}
+                  onRemove={handleRemoveItem}
+                  onDecrease={handleDecrease}
+                  onIncrease={handleIncrease}
+                />
+              ))}
+            </GlassCard>
           </Animated.View>
         ))}
 
         {/* ─── Order Summary ───────── */}
         <Animated.View
           entering={FadeInDown.delay(300).springify().damping(14)}
-          style={styles.summaryCard}
         >
-          <Text style={styles.summaryTitle}>Order Summary</Text>
+          <GlassCard style={styles.summaryCard} intensity={20}>
+            <View style={styles.summaryCardInner}>
+              <Text style={styles.summaryTitle}>Order Summary</Text>
 
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>
-              Subtotal ({itemCount} {itemCount === 1 ? 'item' : 'items'})
-            </Text>
-            <Text style={styles.summaryValue}>₹{subtotal.toFixed(0)}</Text>
-          </View>
-
-
-          {platformFee > 0 && (
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryLabelRow}>
-                <Text style={styles.summaryLabel}>Platform Fee</Text>
-                <Ionicons name="information-circle-outline" size={14} color={colors.textTertiary} />
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>
+                  Subtotal ({itemCount} {itemCount === 1 ? 'item' : 'items'})
+                </Text>
+                <Text style={styles.summaryValue}>₹{subtotal.toFixed(0)}</Text>
               </View>
-              <Text style={styles.summaryValue}>₹{platformFee}</Text>
+
+              {platformFee > 0 && (
+                <View style={styles.summaryRow}>
+                  <View style={styles.summaryLabelRow}>
+                    <Text style={styles.summaryLabel}>Platform Fee</Text>
+                    <Ionicons name="information-circle-outline" size={14} color="rgba(255,255,255,0.5)" />
+                  </View>
+                  <Text style={styles.summaryValue}>₹{platformFee}</Text>
+                </View>
+              )}
+
+              <View style={styles.summaryDivider} />
+
+              <View style={[styles.summaryRow, { marginBottom: 0 }]}>
+                <Text style={styles.summaryTotalLabel}>Total to Pay</Text>
+                <Text style={styles.summaryTotalValue}>₹{total.toFixed(0)}</Text>
+              </View>
+
+              {totalSavings > 0 && (
+                <View style={styles.savingsStrip}>
+                  <Ionicons name="pricetag-outline" size={14} color="#22C55E" />
+                  <Text style={styles.savingsText}>
+                    You're saving ₹{totalSavings.toFixed(0)} on this order!
+                  </Text>
+                </View>
+              )}
             </View>
-          )}
-
-          <View style={styles.summaryDivider} />
-
-          <View style={[styles.summaryRow, { marginBottom: 0 }]}>
-            <Text style={styles.summaryTotalLabel}>Total to Pay</Text>
-            <Text style={styles.summaryTotalValue}>₹{total.toFixed(0)}</Text>
-          </View>
-
-          {totalSavings > 0 && (
-            <View style={styles.savingsStrip}>
-              <Ionicons name="pricetag-outline" size={14} color={colors.success} />
-              <Text style={styles.savingsText}>
-                You're saving ₹{totalSavings.toFixed(0)} on this order!
-              </Text>
-            </View>
-          )}
+          </GlassCard>
         </Animated.View>
       </ScrollView>
 
@@ -894,6 +898,7 @@ export default function CartScreen() {
           { paddingBottom: insets.bottom + 12 },
         ]}
       >
+        <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFillObject} />
         <View style={styles.checkoutLeft}>
           <Text style={styles.checkoutLabel}>Total</Text>
           <Text style={styles.checkoutTotal}>₹{total.toFixed(0)}</Text>
@@ -901,7 +906,7 @@ export default function CartScreen() {
         </View>
         <TouchableOpacity onPress={handleCheckout} activeOpacity={0.85}>
           <LinearGradient
-            colors={['#35C095', '#0E8D6D']}
+            colors={['#06B6D4', '#0891B2']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.checkoutBtn}
@@ -914,5 +919,3 @@ export default function CartScreen() {
     </View>
   );
 }
-
-

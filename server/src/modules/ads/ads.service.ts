@@ -239,6 +239,25 @@ export class AdsService {
     });
   }
 
+  async trackAdImpressions(adIds: string[]) {
+    if (!adIds || adIds.length === 0) return;
+
+    // Remove duplicates
+    const uniqueAdIds = Array.from(new Set(adIds));
+
+    try {
+      // Bulk update impressions in a single query to prevent DB locking and scaling issues
+      await prisma.promotedListing.updateMany({
+        where: { id: { in: uniqueAdIds } },
+        data: { impressions: { increment: 1 } },
+      });
+    } catch (error) {
+      console.warn('Failed to track ad impressions in bulk:', error);
+    }
+
+    return { success: true, count: uniqueAdIds.length };
+  }
+
   async getShopPromotionAnalytics(shopId: string) {
     const campaigns = await prisma.promotedListing.findMany({
       where: { shopId },
