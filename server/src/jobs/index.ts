@@ -14,6 +14,7 @@ import { imageProcessingQueue } from './imageProcessing.job';
 import notificationCampaignQueue, {
   scheduleDailyPromotionalNotifications,
 } from './notificationCampaign.job';
+import telemetrySyncQueue, { scheduleTelemetrySync } from './telemetrySync.job';
 
 /**
  * Initialize all background jobs
@@ -26,6 +27,7 @@ export async function initializeBackgroundJobs() {
     await scheduleSubscriptionRenewal();
     await scheduleReviewSentimentAnalysis();
     await scheduleDailyPromotionalNotifications();
+    await scheduleTelemetrySync();
 
     console.log('✅ All background jobs initialized successfully');
 
@@ -35,6 +37,7 @@ export async function initializeBackgroundJobs() {
       dailyAnalytics: dailyAnalyticsQueue,
       imageProcessing: imageProcessingQueue,
       notificationCampaign: notificationCampaignQueue,
+      telemetrySync: telemetrySyncQueue,
     };
   } catch (error) {
     console.error('Failed to initialize background jobs:', error);
@@ -54,6 +57,7 @@ export async function shutdownBackgroundJobs() {
     await dailyAnalyticsQueue.close();
     await imageProcessingQueue.close();
     await notificationCampaignQueue.close();
+    await telemetrySyncQueue.close();
 
     console.log('✅ All background jobs shut down successfully');
   } catch (error) {
@@ -67,4 +71,5 @@ export {
   dailyAnalyticsQueue,
   imageProcessingQueue,
   notificationCampaignQueue,
+  telemetrySyncQueue,
 };

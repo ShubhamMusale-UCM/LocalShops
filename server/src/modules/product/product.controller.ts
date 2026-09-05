@@ -95,6 +95,24 @@ export class ProductController {
     }
   }
 
+  async bulkImport(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { shopId } = req.params;
+      const file = req.file;
+
+      if (!file) {
+        res.status(400).json({ error: 'No CSV file provided.' });
+        return;
+      }
+
+      const result = await productService.bulkImportProducts(shopId, req.user!.id, file.buffer);
+      res.status(201).json(result);
+    } catch (error: any) {
+      const statusCode = error.statusCode || 400;
+      res.status(statusCode).json({ error: error.message });
+    }
+  }
+
   async updateProduct(req: AuthRequest, res: Response): Promise<void> {
     try {
       const validated = updateProductSchema.parse(req.body);
@@ -144,6 +162,17 @@ export class ProductController {
       }
       const result = await productService.getTrendingNearby(lat, lng, radius);
       res.json(result);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async logProductClick(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { keyword } = req.body;
+      await productService.logProductClick(id, keyword);
+      res.json({ success: true });
     } catch (error: any) {
       res.status(error.statusCode || 500).json({ error: error.message });
     }

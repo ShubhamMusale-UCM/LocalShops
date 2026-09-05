@@ -1,8 +1,15 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { MMKV } from 'react-native-mmkv';
 import authService from '../services/authService';
 import { setAuthToken, setRefreshHandler } from '../services/api';
+
+const storage = new MMKV();
+const zustandStorage = {
+  setItem: (name: string, value: string) => storage.set(name, value),
+  getItem: (name: string) => storage.getString(name) ?? null,
+  removeItem: (name: string) => storage.delete(name),
+};
 
 interface User {
   id: string;
@@ -24,7 +31,9 @@ interface AuthState {
   refreshToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  _hasHydrated: boolean;
 
+  setHasHydrated: (state: boolean) => void;
   setUser: (user: User) => void;
   setTokens: (access: string, refresh: string) => void;
   login: (user: User, accessToken: string, refreshToken: string) => void;
@@ -42,6 +51,9 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: null,
       isAuthenticated: false,
       isLoading: false,
+      _hasHydrated: false,
+
+      setHasHydrated: (state) => set({ _hasHydrated: state }),
 
       setUser: (user) => set({ user, activeRole: user.role as AppRole }),
 
@@ -96,7 +108,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'auth-store',
-      storage: createJSONStorage(() => AsyncStorage),
+      storage: createJSONStorage(() => zustandStorage),
       version: 1,
       partialize: (state) => ({
         user: state.user,
@@ -106,6 +118,7 @@ export const useAuthStore = create<AuthState>()(
         isAuthenticated: state.isAuthenticated,
       }),
       onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
         setAuthToken(state?.accessToken || null);
       },
     }

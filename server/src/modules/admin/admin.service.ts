@@ -34,6 +34,33 @@ class AdminService {
     };
   }
 
+  async getAnalytics() {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const [recentSignups, recentOrders, orderStatusDistribution] = await Promise.all([
+      prisma.user.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
+      prisma.order.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
+      prisma.order.groupBy({
+        by: ['status'],
+        _count: { status: true },
+      }),
+    ]);
+
+    // Format order distribution
+    const distribution = orderStatusDistribution.reduce((acc, curr) => {
+      acc[curr.status] = curr._count.status;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return {
+      recentSignups,
+      recentOrders,
+      orderStatusDistribution: distribution,
+      timeframe: 'last_7_days'
+    };
+  }
+
   async getUsers(query: AdminListQuery) {
     const page = query.page || 1;
     const limit = query.limit || 20;
@@ -100,7 +127,22 @@ class AdminService {
     });
   }
 
-  async getShops(page = 1, limit = 20, search?: string) {
+  async setUserStatus(userId: string, isActive: boolean) {
+    return prisma.user.update({
+      where: { id: userId },
+      data: { isActive },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        role: true,
+        isActive: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  async getShops(page = 1, limit = 20, search?: string, status?: string) {
     const skip = (page - 1) * limit;
 
     const where: any = {};
@@ -110,6 +152,10 @@ class AdminService {
         { city: { contains: search, mode: 'insensitive' } },
         { category: { contains: search, mode: 'insensitive' } },
       ];
+    }
+    
+    if (status === 'pending') {
+      where.isVerified = false;
     }
 
     const [items, total] = await Promise.all([

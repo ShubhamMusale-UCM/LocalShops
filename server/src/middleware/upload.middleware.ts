@@ -18,6 +18,28 @@ const fileFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterC
   }
 };
 
+const csvFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  const allowedCsvMimeTypes = [
+    'text/csv', 'application/csv', 'application/vnd.ms-excel'
+  ];
+
+  // Some browsers send CSVs as other mime types, so we also check extension
+  const ext = path.extname(file.originalname).toLowerCase();
+  
+  if (allowedCsvMimeTypes.includes(file.mimetype) || ext === '.csv') {
+    cb(null, true);
+  } else {
+    cb(new Error(`File type ${file.mimetype} not allowed. Only CSV files are allowed.`));
+  }
+};
+
+// CSV file upload
+export const uploadCsv = multer({
+  storage,
+  fileFilter: csvFilter,
+  limits: { fileSize: MAX_FILE_SIZE },
+}).single('file');
+
 // Single image upload
 export const uploadSingle = multer({
   storage,

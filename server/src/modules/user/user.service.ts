@@ -8,6 +8,7 @@ export class UserService {
       include: {
         shops: { where: { isActive: true }, select: { id: true, name: true, slug: true } },
         _count: { select: { orders: true, reviews: true, savedShops: true } },
+        addressBook: true,
       },
     });
     if (!user) throw new AppError('User not found.', 404);
@@ -20,6 +21,37 @@ export class UserService {
     address?: string; city?: string; pincode?: string;
   }) {
     return prisma.user.update({ where: { id: userId }, data });
+  }
+
+  async upgradeToSeller(userId: string) {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { role: 'SELLER' },
+    });
+    
+    // Check if shop already exists
+    const existingShop = await prisma.shop.findFirst({ where: { ownerId: userId } });
+    if (!existingShop) {
+       await prisma.shop.create({
+          data: {
+             ownerId: userId,
+             name: user.name ? `${user.name}'s Shop` : 'My Store',
+             slug: `shop-${userId}-${Date.now()}`,
+             description: 'Welcome to my shop!',
+             category: 'General',
+             phone: user.phone || '0000000000',
+             address: user.address || '123 Local Street',
+             city: user.city || 'City',
+             state: 'State',
+             pincode: user.pincode || '000000',
+             latitude: user.latitude || 0,
+             longitude: user.longitude || 0,
+             operatingHours: { "monday": "9 AM - 6 PM" }
+          }
+       });
+    }
+
+    return user;
   }
 
   async updateLocation(userId: string, latitude: number, longitude: number, address?: string) {
@@ -51,6 +83,23 @@ export class UserService {
       pendingEarnings,
       earnings,
     };
+  }
+  async createSupportTicket(userId: string, data: { subject: string; description: string; orderId?: string }) {
+    return prisma.supportTicket.create({
+      data: {
+        userId,
+        subject: data.subject,
+        description: data.description,
+        orderId: data.orderId,
+      }
+    });
+  }
+
+  async getSupportTickets(userId: string) {
+    return prisma.supportTicket.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' }
+    });
   }
 }
 

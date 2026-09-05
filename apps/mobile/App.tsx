@@ -13,7 +13,6 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 import { ErrorBoundary } from './src/components/ui/ErrorBoundary';
 import { useAuthStore } from './src/store/authStore';
 import { useLocationStore } from './src/store/locationStore';
-import { useAuthInit } from './src/hooks/useAuthInit';
 import { socketService } from './src/services/socketService';
 import { registerPushToken, setupNotificationListeners } from './src/services/notificationSetupService';
 import * as SplashScreen from 'expo-splash-screen';
@@ -29,8 +28,8 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 2,
-      staleTime: 5 * 60 * 1000, // 5 minutes
-      gcTime: 10 * 60 * 1000,   // 10 minutes
+      staleTime: 30 * 1000, // 30 seconds
+      gcTime: 5 * 60 * 1000, // 5 minutes
     },
   },
 });
@@ -43,7 +42,7 @@ Sentry.init({
 
 const App = () => {
   const enableSocket = process.env.EXPO_PUBLIC_ENABLE_SOCKET === 'true';
-  const isAuthHydrated = useAuthInit(); // Initialize auth from persisted storage
+  const isAuthHydrated = useAuthStore((s) => s._hasHydrated);
   const [poppinsLoaded] = usePoppins({
     Poppins_700Bold,
     Poppins_600SemiBold,

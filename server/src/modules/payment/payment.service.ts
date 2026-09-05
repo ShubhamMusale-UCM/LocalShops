@@ -7,12 +7,29 @@ export class PaymentService {
    * Create a Razorpay order for online payment
    */
   async createPaymentOrder(orderId: string, userId: string) {
-    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    const order = await prisma.order.findUnique({ 
+      where: { id: orderId },
+      include: { shop: true }
+    });
     if (!order) throw new AppError('Order not found.', 404);
     if (order.userId !== userId) throw new AppError('Not authorized.', 403);
     if (order.paymentStatus === 'COMPLETED') throw new AppError('Payment already completed.', 400);
 
-    const razorpayOrder = await createRazorpayOrder(order.total, order.orderNumber);
+    let transfers: any[] = [];
+    if (order.shop.razorpayAccountId) {
+      // Platform keeps platformFee, seller gets the rest
+      const sellerAmount = (order.total - order.platformFee) * 100;
+      transfers = [{
+        account: order.shop.razorpayAccountId,
+        amount: Math.round(sellerAmount),
+        currency: 'INR',
+        notes: { orderId: order.id },
+        linked_account_notes: ['orderId'],
+        on_hold: 0
+      }];
+    }
+
+    const razorpayOrder = await createRazorpayOrder(order.total, order.orderNumber, undefined, transfers);
 
     // Store razorpay order ID against our order
     await prisma.order.update({
@@ -50,9 +67,9 @@ export class PaymentService {
 
     // ═══════════════════════════════════════════════════════════════════
     // TESTING BYPASS: Skip Razorpay verification for testing
-    // In production, this should be false
+    // In production, this bypass is strictly disabled.
     // ═══════════════════════════════════════════════════════════════════
-    const SKIP_PAYMENT_VERIFICATION = process.env.SKIP_PAYMENT_VERIFICATION === 'true';
+    const SKIP_PAYMENT_VERIFICATION = process.env.NODE_ENV !== 'production' && process.env.SKIP_PAYMENT_VERIFICATION === 'true';
     
     if (SKIP_PAYMENT_VERIFICATION) {
       console.log(`✅ TESTING MODE: Payment verification bypassed for order ${data.orderId}`);

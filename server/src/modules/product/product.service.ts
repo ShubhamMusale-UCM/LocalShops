@@ -1,6 +1,6 @@
 import prisma from '../../config/database';
 import { AppError } from '../../middleware/errorHandler.middleware';
-import { cacheGet, cacheSet, cacheDelete, cacheDeletePattern } from '../../config/redis';
+import redis, { cacheGet, cacheSet, cacheDelete, cacheDeletePattern } from '../../config/redis';
 import { searchProducts, getComparableProducts } from './product.search';
 
 export class ProductService {
@@ -50,7 +50,23 @@ export class ProductService {
    */
   async getProductById(productId: string) {
     const cacheKey = `product:${productId}`;
-    const cached = await cacheGet(cacheKey);
+    const cached: any = await cacheGet(cacheKey);
+
+    // Fire and forget logging (outside cache block to capture all views)
+    let shopId = cached?.shop?.id;
+
+    if (!cached) {
+      const product = await prisma.product.findUnique({
+        where: { id: productId },
+        include: { shop: { select: { id: true } } }
+      });
+      if (product) shopId = product.shop.id;
+    }
+
+    if (shopId) {
+      this.logProductView(productId, shopId).catch(() => {});
+    }
+
     if (cached) return cached;
 
     const product = await prisma.product.findUnique({
@@ -76,14 +92,20 @@ export class ProductService {
 
     if (!product || !product.isActive) throw new AppError('Product not found.', 404);
 
-    // Increment view count (fire and forget)
-    prisma.product.update({
-      where: { id: productId },
-      data: { viewCount: { increment: 1 } },
-    }).catch(() => {});
-
     await cacheSet(cacheKey, product, 300); // 5 min cache
     return product;
+  }
+
+  /**
+   * Log product view asynchronously
+   */
+  async logProductView(productId: string, shopId: string) {
+    try {
+      await redis.hincrby('telemetry:views:product', productId, 1);
+      await redis.hincrby('telemetry:views:shop', shopId, 1);
+    } catch (e) {
+      console.error('Failed to buffer product view in redis:', e);
+    }
   }
 
   /**
@@ -212,6 +234,144 @@ export class ProductService {
     return searchProducts({
       latitude, longitude, radius, sort: 'newest', limit,
     });
+  }
+
+  /**
+   * Bulk import products from CSV
+   */
+  async bulkImportProducts(shopId: string, ownerId: string, csvBuffer: Buffer) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
+
+    // Dynamic import to support both commonjs and esm parsing if needed
+    const { parse } = await import('csv-parse/sync');
+
+    let records;
+    try {
+      records = parse(csvBuffer, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      });
+    } catch (err: any) {
+      throw new AppError(`Failed to parse CSV: ${err.message}`, 400);
+    }
+
+    if (!records || records.length === 0) {
+      throw new AppError('CSV file is empty or missing headers.', 400);
+    }
+
+    const successRows: any[] = [];
+    const errorRows: { row: number; error: string }[] = [];
+
+    // Optional limits check
+    const productCount = await prisma.product.count({ where: { shopId, isActive: true } });
+    const limits: Record<string, number> = {
+      FREE: 10, STARTER: 50, PROFESSIONAL: 999999, PREMIUM: 999999,
+    };
+    const maxAllowed = limits[shop.subscriptionPlan] || 10;
+    
+    if (productCount + records.length > maxAllowed) {
+      throw new AppError(`Bulk import exceeds product limit for ${shop.subscriptionPlan} plan. Available slots: ${Math.max(0, maxAllowed - productCount)}`, 400);
+    }
+
+    // Process rows
+    for (let i = 0; i < records.length; i++) {
+      const row = records[i] as any;
+      try {
+        if (!row.name || !row.price || !row.description) {
+          throw new Error('Missing required fields: name, price, description');
+        }
+
+        const price = parseFloat(row.price);
+        const mrp = row.mrp ? parseFloat(row.mrp) : undefined;
+        let discount = 0;
+        if (mrp && price && !row.discount) {
+          discount = Math.round(((mrp - price) / mrp) * 100);
+        } else if (row.discount) {
+          discount = parseInt(row.discount, 10);
+        }
+
+        const tags = row.tags ? row.tags.split(',').map((t: string) => t.trim()) : [];
+        const quantity = row.quantity ? parseInt(row.quantity, 10) : 0;
+        const inStock = quantity > 0 || row.inStock === 'true' || row.inStock === '1';
+
+        const searchVector = [row.name, row.description, row.brand, ...tags].filter(Boolean).join(' ');
+
+        successRows.push({
+          shopId,
+          name: row.name,
+          description: row.description,
+          price,
+          mrp,
+          discount,
+          category: row.category || 'Uncategorized',
+          subCategory: row.subCategory || null,
+          brand: row.brand || null,
+          quantity,
+          inStock,
+          tags,
+          searchVector,
+          isActive: true,
+          images: [] // Initially empty, users can upload later or via URLs
+        });
+      } catch (err: any) {
+        errorRows.push({ row: i + 1, error: err.message });
+      }
+    }
+
+    if (successRows.length > 0) {
+      await prisma.product.createMany({
+        data: successRows,
+        skipDuplicates: true // Optional: depending on needs
+      });
+      await cacheDeletePattern(`shop:${shopId}*`);
+    }
+
+    return {
+      totalProcessed: records.length,
+      successCount: successRows.length,
+      errorCount: errorRows.length,
+      errors: errorRows,
+    };
+  }
+
+  /**
+   * Log product click (view) and optionally keyword stat
+   */
+  async logProductClick(productId: string, keyword?: string) {
+    try {
+      const product = await prisma.product.update({
+        where: { id: productId },
+        data: { viewCount: { increment: 1 } }
+      });
+
+      if (keyword && keyword.trim().length > 0) {
+        const today = new Date();
+        today.setUTCHours(0, 0, 0, 0);
+        
+        await prisma.searchKeywordStat.upsert({
+          where: {
+            shopId_keyword_date: {
+              shopId: product.shopId,
+              keyword: keyword.trim().toLowerCase(),
+              date: today
+            }
+          },
+          update: { clicks: { increment: 1 } },
+          create: {
+            shopId: product.shopId,
+            keyword: keyword.trim().toLowerCase(),
+            date: today,
+            searches: 0,
+            clicks: 1
+          }
+        }).catch(e => console.error('Error tracking keyword click:', e));
+      }
+    } catch (e) {
+      console.error('Failed to log product click:', e);
+    }
   }
 }
 

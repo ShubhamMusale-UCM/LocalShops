@@ -46,6 +46,7 @@ import { useSearchStore } from '../../store/searchStore';
 import productService from '../../services/productService';
 import shopService from '../../services/shopService';
 import adsService from '../../services/adsService';
+import telemetryService from '../../services/telemetryService';
 
 // Theme & Utils
 import { useTheme } from '../../theme';
@@ -212,7 +213,11 @@ export default function HomeScreen() {
       }
 
       try {
-        const prodRes = await productService.getTrending(memoLat, memoLng, radiusRange);
+        const [prodRes, adRes] = await Promise.all([
+          productService.getTrending(memoLat, memoLng, radiusRange),
+          adsService.getTrending(30, undefined, activeCategory !== 'all' ? activeCategory : undefined, memoLat, memoLng)
+        ]);
+
         const prodData = prodRes?.data;
         let products: any[] = [];
         
@@ -222,17 +227,22 @@ export default function HomeScreen() {
           products = prodData;
         }
         
-        setTrendingProducts(products);
+        // Merge sponsored ads and remove duplicates
+        const adProducts = Array.isArray(adRes) ? adRes : [];
+        const combined = [...adProducts, ...products].filter(
+          (v, i, a) => a.findIndex((t) => t.id === v.id) === i
+        );
+        
+        setTrendingProducts(combined);
         
         // Track impressions for sponsored items
-        const sponsoredIds = products
-          .filter(p => p.isSponsored && p.sponsoredListingId)
-          .map(p => p.sponsoredListingId);
-          
-        if (sponsoredIds.length > 0) {
-          adsService.trackImpressions(sponsoredIds);
-        }
-      } catch {
+        combined
+          .filter((p: any) => p.isBoosted && p.campaignId)
+          .forEach((p: any) => {
+            telemetryService.trackImpression(p.campaignId, p.id, undefined);
+          });
+      } catch (err) {
+        console.warn('Failed to load trending', err);
         setTrendingProducts([]);
       }
     } finally {
@@ -315,6 +325,7 @@ export default function HomeScreen() {
       image: prod.images ? getProductImageUrl(prod.images) : '',
       unit: prod.unit || '1 unit',
       inStock: true,
+      campaignId: prod.campaignId || undefined,
     });
   }, [addItem]);
 
@@ -667,7 +678,15 @@ export default function HomeScreen() {
               const qty = cartQtyMap[prod.id] || 0;
               const hasImg = prod.images && prod.images.length > 0;
               return (
-                <TactileView key={prod.id} onPress={() => navigation.navigate('ProductDetail', { productId: prod.id })}>
+                <TactileView key={prod.id} onPress={() => {
+                  if (prod.campaignId) {
+                    telemetryService.trackClick(prod.campaignId, prod.id);
+                  }
+                  navigation.navigate('ProductDetail', { 
+                    productId: prod.id,
+                    campaignId: prod.campaignId || undefined
+                  });
+                }}>
                   <GlassCard isDark={isDarkMode} intensity={20} style={styles.productCardItem}>
                     <View style={[styles.productImageFrame, { backgroundColor: isDarkMode ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.4)' }]}>
                       <Image source={hasImg ? { uri: prod.images[0] } : IMAGES.prodMilk} style={styles.productGraphicImage} resizeMode="contain" />

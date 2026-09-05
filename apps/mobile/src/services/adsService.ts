@@ -59,8 +59,13 @@ interface AdStats {
 const trackedImpressionsCache = new Set<string>();
 
 const adsService = {
-  getTrending: async (limit = 10) => {
-    const response = await apiClient.get('/ads/trending', { params: { limit } });
+  getTrending: async (limit = 10, query?: string, category?: string, lat?: number, lng?: number) => {
+    const params: any = { limit };
+    if (query) params.q = query;
+    if (category && category !== 'all') params.category = category;
+    if (lat !== undefined) params.lat = lat;
+    if (lng !== undefined) params.lng = lng;
+    const response = await apiClient.get('/ads/trending', { params });
     return response.data?.data || response.data || [];
   },
 
@@ -72,6 +77,11 @@ const adsService = {
   getShopPromotionAnalytics: async (shopId: string) => {
     const response = await apiClient.get(`/ads/shop/${shopId}/analytics`);
     return response.data?.data || response.data || { summary: {}, campaigns: [] };
+  },
+
+  getShopDailyMetrics: async (shopId: string, days = 14) => {
+    const response = await apiClient.get(`/ads/shop/${shopId}/daily-metrics`, { params: { days } });
+    return response.data?.data || response.data || [];
   },
 
   getAdAnalytics: async (adId: string) => {

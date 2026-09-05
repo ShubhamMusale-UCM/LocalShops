@@ -28,11 +28,16 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
 
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: { id: true, phone: true, role: true, name: true },
+      select: { id: true, phone: true, role: true, name: true, isActive: true },
     });
 
     if (!user) {
       res.status(401).json({ error: 'Invalid token. User not found.' });
+      return;
+    }
+
+    if (!user.isActive) {
+      res.status(403).json({ error: 'Account has been banned. Please contact support.' });
       return;
     }
 

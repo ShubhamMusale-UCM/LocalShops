@@ -20,10 +20,10 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// OTP sending (very strict)
+// OTP sending (very strict in prod, relaxed for local dev)
 export const otpLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 2,
+  max: isProduction ? 2 : 20,
   message: { error: 'Too many OTP requests. Please wait before trying again.' },
   standardHeaders: true,
   legacyHeaders: false,

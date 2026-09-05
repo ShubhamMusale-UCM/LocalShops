@@ -17,6 +17,15 @@ export const AdminController = {
     }
   },
 
+  getAnalytics: async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await adminService.getAnalytics();
+      res.json({ status: 'success', data });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   getUsers: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { page, limit } = parsePageLimit(req.query);
@@ -41,10 +50,19 @@ export const AdminController = {
     }
   },
 
+  updateUserStatus: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await adminService.setUserStatus(req.params.userId, Boolean(req.body.isActive));
+      res.json({ status: 'success', data });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   getShops: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { page, limit } = parsePageLimit(req.query);
-      const data = await adminService.getShops(page, limit, req.query.search as string | undefined);
+      const data = await adminService.getShops(page, limit, req.query.search as string | undefined, req.query.status as string | undefined);
       res.json({ status: 'success', data });
     } catch (error) {
       next(error);

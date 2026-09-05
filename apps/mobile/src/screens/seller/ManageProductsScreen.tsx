@@ -17,6 +17,8 @@ import {
   StatusBar,
   Modal,
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import api from '../../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -531,6 +533,47 @@ const ManageProductsScreen: React.FC = () => {
     ]);
   };
 
+  const handleImportCSV = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['text/csv', 'application/csv', 'text/comma-separated-values'],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled) return;
+      if (!currentShopId) return;
+
+      const file = result.assets[0];
+      
+      const formData = new FormData();
+      formData.append('file', {
+        uri: file.uri,
+        name: file.name,
+        type: file.mimeType || 'text/csv',
+      } as any);
+
+      setLoading(true);
+      const response = await api.post(`/products/shop/${currentShopId}/bulk-import`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      const { data } = response.data;
+      Alert.alert(
+        'Import Complete',
+        `Successfully imported ${data.successful} products.\nFailed: ${data.failed}`
+      );
+      
+      await loadProducts();
+    } catch (error: any) {
+      console.error(error);
+      Alert.alert('Import Failed', error.response?.data?.error || 'Could not import CSV');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getFilterCount = (type: FilterType) => {
     switch (type) {
       case 'LOW_STOCK':
@@ -607,12 +650,20 @@ const ManageProductsScreen: React.FC = () => {
           <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>My Products</Text>
-        <TouchableOpacity
-          onPress={() => navigation.navigate('AddProduct')}
-          style={styles.headerBtn}
-        >
-          <Ionicons name="add" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TouchableOpacity
+            onPress={handleImportCSV}
+            style={styles.headerBtn}
+          >
+            <Ionicons name="cloud-upload" size={22} color="#FFFFFF" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('AddProduct')}
+            style={styles.headerBtn}
+          >
+            <Ionicons name="add" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
       </LinearGradient>
 
       {/* ─── Search + Sort ─────────────── */}

@@ -2,6 +2,7 @@ import prisma from '../../config/database';
 import { AppError } from '../../middleware/errorHandler.middleware';
 import { cacheDelete, cacheDeletePattern } from '../../config/redis';
 import { SentimentType } from '@prisma/client';
+import notificationService from '../notification/notification.service';
 
 export class ReviewService {
   /**
@@ -54,6 +55,9 @@ export class ReviewService {
 
     await cacheDelete(`shop:${data.shopId}`);
     if (data.productId) await cacheDelete(`product:${data.productId}`);
+
+    // Notify seller of the new review
+    await notificationService.notifyNewReview(review.id);
 
     return review;
   }

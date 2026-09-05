@@ -104,7 +104,18 @@ api.interceptors.response.use(
     if (statusCode === 401 && !isRefreshRequest) {
       // Token expired — attempt refresh handled by authStore
       const refreshFn = (api as any).__refreshHandler;
-      if (refreshFn) await refreshFn();
+      if (refreshFn) {
+        try {
+          await refreshFn();
+          const newToken = (api as any).__authToken;
+          if (newToken && error.config) {
+            error.config.headers.Authorization = `Bearer ${newToken}`;
+            return api.request(error.config);
+          }
+        } catch (refreshError) {
+          return Promise.reject(refreshError);
+        }
+      }
     }
     return Promise.reject(error);
   }

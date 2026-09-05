@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,9 +13,11 @@ import {
   StatusBar,
   StyleSheet,
   Dimensions,
+  RefreshControl,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop, Circle } from 'react-native-svg';
@@ -44,6 +46,8 @@ interface PromotionCampaignAnalytics {
   budget: number;
   spent: number;
   clicks: number;
+  conversions: number;
+  revenue: number;
   impressions: number;
   searchAppearances: number;
   ctr: number;
@@ -53,7 +57,7 @@ interface PromotionCampaignAnalytics {
   isLive?: boolean;
   isDeletedProduct?: boolean;
   state?: 'LIVE' | 'HISTORY';
-  topKeywords: string[];
+  topKeywords: { keyword: string; impressions: number; clicks: number }[];
 }
 
 type CampaignFilter = 'ALL' | 'ACTIVE' | 'HISTORY';
@@ -158,8 +162,6 @@ const getSafeImageUri = (value?: string | null): string | null => {
   return normalized;
 };
 
-const MOCK_CTR_TREND = [1.2, 1.8, 1.5, 2.4, 2.1, 2.9, 3.4];
-
 export default function PromoteProductScreen() {
   const navigation = useNavigation<any>();
   const [products, setProducts] = useState<Product[]>([]);
@@ -170,10 +172,14 @@ export default function PromoteProductScreen() {
   const [duration, setDuration] = useState('30');
   const [loading, setLoading] = useState(true);
   const [activeAds, setActiveAds] = useState(0);
+  const [showRenewModal, setShowRenewModal] = useState(false);
+  const [renewBudgetAmount, setRenewBudgetAmount] = useState('500');
+  const [selectedCampaignForRenew, setSelectedCampaignForRenew] = useState<PromotionCampaignAnalytics | null>(null);
   const [shopId, setShopId] = useState<string | null>(null);
   const [campaignAnalytics, setCampaignAnalytics] = useState<PromotionCampaignAnalytics[]>([]);
   const [analyticsSummary, setAnalyticsSummary] = useState<any>(null);
   const [campaignFilter, setCampaignFilter] = useState<CampaignFilter>('ALL');
+  const [dailyMetrics, setDailyMetrics] = useState<{date: string; impressions: number; clicks: number}[]>([]);
 
   const { onScroll: _onScroll, scrollEventThrottle } = useHideTabBarOnScroll();
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -197,9 +203,11 @@ export default function PromoteProductScreen() {
     extrapolate: 'clamp',
   });
 
-  useEffect(() => {
-    loadProducts();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadProducts();
+    }, [])
+  );
 
   const loadProducts = async () => {
     try {
@@ -220,6 +228,7 @@ export default function PromoteProductScreen() {
 
       const ads = await adsService.getShopAds(primaryShop.id);
       const promotionAnalytics = await adsService.getShopPromotionAnalytics(primaryShop.id);
+      const metrics = await adsService.getShopDailyMetrics(primaryShop.id);
 
       const productsResponse = await shopService.getProducts(primaryShop.id, { page: 1, sort: 'newest' });
       const productList = Array.isArray(productsResponse.data)
@@ -242,6 +251,7 @@ export default function PromoteProductScreen() {
       );
       setCampaignAnalytics(Array.isArray(promotionAnalytics?.campaigns) ? promotionAnalytics.campaigns : []);
       setAnalyticsSummary(promotionAnalytics?.summary || null);
+      setDailyMetrics(Array.isArray(metrics) ? metrics : []);
     } catch (error) {
       console.error('Failed to load products:', error);
     } finally {
@@ -285,9 +295,29 @@ export default function PromoteProductScreen() {
 
       setShowModal(false);
       Alert.alert('Ad Created', 'Your promotion is active and eligible for boosted ranking.');
-      await loadProducts();
+      setShowModal(false);
+      loadProducts();
+    } catch (error) {
+      Alert.alert('Error', 'Failed to create promotion campaign');
+    }
+  };
+
+  const handleRenewBudget = async () => {
+    if (!selectedCampaignForRenew) return;
+
+    const parsedRenewBudget = Number(renewBudgetAmount);
+    if (!Number.isFinite(parsedRenewBudget) || parsedRenewBudget < 100) {
+      Alert.alert('Invalid Budget', 'Renew budget should be at least ₹100.');
+      return;
+    }
+
+    try {
+      await adsService.renewBudget(selectedCampaignForRenew.id, parsedRenewBudget);
+      Alert.alert('Success', 'Campaign budget renewed successfully!');
+      setShowRenewModal(false);
+      loadProducts();
     } catch (error: any) {
-      Alert.alert('Failed', error?.response?.data?.error || error?.message || 'Could not create ad campaign.');
+      Alert.alert('Error', error?.response?.data?.message || 'Failed to renew campaign budget');
     }
   };
 
@@ -316,7 +346,9 @@ export default function PromoteProductScreen() {
 
   const chartWidth = SCREEN_WIDTH - 64;
   const chartHeight = 64;
-  const { line: chartLine, closed: chartClosed, points: chartPoints } = generateAnalyticsChart(MOCK_CTR_TREND, chartWidth, chartHeight);
+  const ctrTrend = dailyMetrics.map(m => m.impressions > 0 ? (m.clicks / m.impressions) * 100 : 0);
+  const chartData = ctrTrend.length >= 2 ? ctrTrend : [0, 0];
+  const { line: chartLine, closed: chartClosed, points: chartPoints } = generateAnalyticsChart(chartData, chartWidth, chartHeight);
 
   const estimatedMonthlySpend = (parseFloat(dailyBudget) * parseInt(duration)).toFixed(0);
   const estimatedClicks = (parseFloat(estimatedMonthlySpend) / parseFloat(bidPerClick)).toFixed(0);
@@ -387,6 +419,10 @@ export default function PromoteProductScreen() {
                 <Text style={s.miniMetricLbl}>Clicks</Text>
               </View>
               <View style={s.campaignMiniMetric}>
+                <Text style={s.miniMetricVal}>{campaign.conversions.toLocaleString()}</Text>
+                <Text style={s.miniMetricLbl}>Conversions</Text>
+              </View>
+              <View style={s.campaignMiniMetric}>
                 <Text style={s.miniMetricVal}>{campaign.ctr.toFixed(2)}%</Text>
                 <Text style={s.miniMetricLbl}>CTR</Text>
               </View>
@@ -416,10 +452,22 @@ export default function PromoteProductScreen() {
               <View style={s.keywordsRow}>
                 <Ionicons name="search" size={10} color={DS.primary} />
                 <Text style={s.keywordsText} numberOfLines={1}>
-                  Keywords: {campaign.topKeywords.join(', ')}
+                  Keywords: {campaign.topKeywords.map(k => k.keyword).join(', ')}
                 </Text>
               </View>
             ) : null}
+            {!isLive && !campaign.isDeletedProduct && (
+              <Button
+                title="Renew Budget"
+                variant="outline"
+                onPress={() => {
+                  setSelectedCampaignForRenew(campaign);
+                  setShowRenewModal(true);
+                }}
+                style={{ marginTop: 12, borderColor: DS.primary, paddingVertical: 8, minHeight: 36 }}
+                textStyle={{ color: DS.primary, fontSize: 13 }}
+              />
+            )}
           </View>
         </View>
       </View>
@@ -510,6 +558,14 @@ export default function PromoteProductScreen() {
         onScroll={handleScroll}
         scrollEventThrottle={16}
         contentContainerStyle={s.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={loadProducts}
+            colors={['#8B5CF6']}
+            tintColor="#8B5CF6"
+          />
+        }
       >
         {/* Header Hero Section */}
         <View style={s.heroSection}>
@@ -903,6 +959,51 @@ export default function PromoteProductScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Renew Budget Modal */}
+      <Modal visible={showRenewModal} transparent animationType="fade">
+        <View style={s.modalOverlay}>
+          <View style={[s.modalContent, { maxHeight: '50%' }]}>
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>Renew Campaign Budget</Text>
+              <TouchableOpacity onPress={() => setShowRenewModal(false)} style={s.modalCloseBtn}>
+                <Ionicons name="close" size={24} color={DS.gray500} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ padding: 20 }}>
+              <View style={s.inputContainer}>
+                <Text style={s.sliderLabel}>Additional Budget (₹)</Text>
+                <TextInput
+                  style={s.textInput}
+                  keyboardType="numeric"
+                  value={renewBudgetAmount}
+                  onChangeText={setRenewBudgetAmount}
+                  placeholder="Min ₹100"
+                  placeholderTextColor={DS.gray500}
+                />
+                <Text style={s.inputSubHint}>Extend this campaign's lifespan by injecting more budget.</Text>
+              </View>
+
+              <View style={s.modalActions}>
+                <Button
+                  title="Cancel"
+                  variant="outline"
+                  onPress={() => setShowRenewModal(false)}
+                  style={{ flex: 1, borderColor: DS.gray300, minHeight: 44 }}
+                  textStyle={{ color: DS.gray700 }}
+                />
+                <Button
+                  title="Renew"
+                  variant="primary"
+                  onPress={handleRenewBudget}
+                  style={{ flex: 1.3, backgroundColor: DS.primary, minHeight: 44 }}
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1247,6 +1348,17 @@ const s = StyleSheet.create({
   modalProductTitle: { fontSize: 14, fontWeight: '700', color: DS.gray900 },
   modalProductPrice: { fontSize: 13, fontWeight: '600', color: DS.primary, marginTop: 2 },
 
+  textInput: {
+    borderWidth: 1,
+    borderColor: DS.border,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    height: 48,
+    fontSize: 16,
+    color: DS.gray900,
+    marginTop: 8,
+    backgroundColor: '#FFFFFF',
+  },
   inputContainer: { marginBottom: 16 },
   sliderLabel: { fontSize: 13, fontWeight: '700', color: DS.gray900 },
   sliderLabelVal: { color: DS.primary, fontWeight: '800' },

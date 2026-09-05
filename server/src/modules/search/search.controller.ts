@@ -1,6 +1,27 @@
 import { Request, Response, NextFunction } from 'express';
 import searchService from './search.service';
 import { AppError } from '../../middleware/errorHandler.middleware';
+import prisma from '../../config/database';
+
+// Fire-and-forget keyword stat tracking — never blocks the response
+const trackKeywordStats = (keyword: string, products: any[]) => {
+  if (!keyword || keyword.trim().length < 2 || products.length === 0) return;
+  const kw = keyword.trim().toLowerCase();
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  // Collect unique shopIds from matched products
+  const shopIds = Array.from(new Set(products.map((p: any) => p.shopId).filter(Boolean)));
+  
+  // Fire and forget — don't await this
+  Promise.all(shopIds.map(shopId =>
+    prisma.searchKeywordStat.upsert({
+      where: { shopId_keyword_date: { shopId, keyword: kw, date: today } },
+      update: { searches: { increment: 1 } },
+      create: { shopId, keyword: kw, date: today, searches: 1, clicks: 0 },
+    }).catch(() => {}) // Silently ignore DB errors
+  )).catch(() => {});
+};
 
 export const SearchController = {
   /**
@@ -10,10 +31,10 @@ export const SearchController = {
     try {
       const { q, category, minPrice, maxPrice, minRating, shopId, limit = 20, offset = 0 } = req.query;
 
-      if (!q) throw new AppError('Search query required', 400);
+      const queryStr = (q as string) || '';
 
       const results = await searchService.searchProducts(
-        q as string,
+        queryStr,
         {
           category: category as string,
           minPrice: minPrice ? parseInt(minPrice as string) : undefined,
@@ -25,6 +46,11 @@ export const SearchController = {
         parseInt(offset as string)
       );
 
+      // Track keyword stats (non-blocking fire-and-forget)
+      if (queryStr && results.products.length > 0) {
+        trackKeywordStats(queryStr, results.products);
+      }
+
       res.json({
         status: 'success',
         data: results,
@@ -33,6 +59,7 @@ export const SearchController = {
       next(error);
     }
   },
+
 
   /**
    * Search nearby shops by geo-location

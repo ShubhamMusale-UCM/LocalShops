@@ -21,6 +21,15 @@ export class UserController {
     }
   }
 
+  async upgradeToSeller(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const user = await userService.upgradeToSeller(req.user!.id);
+      res.json(user);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
   async updateLocation(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { latitude, longitude, address } = req.body;
@@ -39,6 +48,28 @@ export class UserController {
     try {
       const data = await userService.getReferralInfo(req.user!.id);
       res.json(data);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+  async createSupportTicket(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { subject, description, orderId } = req.body;
+      if (!subject || !description) {
+        res.status(400).json({ error: 'Subject and description are required.' });
+        return;
+      }
+      const ticket = await userService.createSupportTicket(req.user!.id, { subject, description, orderId });
+      res.status(201).json(ticket);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async getSupportTickets(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const tickets = await userService.getSupportTickets(req.user!.id);
+      res.json(tickets);
     } catch (error: any) {
       res.status(error.statusCode || 500).json({ error: error.message });
     }

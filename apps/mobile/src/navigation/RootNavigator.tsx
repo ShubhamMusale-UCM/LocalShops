@@ -97,41 +97,47 @@ export const RootNavigator = () => {
             options={{ animation: 'slide_from_right' }}
           />
 
-          <Stack.Screen
-            name="Cart"
-            component={CartScreen}
-            options={{ animation: 'slide_from_right' }}
-          />
-          <Stack.Screen
-            name="Checkout"
-            component={CheckoutScreen}
-            options={{ animation: 'slide_from_right' }}
-          />
-          <Stack.Screen
-            name="Payment"
-            component={PaymentScreen}
-            options={{ animation: 'slide_from_right' }}
-          />
-          <Stack.Screen
-            name="OrderTracking"
-            component={OrderTrackingScreen}
-            options={{ animation: 'slide_from_right' }}
-          />
-          <Stack.Screen
-            name="BuyerOrders"
-            component={BuyerOrdersScreen}
-            options={{ animation: 'slide_from_right' }}
-          />
-          <Stack.Screen
-            name="Wishlist"
-            component={WishlistScreen}
-            options={{ animation: 'slide_from_right' }}
-          />
-          <Stack.Screen
-            name="OrderDetail"
-            component={OrderDetailScreen}
-            options={{ animation: 'slide_from_right' }}
-          />
+          {/* Authenticated only screens */}
+          {isAuthenticated && (
+            <>
+              <Stack.Screen
+                name="Cart"
+                component={CartScreen}
+                options={{ animation: 'slide_from_right' }}
+              />
+              <Stack.Screen
+                name="Checkout"
+                component={CheckoutScreen}
+                options={{ animation: 'slide_from_right' }}
+              />
+              <Stack.Screen
+                name="Payment"
+                component={PaymentScreen}
+                options={{ animation: 'slide_from_right' }}
+              />
+              <Stack.Screen
+                name="OrderTracking"
+                component={OrderTrackingScreen}
+                options={{ animation: 'slide_from_right' }}
+              />
+              <Stack.Screen
+                name="BuyerOrders"
+                component={BuyerOrdersScreen}
+                options={{ animation: 'slide_from_right' }}
+              />
+              <Stack.Screen
+                name="Wishlist"
+                component={WishlistScreen}
+                options={{ animation: 'slide_from_right' }}
+              />
+              <Stack.Screen
+                name="OrderDetail"
+                component={OrderDetailScreen}
+                options={{ animation: 'slide_from_right' }}
+              />
+            </>
+          )}
+
           <Stack.Screen
             name="TermsOfService"
             component={TermsOfServiceScreen}

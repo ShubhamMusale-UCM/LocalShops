@@ -62,6 +62,26 @@ export class OrderController {
       res.status(error.statusCode || 400).json({ error: error.message });
     }
   }
+
+  async requestReturn(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { reason, description, photos } = req.body;
+      const returnReq = await orderService.requestReturn(req.params.id, req.user!.id, { reason, description, photos });
+      res.status(201).json(returnReq);
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({ error: error.message });
+    }
+  }
+
+  async updateReturnStatus(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { status, note } = req.body;
+      const returnReq = await orderService.updateReturnStatus(req.params.returnId, req.user!.id, status, note);
+      res.json(returnReq);
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({ error: error.message });
+    }
+  }
 }
 
 export default new OrderController();

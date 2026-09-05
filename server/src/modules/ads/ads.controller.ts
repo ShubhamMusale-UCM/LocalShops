@@ -97,6 +97,30 @@ export const AdsController = {
   },
 
   /**
+   * Get daily trend metrics for a shop (for chart rendering)
+   */
+  getShopDailyMetrics: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { shopId } = req.params;
+      const days = parseInt((req.query.days as string) || '14');
+
+      const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+      if (shop?.ownerId !== req.user!.id) {
+        throw new AppError('Unauthorized', 403);
+      }
+
+      const metrics = await adsService.getShopDailyMetrics(shopId, days);
+
+      res.json({
+        status: 'success',
+        data: metrics,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
    * Get ad analytics
    */
   getAdAnalytics: async (
@@ -220,9 +244,15 @@ export const AdsController = {
     next: NextFunction
   ) => {
     try {
-      const { limit = 10 } = _req.query;
+      const { limit = 10, q, category, lat, lng } = _req.query;
 
-      const products = await adsService.getTrendingProducts(parseInt(limit as string));
+      const products = await adsService.getTrendingProducts(
+        parseInt(limit as string), 
+        q as string, 
+        category as string,
+        lat ? parseFloat(lat as string) : undefined,
+        lng ? parseFloat(lng as string) : undefined
+      );
 
       res.json({
         status: 'success',
@@ -272,6 +302,30 @@ export const AdsController = {
       res.json({
         status: 'success',
         message: 'Impressions tracking queued',
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+  /**
+   * Process batched ad telemetry (impressions, clicks)
+   */
+  processBatchTelemetry: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { events } = req.body;
+      if (!Array.isArray(events)) {
+        res.status(400).json({ status: 'error', message: 'events must be an array' });
+        return;
+      }
+      
+      // Fire and forget
+      adsService.processBatchTelemetry(events).catch(err => {
+        console.error('Failed to process batch telemetry:', err);
+      });
+
+      res.status(202).json({
+        status: 'success',
+        message: 'Batch telemetry accepted',
       });
     } catch (error) {
       next(error);

@@ -1,33 +1,63 @@
 # CityLocalShop Build Status
 
-## 🟢 Completed
-- **Project Scaffold:** Backend (`server/`) and Frontend (`apps/mobile/`) generated.
-- **Database & Prisma Setup:** PostgreSQL, Redis configured with PostGIS extension. Schemas structured.
-- **Backend Architecture:** REST API with Express, authentication, product and shop CRUD.
-- **Mobile Base Structural Navigation:** React Navigation set up with Auth and Main Flows.
-- **Authentication:** Firebase Phone OTP sign-in implemented across backend and mobile.
-- **Seller Registration Auto-shop Provisioning:** New Sellers automatically get a default shop configured (Bengaluru default params).
-- **Seller Product Addition & Hermes Crash Fix:** Products can now be uploaded and added to the shop properly without React Native text rendering crashes.
-- **Broken Screen Rebuilds for Seller Features:** Re-implemented `EarningsBreakdownScreen` and `NotificationCampaignScreen` completely to restore seller UI.
-- **Role Switching Mode (Buyer & Seller):** Allowed Seller accounts to toggle between interacting with the app as a Seller or Buyer.
-- **Product Images UI:** Fallback images inserted for listing. Default product views now render uploaded images seamlessly instead of simple placeholders.
-- **Product Visibility & Radius Bounds:** Modified the `getTrendingNearby` backend logic to increase rendering radius up to 50 km when querying the device's location to fetch active seller products on the `HomeScreen`. Buyer `ProfileScreen` UI adapted to integrate the seller toggle button inline cleanly.
-- **Double Loading Skeleton Prevention:** Implemented background stale-while-revalidate loading on the buyer Home Screen. Shows skeletons only on first mount when no data is present, preventing double loading animations and layout shifting during location updates.
-- **Translucent Status Bar & Header Layouts:** Standardized status bars to transparent and translucent across screens. Redesigned `BuyerOrdersScreen` and `CategoriesScreen` headers to dynamically inject top padding using `useSafeAreaInsets` for a premium, iPhone/Blinkit-like status bar experience.
-- **Shop Image Normalization & Stale Hostname Fix:** Resolved shop photo/logo visibility issues by mapping any `/uploads/` URL hostname dynamically to the active dev server base URL, correcting image paths on both buyer and seller screens.
-- **Product Stock Sync & Redis Cache Invalidation:** Fixed stock quantities not updating immediately. Added Redis product/shop cache invalidation on order confirmations/cancellations to sync real-time stock levels on both buyer and seller screens.
-- **Premium Buyer Profile Avatar Support:** Redesigned the buyer profile to support dynamic user avatar images and matched the look-and-feel of the seller profile screen.
+## 🏃 Active Sprint / Next Up
+- **Delivery Partner App:** Integrate realtime logistics (`socket.io` active location streaming with background permissions).
 
 ## 🟡 In Progress
-- **Testing Full E2E Seller-to-Buyer Pipeline:** Validating product additions populate simultaneously with socket events.
-- **Image Processing S3 Setup:** Setting up AWS S3 credentials for production-level image uploads.
-- **Payment & Cart Systems Initialization:** Buyer-side Checkout cart validations and Razorpay integrations.
+- **Testing:** Full E2E Seller-to-Buyer Pipeline validation (product additions with socket events).
+- **Image Processing:** Setting up AWS S3 credentials for production uploads.
+- **Payment & Cart Systems:** Buyer-side Checkout cart validations and Razorpay integrations.
 
-## 🔴 Remaining / Next Phase
-- **Mobile TypeScript Strict Fixes:** Addressing legacy buyer view styling warnings and strict-mode prop types (e.g., `CartScreen`, `CheckoutScreen`).
-- **Delivery Partner Application Realtime Logistics:** Integrating `socket.io` active location streaming fully with background location permissions on the mobile side.
-- **Admin Dashboard Web / Mobile views:** Refining superadmin privileges to oversee network bans, full analytics, and shop approval toggling.
-- **Production Migrations & CI/CD Actions Validation:** Prepping the Docker image multi-stage build workflow to clear TypeScript build errors during standard CI triggers.
+## 🟢 Completed Phases
+
+### Phase 1: Schema & Backend Core
+<details>
+<summary>View Details</summary>
+
+- **Database & Prisma Setup:** PostgreSQL, Redis configured with PostGIS extension. Schemas structured.
+- **Prisma Schema Additions:** `AddressBook`, `Wishlist`, `ProductVariant`, `ReturnRequest`, `SupportTicket`, `FlashSale`.
+- **Search Optimization:** PG Full-Text Search and PostGIS `ST_Distance` geo-filtering.
+- **Notification Service:** FCM push triggers for order updates, low stock, and new reviews.
+- **Review Sentiment:** Trigger sentiment analysis upon review submission.
+</details>
+
+### Phase 2: Frontend Wiring & Auth Security
+<details>
+<summary>View Details</summary>
+
+- **Authentication:** Firebase Phone OTP sign-in implemented across backend and mobile. Auth Guard for protected routes.
+- **Product Listing & Search UI:** Wire real API, add debounce, suggestions, and filter UI.
+- **Core Buyer Screens:** Wire `BuyerOrdersScreen`, `ProfileScreen` (multiple addresses), and `WishlistScreen`.
+- **Role Switching:** Allowed Seller accounts to toggle between Seller and Buyer mode.
+- **Seller Registration:** Auto-shop provisioning (Bengaluru default params).
+</details>
+
+### Phase 3: Advanced Ecommerce Features
+<details>
+<summary>View Details</summary>
+
+- **Cart & Variants:** Enforce single-shop cart (or multi-order split) and Variant selection UI.
+- **Product Visibility & Radius Bounds:** Increased rendering radius up to 50 km for `HomeScreen`.
+- **Sales & Alerts:** Low stock inventory alerts and Flash Sales logic + countdown timer UI.
+- **Testing:** Automated E2E Test Suite (Jest/Supertest) for Checkout, Returns, and Support.
+</details>
+
+### Phase 4: Returns, Support & UI Polish
+<details>
+<summary>View Details</summary>
+
+- **Operations:** Bulk Product Import (CSV) endpoint.
+- **Admin Dashboard:** Refined superadmin privileges (network bans, analytics, shop approval).
+- **Return/Refund Flow:** Buyer request UI, Seller approval UI, backend orchestration.
+- **Support Tickets:** Simple UI/API for issue resolution.
+- **UI Enhancements:** Double Loading Skeleton Prevention, Translucent Status Bar, Premium Buyer Profile Avatar.
+- **Bug Fixes:** Shop Image Normalization, Product Stock Sync & Redis Cache Invalidation.
+- **Broken Screen Rebuilds:** Re-implemented `EarningsBreakdownScreen` and `NotificationCampaignScreen`.
+</details>
+
+## 🔧 Technical Debt / Polish
+- **Mobile TypeScript Strict Fixes:** Addressing legacy buyer view styling warnings and strict-mode prop types (`CartScreen`, `CheckoutScreen`).
+- **Production Migrations:** Prep Docker image multi-stage build workflow to clear TypeScript build errors during CI triggers.
 
 ---
-*Last Updated: 06 July 2026*
+*Last Updated: August 2026*

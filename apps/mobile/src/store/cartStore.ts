@@ -11,6 +11,7 @@ export interface CartItem {
   quantity: number;
   unit?: string;
   inStock: boolean;
+  campaignId?: string;
 }
 
 interface CartState {

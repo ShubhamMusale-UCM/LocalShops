@@ -55,6 +55,7 @@ class PaymentService {
       quantity: number;
       price: number;
       name?: string;
+      campaignId?: string;
     }>;
     deliveryAddress: {
       address: string;

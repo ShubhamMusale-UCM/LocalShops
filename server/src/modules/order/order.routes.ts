@@ -13,9 +13,11 @@ router.post('/', orderLimiter, orderController.create.bind(orderController));
 router.get('/', orderController.getMyOrders.bind(orderController));
 router.get('/:id', orderController.getById.bind(orderController));
 router.post('/:id/cancel', orderController.cancel.bind(orderController));
+router.post('/:id/return', orderController.requestReturn.bind(orderController));
 
 // Seller routes
 router.get('/shop/:shopId', authorize('SELLER', 'ADMIN'), orderController.getShopOrders.bind(orderController));
 router.put('/:id/status', authorize('SELLER', 'ADMIN'), orderController.updateStatus.bind(orderController));
+router.put('/return/:returnId/status', authorize('SELLER', 'ADMIN'), orderController.updateReturnStatus.bind(orderController));
 
 export default router;

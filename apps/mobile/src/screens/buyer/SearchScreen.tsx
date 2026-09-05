@@ -30,6 +30,7 @@ import { getProductImageUrl } from '../../utils/image';
 import { getCategoryIcon } from '../../theme/iconography';
 import productService from '../../services/productService';
 import adsService from '../../services/adsService';
+import telemetryService from '../../services/telemetryService';
 import { CATEGORIES } from '@citylocalshop/shared';
 import { useTheme } from '../../theme';
 
@@ -1191,24 +1192,33 @@ const SearchScreen = () => {
           limit: 50,
         };
 
-        const res = await productService.search(searchParams);
+        const [res, adRes] = await Promise.all([
+          productService.search(searchParams),
+          adsService.getTrending(10, searchQuery, searchParams.category, safeLat, safeLng)
+        ]);
+        
         if (requestId !== searchRequestIdRef.current) {
           return;
         }
 
-        const products = res.data?.products || [];
-        const total = Number(res.data?.pagination?.total || products.length);
+        const rawProducts = res.data?.products || [];
+        const adProducts = Array.isArray(adRes) ? adRes : [];
+        
+        // Merge sponsored ads and remove duplicates
+        const products = [...adProducts, ...rawProducts].filter(
+          (v, i, a) => a.findIndex((t: any) => t.id === v.id) === i
+        );
+
+        const total = Number(res.data?.pagination?.total || rawProducts.length);
         setResults(products);
         setResultCount(total);
 
         // Track impressions for sponsored items
-        const sponsoredIds = products
-          .filter((p: any) => p.isSponsored && p.sponsoredListingId)
-          .map((p: any) => p.sponsoredListingId);
-          
-        if (sponsoredIds.length > 0) {
-          adsService.trackImpressions(sponsoredIds);
-        }
+        products
+          .filter((p: any) => p.isBoosted && p.campaignId)
+          .forEach((p: any) => {
+            telemetryService.trackImpression(p.campaignId, p.id, searchQuery);
+          });
 
         if (hasQuery) {
           addRecentSearch(searchQuery.trim());
@@ -1330,15 +1340,15 @@ const SearchScreen = () => {
   const navigateToProductDetail = useCallback(
     async (productId: string, sponsoredListingId?: string | null) => {
       if (sponsoredListingId) {
-        try {
-          await adsService.trackClick(sponsoredListingId);
-        } catch (error) {
-          console.warn('Sponsored click tracking failed:', error);
-        }
+        telemetryService.trackClick(sponsoredListingId, productId, query);
       }
-      navigation.navigate('ProductDetail', { productId });
+      navigation.navigate('ProductDetail', { 
+        productId,
+        campaignId: sponsoredListingId || undefined,
+        keyword: query || undefined
+      });
     },
-    [navigation],
+    [navigation, query],
   );
 
   const handleToggleWishlist = useCallback(

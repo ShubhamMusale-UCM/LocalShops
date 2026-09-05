@@ -667,6 +667,8 @@ interface CartItem {
   price: number;
   quantity: number;
   image: string;
+  name?: string;
+  campaignId?: string;
 }
 
 // ─── Step Indicator ─────────────────────────────────────
@@ -775,6 +777,7 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
   const [newPincode, setNewPincode] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState('razorpay');
+  const [deliveryType, setDeliveryType] = useState<'PICKUP' | 'DELIVERY'>('DELIVERY');
   const [promoCode, setPromoCode] = useState('');
   const [appliedPromo, setAppliedPromo] = useState<{
     code: string;
@@ -879,7 +882,8 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
     },
   ];
 
-  const finalTotal = appliedPromo ? total - appliedPromo.discount : total;
+  const deliveryFee = deliveryType === 'DELIVERY' ? 40 : 0;
+  const finalTotal = (appliedPromo ? total - appliedPromo.discount : total) + deliveryFee;
   const itemCount = cartItems.reduce(
     (sum: number, item: CartItem) => sum + item.quantity,
     0
@@ -916,7 +920,8 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
           shopId: item.shopId,
           quantity: item.quantity,
           price: item.price,
-          name: item.productName,
+          name: item.name || (item as any).productName,
+          campaignId: item.campaignId,
         })),
         deliveryAddress: {
           address: selectedAddress,
@@ -925,7 +930,7 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
           pincode: selectedPincode,
         },
         paymentMethod: (selectedPayment === 'cod' ? 'COD' : 'ONLINE') as 'COD' | 'ONLINE',
-        deliveryType: 'PICKUP' as 'DELIVERY' | 'PICKUP',
+        deliveryType: deliveryType,
       };
 
       if (selectedPayment === 'razorpay') {
@@ -1068,6 +1073,31 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
           );
         })
       )}
+
+      {/* Delivery Toggle */}
+      <View style={{ flexDirection: 'row', marginTop: 16, gap: 10 }}>
+        <TouchableOpacity
+          style={[
+            { flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, alignItems: 'center', borderColor: 'rgba(255,255,255,0.1)' },
+            deliveryType === 'PICKUP' && { backgroundColor: 'rgba(56, 189, 248, 0.15)', borderColor: '#38BDF8' }
+          ]}
+          onPress={() => setDeliveryType('PICKUP')}
+        >
+          <Ionicons name="storefront-outline" size={20} color={deliveryType === 'PICKUP' ? '#38BDF8' : colors.textSecondary} />
+          <Text style={{ color: deliveryType === 'PICKUP' ? '#38BDF8' : colors.textSecondary, marginTop: 4, fontFamily: 'Inter_600SemiBold', fontSize: 13 }}>Pickup</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[
+            { flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, alignItems: 'center', borderColor: 'rgba(255,255,255,0.1)' },
+            deliveryType === 'DELIVERY' && { backgroundColor: 'rgba(56, 189, 248, 0.15)', borderColor: '#38BDF8' }
+          ]}
+          onPress={() => setDeliveryType('DELIVERY')}
+        >
+          <Ionicons name="bicycle-outline" size={20} color={deliveryType === 'DELIVERY' ? '#38BDF8' : colors.textSecondary} />
+          <Text style={{ color: deliveryType === 'DELIVERY' ? '#38BDF8' : colors.textSecondary, marginTop: 4, fontFamily: 'Inter_600SemiBold', fontSize: 13 }}>Delivery (₹40)</Text>
+        </TouchableOpacity>
+      </View>
     </SectionCard>
   );
 
@@ -1242,6 +1272,15 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
           <Text style={styles.summaryValue}>₹{subtotal.toFixed(0)}</Text>
         </View>
 
+
+        {deliveryType === 'DELIVERY' && (
+          <View style={styles.summaryRow}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={styles.summaryLabel}>Delivery Fee</Text>
+            </View>
+            <Text style={styles.summaryValue}>₹40</Text>
+          </View>
+        )}
 
         {platformFee > 0 && (
           <View style={styles.summaryRow}>

@@ -301,6 +301,51 @@ export class NotificationService {
 
     return { success: true, count: notifications.count };
   }
+  /**
+   * Notify seller of low stock
+   */
+  async notifyLowStock(productId: string) {
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      include: { shop: { select: { ownerId: true, name: true } } },
+    });
+
+    if (!product) return;
+
+    await this.createNotification(product.shop.ownerId, {
+      title: 'Low Stock Alert',
+      description: `${product.name} is running low on stock. Please restock soon.`,
+      type: 'SYSTEM',
+      relatedId: productId,
+      actionUrl: `/seller/products/${productId}`,
+    });
+  }
+
+  /**
+   * Notify seller of a new review
+   */
+  async notifyNewReview(reviewId: string) {
+    const review = await prisma.review.findUnique({
+      where: { id: reviewId },
+      include: { 
+        shop: { select: { ownerId: true, name: true } },
+        product: { select: { name: true } }
+      },
+    });
+
+    if (!review) return;
+
+    const itemName = review.product ? review.product.name : review.shop.name;
+    const ratingStars = '⭐'.repeat(review.rating);
+
+    await this.createNotification(review.shop.ownerId, {
+      title: 'New Review Received',
+      description: `You received a ${review.rating}-star review for ${itemName}. ${ratingStars}`,
+      type: 'REVIEW',
+      relatedId: reviewId,
+      actionUrl: `/seller/reviews`,
+    });
+  }
 }
 
 export default new NotificationService();

@@ -94,10 +94,19 @@ export const searchProducts = async (params: SearchParams) => {
 
   // Text search filter
   if (query) {
+    const fuzzyMatches = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "Product" 
+      WHERE word_similarity(${query}, name) >= 0.15 
+         OR word_similarity(${query}, description) >= 0.15
+         OR word_similarity(${query}, brand) >= 0.15
+         OR name ILIKE ${'%' + query + '%'}
+         OR description ILIKE ${'%' + query + '%'}
+         OR brand ILIKE ${'%' + query + '%'}
+    `;
+    const fuzzyIds = fuzzyMatches.map(m => m.id);
+
     where.OR = [
-      { name: { contains: query, mode: 'insensitive' } },
-      { description: { contains: query, mode: 'insensitive' } },
-      { brand: { contains: query, mode: 'insensitive' } },
+      { id: { in: fuzzyIds } },
       { tags: { hasSome: query.toLowerCase().split(' ') } },
     ];
   }
@@ -206,6 +215,29 @@ export const searchProducts = async (params: SearchParams) => {
       if (sponsoredDiff !== 0) return sponsoredDiff;
       return (a.shopDistance_km || 0) - (b.shopDistance_km || 0);
     });
+  }
+
+  // Log search keyword stats
+  if (query && query.trim().length > 0 && results.length > 0) {
+    const shopIds = [...new Set(results.map(r => r.shopId))];
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const keyword = query.trim().toLowerCase();
+    
+    // Run async without awaiting to avoid blocking search response
+    Promise.all(shopIds.map(shopId => 
+      prisma.searchKeywordStat.upsert({
+        where: {
+          shopId_keyword_date: {
+            shopId,
+            keyword,
+            date: today,
+          }
+        },
+        update: { searches: { increment: 1 } },
+        create: { shopId, keyword, date: today, searches: 1, clicks: 0 },
+      })
+    )).catch(e => console.error('Error logging search keyword stats:', e));
   }
 
   return {

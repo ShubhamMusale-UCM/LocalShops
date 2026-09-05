@@ -18,24 +18,61 @@ export class SearchService {
     limit: number = 20,
     offset: number = 0
   ) {
-    const queryLower = query.toLowerCase();
+    const formattedQuery = query.trim().replace(/[&|!():<>'"]/g, '').split(/\s+/).filter(Boolean).join(' | ');
+
+    const cleanQuery = query.trim();
+    let fuzzyIds: string[] = [];
+    if (cleanQuery) {
+      const fuzzyMatches = await prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM "Product" 
+        WHERE word_similarity(${cleanQuery}, name) >= 0.25 
+           OR word_similarity(${cleanQuery}, description) >= 0.25
+           OR word_similarity(${cleanQuery}, brand) >= 0.25
+           OR name ILIKE ${'%' + cleanQuery + '%'}
+           OR description ILIKE ${'%' + cleanQuery + '%'}
+           OR brand ILIKE ${'%' + cleanQuery + '%'}
+      `;
+      fuzzyIds = fuzzyMatches.map(m => m.id);
+    }
+
+    const searchCondition = formattedQuery || fuzzyIds.length > 0
+      ? {
+          OR: [
+            ...(formattedQuery ? [
+              { name: { search: formattedQuery } },
+              { description: { search: formattedQuery } },
+              { category: { search: formattedQuery } },
+              { name: { contains: cleanQuery, mode: 'insensitive' } },
+            ] : []),
+            ...(fuzzyIds.length > 0 ? [{ id: { in: fuzzyIds } }] : []),
+          ],
+        }
+      : {};
+
+    const whereClause: any = {
+      isActive: true,
+      shop: { isActive: true },
+      ...searchCondition,
+      ...(filters.category && { category: filters.category }),
+      ...(filters.minPrice && { price: { gte: filters.minPrice } }),
+      ...(filters.maxPrice && { price: { lte: filters.maxPrice } }),
+      ...(filters.shopId && { shopId: filters.shopId }),
+    };
 
     const products = await prisma.product.findMany({
-      where: {
-        isActive: true,
-        shop: { isActive: true },
-        OR: [
-          { name: { contains: queryLower, mode: 'insensitive' } },
-          { description: { contains: queryLower, mode: 'insensitive' } },
-          { category: { contains: queryLower, mode: 'insensitive' } },
-        ],
-        ...(filters.category && { category: filters.category }),
-        ...(filters.minPrice && { price: { gte: filters.minPrice } }),
-        ...(filters.maxPrice && { price: { lte: filters.maxPrice } }),
-        ...(filters.shopId && { shopId: filters.shopId }),
-      },
+      where: whereClause,
       include: {
-        shop: { select: { id: true, name: true, averageRating: true } },
+        shop: { select: { id: true, name: true, slug: true, logo: true, coverImage: true, averageRating: true, address: true, city: true } },
+        promotedListing: {
+          select: {
+            id: true,
+            isActive: true,
+            startDate: true,
+            endDate: true,
+            budget: true,
+            spent: true,
+          },
+        },
       },
       skip: offset,
       take: limit,
@@ -48,23 +85,31 @@ export class SearchService {
       filtered = products.filter((p) => (p.averageRating || 0) >= filters.minRating!);
     }
 
-    const total = await prisma.product.count({
-      where: {
-        isActive: true,
-        shop: { isActive: true },
-        OR: [
-          { name: { contains: queryLower, mode: 'insensitive' } },
-          { description: { contains: queryLower, mode: 'insensitive' } },
-          { category: { contains: queryLower, mode: 'insensitive' } },
-        ],
-        ...(filters.category && { category: filters.category }),
-        ...(filters.minPrice && { price: { gte: filters.minPrice } }),
-        ...(filters.maxPrice && { price: { lte: filters.maxPrice } }),
-        ...(filters.shopId && { shopId: filters.shopId }),
-      },
+    const now = new Date();
+    const mappedProducts = filtered.map((p) => {
+      const isPromoted = Boolean(
+        p.promotedListing &&
+        p.promotedListing.isActive &&
+        new Date(p.promotedListing.startDate) <= now &&
+        new Date(p.promotedListing.endDate) >= now &&
+        p.promotedListing.spent < p.promotedListing.budget
+      );
+
+      return {
+        ...p,
+        isBoosted: isPromoted,
+        isSponsored: isPromoted,
+        campaignId: isPromoted ? p.promotedListing?.id : undefined,
+        sponsoredListingId: isPromoted ? p.promotedListing?.id : undefined,
+      };
     });
 
-    return { products: filtered, total, limit, offset };
+    // Sort to prioritize boosted listings first in search results
+    mappedProducts.sort((a, b) => (b.isBoosted ? 1 : 0) - (a.isBoosted ? 1 : 0));
+
+    const total = await prisma.product.count({ where: whereClause });
+
+    return { products: mappedProducts, total, limit, offset };
   }
 
   /**
@@ -205,26 +250,57 @@ export class SearchService {
     limit: number = 20,
     offset: number = 0
   ) {
-    let query = filters.query || '';
+    let nearbyShopIds: string[] | undefined = undefined;
+
+    // 1. PostGIS distance filtering for nearby shops
+    if (filters.latitude && filters.longitude && filters.maxDistance) {
+      const shops = await prisma.$queryRaw<any[]>`
+        SELECT s.id
+        FROM "Shop" s
+        JOIN "User" u ON s."ownerId" = u."id"
+        WHERE u.role = 'SELLER'
+          AND s."isActive" = true
+          AND ST_Distance(
+            ST_MakePoint(u."longitude", u."latitude")::geography,
+            ST_MakePoint(${filters.longitude}, ${filters.latitude})::geography
+          ) <= ${filters.maxDistance}
+      `;
+      nearbyShopIds = shops.map((s) => s.id);
+
+      // If geo-filtered and no shops are nearby, return empty
+      if (nearbyShopIds.length === 0) {
+        return { products: [], total: 0, limit, offset };
+      }
+    }
+
+    const formattedQuery = (filters.query || '').trim().replace(/[&|!():<>'"]/g, '').split(/\s+/).filter(Boolean).join(' | ');
+
+    const searchCondition = formattedQuery
+      ? {
+          OR: [
+            { name: { search: formattedQuery } },
+            { description: { search: formattedQuery } },
+            { category: { search: formattedQuery } },
+            { name: { contains: (filters.query || '').trim(), mode: 'insensitive' } },
+          ],
+        }
+      : {};
+
+    const whereClause: any = {
+      isActive: true,
+      shop: { isActive: true },
+      ...searchCondition,
+      ...(filters.category && { category: filters.category }),
+      ...(filters.minPrice && { price: { gte: filters.minPrice } }),
+      ...(filters.maxPrice && { price: { lte: filters.maxPrice } }),
+      ...(filters.shopId && { shopId: filters.shopId }),
+      ...(nearbyShopIds && { shopId: { in: nearbyShopIds } }),
+    };
 
     const products = await prisma.product.findMany({
-      where: {
-        isActive: true,
-        shop: { isActive: true },
-        ...(query && {
-          OR: [
-            { name: { contains: query, mode: 'insensitive' } },
-            { description: { contains: query, mode: 'insensitive' } },
-            { category: { contains: query, mode: 'insensitive' } },
-          ],
-        }),
-        ...(filters.category && { category: filters.category }),
-        ...(filters.minPrice && { price: { gte: filters.minPrice } }),
-        ...(filters.maxPrice && { price: { lte: filters.maxPrice } }),
-        ...(filters.shopId && { shopId: filters.shopId }),
-      },
+      where: whereClause,
       include: {
-        shop: { select: { id: true, name: true, averageRating: true } },
+        shop: { select: { id: true, name: true, slug: true, logo: true, coverImage: true, averageRating: true, address: true, city: true } },
       },
       skip: offset,
       take: limit,
@@ -238,19 +314,15 @@ export class SearchService {
               : { createdAt: 'desc' },
     });
 
-    // Apply rating filter and geo-distance filter
     let filtered = products;
 
     if (filters.minRating) {
       filtered = filtered.filter((p) => (p.averageRating || 0) >= filters.minRating!);
     }
 
-    if (filters.latitude && filters.longitude && filters.maxDistance) {
-      // Simple distance approximation (for production use PostGIS)
-      filtered = filtered.filter(() => true); // Implement PostGIS distance filtering
-    }
+    const total = await prisma.product.count({ where: whereClause });
 
-    return { products: filtered, total: filtered.length, limit, offset };
+    return { products: filtered, total, limit, offset };
   }
 }
 

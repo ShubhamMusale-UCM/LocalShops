@@ -10,11 +10,11 @@ interface TokenPayload {
 }
 
 export const generateAccessToken = (payload: TokenPayload): string => {
-  return jwt.sign(payload, JWT_SECRET);
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: (process.env.JWT_EXPIRES_IN || '15m') as any });
 };
 
 export const generateRefreshToken = (payload: TokenPayload): string => {
-  return jwt.sign(payload, JWT_REFRESH_SECRET);
+  return jwt.sign(payload, JWT_REFRESH_SECRET, { expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN || '7d') as any });
 };
 
 export const generateTokenPair = (payload: TokenPayload) => ({

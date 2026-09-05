@@ -9,7 +9,7 @@ generator client {
 datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
-  extensions = [postgis]
+  extensions = [postgis, pg_trgm]
 }
 
 // ============= ENUMS =============
@@ -46,23 +46,24 @@ enum SentimentType {
 // ============= MODELS =============
 
 model User {
-  id               String    @id @default(uuid())
-  phone            String    @unique
-  email            String?   @unique
-  name             String
-  avatar           String?
-  role             UserRole  @default(BUYER)
-  referralCode     String    @unique
-  referredBy       String?
-  isVerified       Boolean   @default(false)
-  fcmToken         String?
+  id           String   @id @default(uuid())
+  phone        String   @unique
+  email        String?  @unique
+  name         String
+  avatar       String?
+  role         UserRole @default(BUYER)
+  referralCode String   @unique
+  referredBy   String?
+  isVerified   Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  fcmToken     String?
 
   // Location
-  latitude         Float?
-  longitude        Float?
-  address          String?
-  city             String?
-  pincode          String?
+  latitude  Float?
+  longitude Float?
+  address   String?
+  city      String?
+  pincode   String?
 
   // Relations
   shops            Shop[]
@@ -71,52 +72,57 @@ model User {
   savedShops       SavedShop[]
   notifications    Notification[]
   referralEarnings ReferralEarning[]
+  addressBook      AddressBook[]
+  wishlist         Wishlist[]
+  returnRequests   ReturnRequest[]
+  supportTickets   SupportTicket[]
 
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Shop {
-  id                String           @id @default(uuid())
-  ownerId           String
-  owner             User             @relation(fields: [ownerId], references: [id])
+  id      String @id @default(uuid())
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id])
 
-  name              String
-  slug              String           @unique
-  description       String
-  logo              String?
-  coverImage        String?
-  photos            String[]
+  name        String
+  slug        String   @unique
+  description String
+  logo        String?
+  coverImage  String?
+  photos      String[]
 
   // Contact
-  phone             String
-  whatsapp          String?
-  email             String?
-  website           String?
+  phone    String
+  whatsapp String?
+  email    String?
+  website  String?
 
   // Location
-  address           String
-  landmark          String?
-  city              String
-  state             String
-  pincode           String
-  latitude          Float
-  longitude         Float
+  address   String
+  landmark  String?
+  city      String
+  state     String
+  pincode   String
+  latitude  Float
+  longitude Float
 
   // Business Info
-  category          String
-  subCategories     String[]
-  gstNumber         String?
-  operatingHours    Json
-  isOpen            Boolean          @default(true)
+  category       String
+  subCategories  String[]
+  gstNumber      String?
+  operatingHours Json
+  isOpen         Boolean  @default(true)
+  razorpayAccountId String?
 
   // Trust & Ratings
-  trustScore        Float            @default(0)
-  averageRating     Float            @default(0)
-  totalReviews      Int              @default(0)
-  totalOrders       Int              @default(0)
-  isVerified        Boolean          @default(false)
-  verifiedAt        DateTime?
+  trustScore    Float     @default(0)
+  averageRating Float     @default(0)
+  totalReviews  Int       @default(0)
+  totalOrders   Int       @default(0)
+  isVerified    Boolean   @default(false)
+  verifiedAt    DateTime?
 
   // Subscription
   subscriptionPlan  SubscriptionPlan @default(FREE)
@@ -124,22 +130,24 @@ model Shop {
   subscriptionEnd   DateTime?
 
   // Delivery
-  deliveryEnabled   Boolean          @default(false)
-  deliveryRadius    Float?
-  minOrderDelivery  Float?
+  deliveryEnabled  Boolean @default(false)
+  deliveryRadius   Float?
+  minOrderDelivery Float?
 
   // Relations
-  products          Product[]
-  orders            Order[]
-  reviews           Review[]
-  stories           ShopStory[]
-  promotedListings  PromotedListing[]
-  savedBy           SavedShop[]
-  analytics         ShopAnalytics[]
+  products         Product[]
+  orders           Order[]
+  reviews          Review[]
+  stories          ShopStory[]
+  promotedListings PromotedListing[]
+  savedBy          SavedShop[]
+  analytics        ShopAnalytics[]
+  flashSales       FlashSale[]
+  searchKeywordStats SearchKeywordStat[]
 
-  isActive          Boolean          @default(true)
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([latitude, longitude])
   @@index([city, category])
@@ -147,51 +155,54 @@ model Shop {
 }
 
 model Product {
-  id               String    @id @default(uuid())
-  shopId           String
-  shop             Shop      @relation(fields: [shopId], references: [id])
+  id     String @id @default(uuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id])
 
   name             String
   description      String
   shortDescription String?
 
   // Pricing
-  price            Float
-  mrp              Float?
-  discount         Float?
+  price    Float
+  mrp      Float?
+  discount Float?
 
   // Media
-  images           String[]
-  video            String?
+  images String[]
+  video  String?
 
   // Categorization
-  category         String
-  subCategory      String?
-  tags             String[]
-  brand            String?
+  category    String
+  subCategory String?
+  tags        String[]
+  brand       String?
 
   // Inventory
-  inStock          Boolean   @default(true)
-  quantity         Int?
-  unit             String?
+  inStock  Boolean @default(true)
+  quantity Int?
+  unit     String?
 
   // Search
-  searchVector     String?
+  searchVector String?
 
   // Stats
-  viewCount        Int       @default(0)
-  orderCount       Int       @default(0)
-  averageRating    Float     @default(0)
+  viewCount     Int   @default(0)
+  orderCount    Int   @default(0)
+  averageRating Float @default(0)
 
   // Relations
-  reviews          Review[]
-  orderItems       OrderItem[]
-  cartItems        CartItem[]
-  promotedListing  PromotedListing?
+  reviews         Review[]
+  orderItems      OrderItem[]
+  cartItems       CartItem[]
+  promotedListing PromotedListing?
+  variants        ProductVariant[]
+  wishlistedBy    Wishlist[]
+  flashSales      FlashSale[]
 
-  isActive         Boolean   @default(true)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([shopId, category])
   @@index([name])
@@ -199,28 +210,28 @@ model Product {
 }
 
 model Order {
-  id                String        @id @default(uuid())
-  orderNumber       String        @unique
-  userId            String
-  user              User          @relation(fields: [userId], references: [id])
-  shopId            String
-  shop              Shop          @relation(fields: [shopId], references: [id])
+  id          String @id @default(uuid())
+  orderNumber String @unique
+  userId      String
+  user        User   @relation(fields: [userId], references: [id])
+  shopId      String
+  shop        Shop   @relation(fields: [shopId], references: [id])
 
-  items             OrderItem[]
+  items OrderItem[]
 
   // Pricing
-  subtotal          Float
-  deliveryFee       Float         @default(0)
-  platformFee       Float         @default(0)
-  discount          Float         @default(0)
-  total             Float
+  subtotal    Float
+  deliveryFee Float @default(0)
+  platformFee Float @default(0)
+  discount    Float @default(0)
+  total       Float
 
   // Status
-  status            OrderStatus   @default(PLACED)
-  statusHistory     Json[]
+  status        OrderStatus @default(PLACED)
+  statusHistory Json[]
 
   // Delivery
-  isDelivery        Boolean       @default(false)
+  isDelivery        Boolean   @default(false)
   deliveryAddress   String?
   deliveryLatitude  Float?
   deliveryLongitude Float?
@@ -229,16 +240,22 @@ model Order {
 
   // Payment
   paymentMethod     String
-  paymentStatus     String        @default("PENDING")
+  paymentStatus     String  @default("PENDING")
   razorpayOrderId   String?
   razorpayPaymentId String?
 
   // Communication
-  buyerNote         String?
-  sellerNote        String?
+  buyerNote  String?
+  sellerNote String?
 
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  // Ad Attribution
+  adCampaignId String?
+  adCampaign   PromotedListing? @relation(fields: [adCampaignId], references: [id])
+
+  returnRequests ReturnRequest[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([shopId])
@@ -246,45 +263,45 @@ model Order {
 }
 
 model OrderItem {
-  id        String   @id @default(uuid())
+  id        String  @id @default(uuid())
   orderId   String
-  order     Order    @relation(fields: [orderId], references: [id])
+  order     Order   @relation(fields: [orderId], references: [id])
   productId String
-  product   Product  @relation(fields: [productId], references: [id])
+  product   Product @relation(fields: [productId], references: [id])
   quantity  Int
   price     Float
   total     Float
 }
 
 model Review {
-  id                 String        @id @default(uuid())
-  userId             String
-  user               User          @relation(fields: [userId], references: [id])
-  shopId             String
-  shop               Shop          @relation(fields: [shopId], references: [id])
-  productId          String?
-  product            Product?      @relation(fields: [productId], references: [id])
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id])
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
 
-  rating             Int
-  title              String?
-  comment            String
-  photos             String[]
+  rating  Int
+  title   String?
+  comment String
+  photos  String[]
 
   // Sentiment
-  sentiment          SentimentType?
-  sentimentScore     Float?
-  sentimentKeywords  String[]
+  sentiment         SentimentType?
+  sentimentScore    Float?
+  sentimentKeywords String[]
 
   // Engagement
-  helpfulCount       Int           @default(0)
-  reportCount        Int           @default(0)
-  isVerifiedPurchase Boolean       @default(false)
+  helpfulCount       Int     @default(0)
+  reportCount        Int     @default(0)
+  isVerifiedPurchase Boolean @default(false)
 
-  sellerReply        String?
-  sellerRepliedAt    DateTime?
+  sellerReply     String?
+  sellerRepliedAt DateTime?
 
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([shopId])
   @@index([productId])
@@ -311,24 +328,60 @@ model PromotedListing {
   product     Product  @relation(fields: [productId], references: [id])
   budget      Float
   spent       Float    @default(0)
+  bidPerClick Float    @default(10)
   impressions Int      @default(0)
+  uniqueReach Int      @default(0)
   clicks      Int      @default(0)
+  conversions Int      @default(0)
+  revenue     Float    @default(0)
   startDate   DateTime
   endDate     DateTime
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
+
+  rollups AdDailyMetricRollup[]
+  orders  Order[]
+  keywordStats CampaignKeywordStat[]
+}
+
+model CampaignKeywordStat {
+  id                String          @id @default(uuid())
+  promotedListingId String
+  promotedListing   PromotedListing @relation(fields: [promotedListingId], references: [id])
+  keyword           String
+  impressions       Int             @default(0)
+  clicks            Int             @default(0)
+  date              DateTime        @db.Date
+
+  @@unique([promotedListingId, keyword, date])
+  @@index([promotedListingId])
+}
+
+model SearchKeywordStat {
+  id        String   @id @default(uuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id])
+  keyword   String
+  searches  Int      @default(0)
+  clicks    Int      @default(0)
+  date      DateTime @db.Date
+
+  @@unique([shopId, keyword, date])
+  @@index([shopId])
 }
 
 model CartItem {
-  id        String   @id @default(uuid())
+  id        String          @id @default(uuid())
   userId    String
   productId String
-  product   Product  @relation(fields: [productId], references: [id])
-  quantity  Int      @default(1)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  product   Product         @relation(fields: [productId], references: [id])
+  variantId String?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id])
+  quantity  Int             @default(1)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
 
-  @@unique([userId, productId])
+  @@index([userId, productId])
 }
 
 model SavedShop {
@@ -341,7 +394,6 @@ model SavedShop {
 
   @@unique([userId, shopId])
 }
-
 
 model Subscription {
   id            String           @id @default(uuid())
@@ -392,4 +444,138 @@ model ShopAnalytics {
   revenue        Float    @default(0)
 
   @@unique([shopId, date])
+}
+
+model AdDailyMetricRollup {
+  id                String          @id @default(uuid())
+  promotedListingId String
+  promotedListing   PromotedListing @relation(fields: [promotedListingId], references: [id])
+  date              DateTime        @db.Date
+  hour              Int?
+  impressions       Int             @default(0)
+  clicks            Int             @default(0)
+  spend             Float           @default(0)
+  conversions       Int             @default(0)
+  revenue           Float           @default(0)
+
+  // A unique constraint allowing daily (hour = null) or hourly (hour = specific hour) rollups
+  @@unique([promotedListingId, date, hour])
+}
+
+// ==========================================
+// PHASE 1: NEW MODELS FOR ADVANCED COMMERCE
+// ==========================================
+
+model AddressBook {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  label     String // e.g., HOME, WORK, OTHER
+  address   String
+  landmark  String?
+  city      String
+  state     String
+  pincode   String
+  latitude  Float?
+  longitude Float?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Wishlist {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+}
+
+model ProductVariant {
+  id        String     @id @default(uuid())
+  productId String
+  product   Product    @relation(fields: [productId], references: [id])
+  sku       String?    @unique
+  size      String?
+  color     String?
+  price     Float? // Override base price if set
+  inStock   Boolean    @default(true)
+  quantity  Int?
+  images    String[]
+  cartItems CartItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+}
+
+enum ReturnStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  PICKED_UP
+  REFUNDED
+}
+
+model ReturnRequest {
+  id           String       @id @default(uuid())
+  orderId      String
+  order        Order        @relation(fields: [orderId], references: [id])
+  userId       String
+  user         User         @relation(fields: [userId], references: [id])
+  reason       String
+  description  String?
+  photos       String[]
+  status       ReturnStatus @default(REQUESTED)
+  refundAmount Float
+  sellerNote   String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([orderId])
+  @@index([userId])
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model SupportTicket {
+  id          String       @id @default(uuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  orderId     String? // Optional: if tied to a specific order
+  subject     String
+  description String
+  status      TicketStatus @default(OPEN)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([userId])
+}
+
+model FlashSale {
+  id        String   @id @default(uuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id])
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  discount  Float // Discount percentage or flat amount
+  startTime DateTime
+  endTime   DateTime
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([shopId])
+  @@index([productId])
+  @@index([startTime, endTime])
 }

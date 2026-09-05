@@ -6,6 +6,7 @@ const router = Router();
 
 // Public route
 router.get('/trending', AdsController.getTrendingProducts);
+router.post('/telemetry/batch', AdsController.processBatchTelemetry);
 router.post('/impression', AdsController.trackImpressions);
 router.post('/:adId/click', AdsController.trackAdClick);
 
@@ -19,5 +20,6 @@ router.get('/:adId/analytics', AdsController.getAdAnalytics);
 router.post('/:adId/pause', AdsController.pauseAd);
 router.post('/:adId/resume', AdsController.resumeAd);
 router.post('/:adId/renew-budget', AdsController.renewBudget);
+router.get('/shop/:shopId/daily-metrics', AdsController.getShopDailyMetrics);
 
 export default router;

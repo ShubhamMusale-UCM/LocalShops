@@ -49,8 +49,8 @@ app.use(cors({
 }));
 
 // Body parsing
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Compression
 app.use(compression());
@@ -61,6 +61,14 @@ if (process.env.NODE_ENV === 'development') {
 } else {
   app.use(morgan('combined'));
 }
+
+// Prevent aggressive caching of API responses
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
 
 // Rate limiting
 app.use('/api/', generalLimiter);
@@ -105,6 +113,11 @@ app.use(errorHandler as any);
 
 // ============= START SERVER =============
 
+import { Server as SocketIOServer } from 'socket.io';
+import OrderUpdatesSocket from './websockets/orderUpdates.ws';
+
+export let orderSocket: OrderUpdatesSocket;
+
 const startServer = async () => {
   try {
     // Connect to database
@@ -124,6 +137,13 @@ const startServer = async () => {
 ║                                                  ║
 ╚══════════════════════════════════════════════════╝
       `);
+      
+      // Initialize WebSockets after HTTP server starts
+      const io = new SocketIOServer(httpServer, {
+        cors: { origin: process.env.CORS_ORIGIN || '*', methods: ["GET", "POST"] }
+      });
+      orderSocket = new OrderUpdatesSocket(io);
+      console.log('✅ WebSocket server initialized.');
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);
@@ -131,14 +151,25 @@ const startServer = async () => {
   }
 };
 
-startServer();
+if (process.env.NODE_ENV !== 'test') {
+  startServer();
+}
 
-// Graceful shutdown
+// Graceful shutdown for SIGTERM (Docker/production)
 process.on('SIGTERM', () => {
   console.log('SIGTERM received. Shutting down gracefully...');
   httpServer.close(() => {
     console.log('Server closed.');
     process.exit(0);
+  });
+});
+
+// Graceful shutdown for SIGUSR2 (nodemon / ts-node-dev restarts)
+process.once('SIGUSR2', () => {
+  console.log('SIGUSR2 received. Shutting down for restart...');
+  httpServer.close(() => {
+    console.log('Server closed. Restarting...');
+    process.kill(process.pid, 'SIGUSR2');
   });
 });
 

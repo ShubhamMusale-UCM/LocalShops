@@ -45,6 +45,7 @@ import { openDirections, openWhatsApp, makeCall } from '../../utils/helpers';
 import { getProductImageUrl, getSingleImageUrl, sanitizeImageUrl } from '../../utils/image';
 import { useTheme } from '../../theme';
 import productService from '../../services/productService';
+import telemetryService from '../../services/telemetryService';
 import { MorphingButton } from '../../components/ui/MorphingButton';
 import { GlassPanel, GlassCard, GlassButton } from '../../components/ui/Glassmorphism';
 import AmbientOrbs from '../../components/ui/AmbientOrbs';
@@ -61,7 +62,7 @@ const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
   const { colors, radius, shadows, isDarkMode } = useTheme();
   const styles = getStyles(colors, radius, shadows, isDarkMode);
-  const { productId } = route.params as { productId: string };
+  const { productId, campaignId, keyword } = route.params as { productId: string, campaignId?: string, keyword?: string };
   const insets = useSafeAreaInsets();
 
   // State management
@@ -211,14 +212,18 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
         image: getProductImageUrl(product.images),
         unit: product.unit,
         inStock: product.inStock,
+        campaignId: campaignId || undefined,
       });
     }
 
     // Provide a small delay before navigating if user clicks View Cart, otherwise wait for morph animation.
     setTimeout(() => {
       // Show success feedback if needed, MorphingButton already provides visual success
+      if (campaignId && !cartItem) {
+        telemetryService.trackConversion(campaignId, product.id, keyword);
+      }
     }, 1000);
-  }, [product, addItem, updateQuantity, quantity, cartItem]);
+  }, [product, addItem, updateQuantity, quantity, cartItem, campaignId, keyword]);
 
   const incrementQuantity = useCallback(() => {
     setQuantity((value) => value + 1);

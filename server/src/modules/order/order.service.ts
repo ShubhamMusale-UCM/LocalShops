@@ -3,6 +3,7 @@ import { AppError } from '../../middleware/errorHandler.middleware';
 import { cacheDelete, cacheDeletePattern } from '../../config/redis';
 import { nanoid } from 'nanoid';
 import { sendOrderConfirmationEmail } from '../../utils/emailService';
+import { createRazorpayRefund } from '../../config/razorpay';
 
 const toStatusHistory = (value: unknown): any[] => (Array.isArray(value) ? value : []);
 
@@ -33,7 +34,7 @@ export class OrderService {
    */
   async createOrder(userId: string, data: {
     shopId: string;
-    items: { productId: string; quantity: number; price: number; name: string }[];
+    items: { productId: string; quantity: number; price: number; name: string; campaignId?: string }[];
     deliveryType: string;
     deliveryAddress?: any;
     paymentMethod: string;
@@ -45,9 +46,8 @@ export class OrderService {
     if (!shop) throw new AppError('Shop not found.', 404);
     if (!shop.isActive) throw new AppError('Shop is not active.', 400);
 
-    // Graceful fallback: Platform is now booking-only. All orders are PICKUP.
-    // Address may still be collected for analytics.
-    const effectiveDeliveryType = 'PICKUP';
+    // Determine delivery type
+    const effectiveDeliveryType = data.deliveryType === 'DELIVERY' ? 'DELIVERY' : 'PICKUP';
 
     // Verify all products exist, are in stock, and belong to the shop
     const productIds = data.items.map(i => i.productId);
@@ -78,8 +78,8 @@ export class OrderService {
       };
     });
 
-    // Platform operates as a booking platform; no delivery fee is charged.
-    let deliveryFee = 0;
+    // Calculate delivery fee
+    let deliveryFee = 0; // Booking platform, no delivery fee
 
     // Coupon discount (placeholder)
     let discount = 0;
@@ -88,8 +88,10 @@ export class OrderService {
       discount = 0;
     }
 
-    const total = subtotal + deliveryFee - discount;
+    const gstAmount = subtotal * 0.18; // 18% GST
+    const total = subtotal + deliveryFee + gstAmount - discount;
     const orderNumber = `CLS${Date.now().toString(36).toUpperCase()}${nanoid(4).toUpperCase()}`;
+    const orderCampaignId = data.items.find(i => i.campaignId)?.campaignId;
 
     // Create order with items in a transaction
     const order = await prisma.$transaction(async (tx) => {
@@ -108,7 +110,7 @@ export class OrderService {
           deliveryFee,
           discount,
           total,
-          isDelivery: false,
+          isDelivery: effectiveDeliveryType === 'DELIVERY',
           deliveryAddress: formatDeliveryAddress(data.deliveryAddress),
           deliveryLatitude:
             typeof data.deliveryAddress?.latitude === 'number'
@@ -121,6 +123,7 @@ export class OrderService {
           paymentMethod: data.paymentMethod as any,
           paymentStatus: 'PENDING',
           buyerNote: data.notes || null,
+          adCampaignId: orderCampaignId || null,
           items: { create: orderItems },
         },
         include: {
@@ -143,6 +146,23 @@ export class OrderService {
         data: { totalOrders: { increment: 1 } },
       });
 
+      // Update PromotedListing revenue if attributed
+      if (orderCampaignId) {
+        await tx.promotedListing.update({
+          where: { id: orderCampaignId },
+          data: { revenue: { increment: subtotal } }
+        });
+      }
+
+      // Real-time ShopAnalytics update
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      await tx.shopAnalytics.upsert({
+        where: { shopId_date: { shopId: data.shopId, date: today } },
+        update: { orders: { increment: 1 }, revenue: { increment: total } },
+        create: { shopId: data.shopId, date: today, views: 0, uniqueViews: 0, orders: 1, revenue: total, calls: 0, whatsappClicks: 0, directions: 0 }
+      });
+
       return newOrder;
     });
 
@@ -150,6 +170,16 @@ export class OrderService {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (user?.email) {
       sendOrderConfirmationEmail(user.email, orderNumber, total).catch(() => { });
+    }
+
+    // Notify seller in real-time
+    try {
+      const { orderSocket } = require('../../app');
+      if (orderSocket) {
+        orderSocket.notifyShopNewOrder(data.shopId, order);
+      }
+    } catch (e) {
+      console.warn('Socket emit failed for new order:', e);
     }
 
     return order;
@@ -174,6 +204,7 @@ export class OrderService {
             },
           },
           shop: { select: { id: true, name: true, slug: true, phone: true } },
+          returnRequests: true,
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
@@ -199,6 +230,7 @@ export class OrderService {
         },
         shop: { select: { id: true, name: true, phone: true, ownerId: true, address: true } },
         user: { select: { id: true, name: true, phone: true } },
+        returnRequests: true,
       },
     });
 
@@ -234,6 +266,7 @@ export class OrderService {
             },
           },
           user: { select: { id: true, name: true, phone: true } },
+          returnRequests: true,
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
@@ -338,6 +371,16 @@ export class OrderService {
         }
       }
 
+      if (status === 'CANCELLED' && order.status !== 'CANCELLED') {
+        const orderDate = new Date(order.createdAt);
+        orderDate.setUTCHours(0, 0, 0, 0);
+        await tx.shopAnalytics.upsert({
+          where: { shopId_date: { shopId: order.shopId, date: orderDate } },
+          update: { orders: { decrement: 1 }, revenue: { decrement: order.total } },
+          create: { shopId: order.shopId, date: orderDate, views: 0, uniqueViews: 0, orders: 0, revenue: 0, calls: 0, whatsappClicks: 0, directions: 0 }
+        });
+      }
+
       return updatedOrder;
     });
 
@@ -354,6 +397,17 @@ export class OrderService {
       } catch (err) {
         console.error('Failed to invalidate product cache on order status update:', err);
       }
+    }
+
+    // Notify buyer and seller in real-time
+    try {
+      const { orderSocket } = require('../../app');
+      if (orderSocket) {
+        orderSocket.notifyCustomerOrderUpdate(orderId, status);
+        orderSocket.notifySellerOrderUpdate(updated.shopId, orderId, status);
+      }
+    } catch (e) {
+      console.warn('Socket emit failed for order update:', e);
     }
 
     return updated;
@@ -378,7 +432,7 @@ export class OrderService {
         data: {
           status: 'CANCELLED',
           statusHistory: [...toStatusHistory(order.statusHistory), {
-            status: 'CANCELLED', note: reason, updatedAt: new Date().toISOString(), updatedBy: userId,
+            status: 'CANCELLED', note: reason || 'Cancelled by buyer', updatedAt: new Date().toISOString(), updatedBy: userId,
           }],
         },
         include: { items: true },
@@ -388,8 +442,8 @@ export class OrderService {
       if (order.status === 'CONFIRMED') {
         for (const item of updatedOrder.items) {
           const product = await tx.product.findUnique({ where: { id: item.productId } });
-          if (product && typeof product.quantity === 'number') {
-            const newQuantity = product.quantity + item.quantity;
+          if (product && typeof (product as any).quantity === 'number') {
+            const newQuantity = (product as any).quantity + item.quantity;
             await tx.product.update({
               where: { id: item.productId },
               data: {
@@ -400,6 +454,15 @@ export class OrderService {
           }
         }
       }
+
+      // Real-time ShopAnalytics update (decrement)
+      const today = new Date(order.createdAt);
+      today.setUTCHours(0, 0, 0, 0);
+      await tx.shopAnalytics.upsert({
+        where: { shopId_date: { shopId: order.shopId, date: today } },
+        update: { orders: { decrement: 1 }, revenue: { decrement: order.total } },
+        create: { shopId: order.shopId, date: today, views: 0, uniqueViews: 0, orders: 0, revenue: 0, calls: 0, whatsappClicks: 0, directions: 0 }
+      });
 
       return updatedOrder;
     });
@@ -416,7 +479,118 @@ export class OrderService {
       }
     }
 
+    // Notify seller in real-time
+    try {
+      const { orderSocket } = require('../../app');
+      if (orderSocket) {
+        orderSocket.notifySellerOrderUpdate(result.shopId, orderId, 'CANCELLED');
+      }
+    } catch (e) {
+      console.warn('Socket emit failed for order cancellation:', e);
+    }
+
+    // Trigger Razorpay Refund if applicable
+    if (order.razorpayPaymentId && order.paymentStatus === 'PAID') {
+      try {
+        await createRazorpayRefund(order.razorpayPaymentId, order.total, { orderId });
+        await prisma.order.update({
+          where: { id: orderId },
+          data: { paymentStatus: 'REFUNDED' },
+        });
+      } catch (error: any) {
+        console.error(`Refund failed for order ${orderId}: ${error.message || error.description}`);
+        // We log the error but don't throw because the cancellation is already committed.
+        // In a real production system, this would go to a DLQ for retry.
+      }
+    }
+
     return result;
+  }
+
+  /**
+   * Request a return for an order
+   */
+  async requestReturn(orderId: string, userId: string, data: { reason: string; description?: string; photos?: string[] }) {
+    const order = await prisma.order.findUnique({ where: { id: orderId, userId } });
+    if (!order) throw new AppError('Order not found', 404);
+    if (order.status !== 'DELIVERED') throw new AppError('Can only return delivered orders', 400);
+    
+    // Check if return exists
+    const existing = await prisma.returnRequest.findFirst({ where: { orderId } });
+    if (existing) throw new AppError('Return request already exists for this order', 400);
+
+    const returnReq = await prisma.returnRequest.create({
+      data: {
+        orderId,
+        userId,
+        reason: data.reason,
+        description: data.description,
+        photos: data.photos || [],
+        refundAmount: order.total
+      }
+    });
+
+    return returnReq;
+  }
+
+  /**
+   * Update a return request status (for sellers)
+   */
+  async updateReturnStatus(returnId: string, userId: string, status: 'APPROVED' | 'REJECTED' | 'REFUNDED', note?: string) {
+    const returnReq = await prisma.returnRequest.findUnique({
+      where: { id: returnId },
+      include: { order: { include: { shop: true } } }
+    });
+
+    if (!returnReq) throw new AppError('Return request not found', 404);
+    
+    // Validate if the user is the owner of the shop or admin
+    if (returnReq.order.shop.ownerId !== userId) {
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (user?.role !== 'ADMIN') throw new AppError('Unauthorized to update this return', 403);
+    }
+
+    const updated = await prisma.returnRequest.update({
+      where: { id: returnId },
+      data: {
+        status,
+        sellerNote: note
+      }
+    });
+
+    if (status === 'REFUNDED') {
+      const history = toStatusHistory(returnReq.order.statusHistory);
+      history.push({
+        status: 'REFUNDED',
+        note: note || 'Refund processed',
+        updatedAt: new Date().toISOString(),
+        updatedBy: userId,
+      });
+
+      // Trigger actual Razorpay Refund if applicable
+      if (returnReq.order.razorpayPaymentId) {
+        try {
+          await createRazorpayRefund(
+            returnReq.order.razorpayPaymentId,
+            returnReq.refundAmount,
+            { returnId: returnReq.id }
+          );
+        } catch (error: any) {
+          throw new AppError(`Razorpay refund failed: ${error.message || error.description}`, 500);
+        }
+      }
+
+      await prisma.order.update({
+        where: { id: returnReq.orderId },
+        data: {
+          status: 'REFUNDED',
+          paymentStatus: 'REFUNDED',
+          statusHistory: history,
+        }
+      });
+    }
+
+    return updated;
   }
 }
 

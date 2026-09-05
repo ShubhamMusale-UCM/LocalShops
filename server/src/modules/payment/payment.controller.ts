@@ -47,13 +47,14 @@ export class PaymentController {
       // Create the order first
       const order = await orderService.createOrder(req.user!.id, {
         shopId,
-        items: cartItems.map(item => ({
+        items: cartItems.map((item: any) => ({
           productId: item.productId,
           quantity: item.quantity,
           price: item.price,
           name: item.name || '',
+          campaignId: item.campaignId,
         })),
-        deliveryType: 'PICKUP',
+        deliveryType: deliveryType || 'PICKUP',
         deliveryAddress: deliveryAddress || {},
         paymentMethod: paymentMethod === 'COD' ? 'COD' : 'ONLINE',
         notes: req.body.notes,
@@ -105,6 +106,7 @@ export class PaymentController {
 
       res.status(201).json(responsePayload);
     } catch (error: any) {
+      console.error('PAYMENT_ERROR:', error);
       res.status(error.statusCode || 400).json({ error: error.message, details: error.errors });
     }
   }
