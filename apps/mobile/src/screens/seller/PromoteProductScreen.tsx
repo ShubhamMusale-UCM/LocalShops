@@ -48,10 +48,18 @@ interface PromotionCampaignAnalytics {
   clicks: number;
   conversions: number;
   revenue: number;
+  views: number;
+  cartAdds: number;
   impressions: number;
   searchAppearances: number;
   ctr: number;
   cpc: number;
+  cpa?: number;
+  cvr?: number;
+  cpm?: number;
+  aov?: number;
+  reach?: number;
+  frequency?: number;
   budgetRemaining: number;
   isActive: boolean;
   isLive?: boolean;
@@ -174,12 +182,27 @@ export default function PromoteProductScreen() {
   const [activeAds, setActiveAds] = useState(0);
   const [showRenewModal, setShowRenewModal] = useState(false);
   const [renewBudgetAmount, setRenewBudgetAmount] = useState('500');
+  const [renewDuration, setRenewDuration] = useState('30');
   const [selectedCampaignForRenew, setSelectedCampaignForRenew] = useState<PromotionCampaignAnalytics | null>(null);
   const [shopId, setShopId] = useState<string | null>(null);
   const [campaignAnalytics, setCampaignAnalytics] = useState<PromotionCampaignAnalytics[]>([]);
   const [analyticsSummary, setAnalyticsSummary] = useState<any>(null);
   const [campaignFilter, setCampaignFilter] = useState<CampaignFilter>('ALL');
   const [dailyMetrics, setDailyMetrics] = useState<{date: string; impressions: number; clicks: number}[]>([]);
+  const [adWalletBalance, setAdWalletBalance] = useState<number>(0);
+
+  // Top Up State
+  const [showTopUpModal, setShowTopUpModal] = useState(false);
+  const [topUpAmount, setTopUpAmount] = useState('1000');
+  const [isToppingUp, setIsToppingUp] = useState(false);
+
+  const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
+
+  // Negative Keywords State
+  const [showNegativeKeywordsModal, setShowNegativeKeywordsModal] = useState(false);
+  const [selectedCampaignForKeywords, setSelectedCampaignForKeywords] = useState<PromotionCampaignAnalytics | null>(null);
+  const [negativeKeywords, setNegativeKeywords] = useState<{ id: string; keyword: string }[]>([]);
+  const [newKeywordInput, setNewKeywordInput] = useState('');
 
   const { onScroll: _onScroll, scrollEventThrottle } = useHideTabBarOnScroll();
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -225,6 +248,7 @@ export default function PromoteProductScreen() {
 
       const primaryShop = myShops[0];
       setShopId(primaryShop.id);
+      setAdWalletBalance(primaryShop.adWalletBalance || 0);
 
       const ads = await adsService.getShopAds(primaryShop.id);
       const promotionAnalytics = await adsService.getShopPromotionAnalytics(primaryShop.id);
@@ -256,6 +280,38 @@ export default function PromoteProductScreen() {
       console.error('Failed to load products:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOpenNegativeKeywords = async (campaign: PromotionCampaignAnalytics) => {
+    setSelectedCampaignForKeywords(campaign);
+    setShowNegativeKeywordsModal(true);
+    try {
+      const keywords = await adsService.getNegativeKeywords(campaign.id);
+      setNegativeKeywords(keywords);
+    } catch (err) {
+      Alert.alert('Error', 'Failed to load negative keywords');
+    }
+  };
+
+  const handleAddNegativeKeyword = async () => {
+    if (!newKeywordInput.trim() || !selectedCampaignForKeywords) return;
+    try {
+      const added = await adsService.addNegativeKeyword(selectedCampaignForKeywords.id, newKeywordInput);
+      setNegativeKeywords(prev => [...prev, added]);
+      setNewKeywordInput('');
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to add keyword');
+    }
+  };
+
+  const handleRemoveNegativeKeyword = async (keywordId: string) => {
+    if (!selectedCampaignForKeywords) return;
+    try {
+      await adsService.removeNegativeKeyword(selectedCampaignForKeywords.id, keywordId);
+      setNegativeKeywords(prev => prev.filter(k => k.id !== keywordId));
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to remove keyword');
     }
   };
 
@@ -306,18 +362,83 @@ export default function PromoteProductScreen() {
     if (!selectedCampaignForRenew) return;
 
     const parsedRenewBudget = Number(renewBudgetAmount);
+    const parsedDuration = Number(renewDuration);
     if (!Number.isFinite(parsedRenewBudget) || parsedRenewBudget < 100) {
       Alert.alert('Invalid Budget', 'Renew budget should be at least ₹100.');
       return;
     }
+    if (!Number.isFinite(parsedDuration) || parsedDuration < 1) {
+      Alert.alert('Invalid Duration', 'Duration should be at least 1 day.');
+      return;
+    }
 
     try {
-      await adsService.renewBudget(selectedCampaignForRenew.id, parsedRenewBudget);
+      await adsService.renewBudget(selectedCampaignForRenew.id, parsedRenewBudget, parsedDuration);
       Alert.alert('Success', 'Campaign budget renewed successfully!');
       setShowRenewModal(false);
       loadProducts();
     } catch (error: any) {
       Alert.alert('Error', error?.response?.data?.message || 'Failed to renew campaign budget');
+    }
+  };
+
+  const handleTopUpWallet = async () => {
+    const amount = Number(topUpAmount);
+    if (!amount || amount < 100) {
+      Alert.alert('Invalid Amount', 'Minimum top up is ₹100');
+      return;
+    }
+
+    try {
+      setIsToppingUp(true);
+      if (!shopId) throw new Error('Shop ID missing');
+      
+      const orderData = await adsService.topUpWallet(shopId, amount);
+
+      try {
+        const RazorpayCheckout = require('react-native-razorpay').default;
+        const options = {
+          description: 'Wallet Top Up',
+          image: 'https://img.razorpay.com/static/assets/logo/rzp.png',
+          currency: orderData.currency,
+          amount: orderData.amount,
+          order_id: orderData.orderId,
+          theme: { color: DS.primary }
+        };
+
+        RazorpayCheckout.open(options)
+          .then(async (data: any) => {
+            const updated = await adsService.verifyTopUp({
+              razorpay_order_id: orderData.orderId,
+              razorpay_payment_id: data.razorpay_payment_id,
+              razorpay_signature: data.razorpay_signature,
+              shopId,
+              amount
+            });
+            Alert.alert('Success', 'Wallet topped up successfully!');
+            setAdWalletBalance(updated.newBalance || (adWalletBalance + amount));
+            setShowTopUpModal(false);
+          })
+          .catch((error: any) => {
+            Alert.alert('Payment Failed', 'Top up was cancelled or failed.');
+          });
+      } catch (err) {
+        console.log('✅ TEST MODE: Bypassing Razorpay for Wallet Top Up');
+        const updated = await adsService.verifyTopUp({
+          razorpay_order_id: orderData.orderId,
+          razorpay_payment_id: 'pay_test_' + Date.now(),
+          razorpay_signature: 'test_signature',
+          shopId,
+          amount
+        });
+        setAdWalletBalance(updated.newBalance || (adWalletBalance + amount));
+        Alert.alert('Success (Test)', 'Wallet topped up!');
+        setShowTopUpModal(false);
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error?.response?.data?.message || 'Failed to initiate top up');
+    } finally {
+      setIsToppingUp(false);
     }
   };
 
@@ -348,6 +469,18 @@ export default function PromoteProductScreen() {
   const chartHeight = 64;
   const ctrTrend = dailyMetrics.map(m => m.impressions > 0 ? (m.clicks / m.impressions) * 100 : 0);
   const chartData = ctrTrend.length >= 2 ? ctrTrend : [0, 0];
+
+  // Real CTR trend: compare last day vs previous day
+  const ctrDelta = (() => {
+    if (ctrTrend.length >= 2) {
+      const today = ctrTrend[ctrTrend.length - 1];
+      const yesterday = ctrTrend[ctrTrend.length - 2];
+      if (yesterday === 0) return today > 0 ? { dir: 'up', pct: 100 } : null;
+      const pct = ((today - yesterday) / yesterday) * 100;
+      return { dir: pct >= 0 ? 'up' : 'down', pct: Math.abs(Math.round(pct)) };
+    }
+    return null;
+  })();
   const { line: chartLine, closed: chartClosed, points: chartPoints } = generateAnalyticsChart(chartData, chartWidth, chartHeight);
 
   const estimatedMonthlySpend = (parseFloat(dailyBudget) * parseInt(duration)).toFixed(0);
@@ -411,24 +544,24 @@ export default function PromoteProductScreen() {
 
             <View style={s.campaignMetricsRow}>
               <View style={s.campaignMiniMetric}>
-                <Text style={s.miniMetricVal}>{campaign.searchAppearances.toLocaleString()}</Text>
-                <Text style={s.miniMetricLbl}>Impressions</Text>
+                <Ionicons name="eye" size={14} color={DS.info} style={{ marginBottom: 2 }} />
+                <Text style={s.miniMetricVal}>{campaign.impressions.toLocaleString()}</Text>
+                <Text style={s.miniMetricLbl}>Impr</Text>
               </View>
               <View style={s.campaignMiniMetric}>
+                <Ionicons name="hand-left" size={14} color={DS.purple} style={{ marginBottom: 2 }} />
                 <Text style={s.miniMetricVal}>{campaign.clicks.toLocaleString()}</Text>
                 <Text style={s.miniMetricLbl}>Clicks</Text>
               </View>
               <View style={s.campaignMiniMetric}>
+                <Ionicons name="cart" size={14} color={DS.success} style={{ marginBottom: 2 }} />
                 <Text style={s.miniMetricVal}>{campaign.conversions.toLocaleString()}</Text>
-                <Text style={s.miniMetricLbl}>Conversions</Text>
+                <Text style={s.miniMetricLbl}>Sales</Text>
               </View>
               <View style={s.campaignMiniMetric}>
-                <Text style={s.miniMetricVal}>{campaign.ctr.toFixed(2)}%</Text>
-                <Text style={s.miniMetricLbl}>CTR</Text>
-              </View>
-              <View style={s.campaignMiniMetric}>
-                <Text style={s.miniMetricVal}>₹{campaign.cpc.toFixed(1)}</Text>
-                <Text style={s.miniMetricLbl}>CPC</Text>
+                <Ionicons name="trending-up" size={14} color={DS.primaryDark} style={{ marginBottom: 2 }} />
+                <Text style={s.miniMetricVal}>{campaign.spent > 0 ? ((campaign.revenue || 0) / campaign.spent).toFixed(1) : '0'}x</Text>
+                <Text style={s.miniMetricLbl}>ROAS</Text>
               </View>
             </View>
 
@@ -456,6 +589,16 @@ export default function PromoteProductScreen() {
                 </Text>
               </View>
             ) : null}
+            
+            <TouchableOpacity 
+              style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}
+              onPress={() => handleOpenNegativeKeywords(campaign)}
+            >
+              <Ionicons name="remove-circle-outline" size={12} color={DS.error} />
+              <Text style={{ fontSize: 11, color: DS.error, marginLeft: 4, fontWeight: '500' }}>
+                Manage Negative Keywords
+              </Text>
+            </TouchableOpacity>
             {!isLive && !campaign.isDeletedProduct && (
               <Button
                 title="Renew Budget"
@@ -585,100 +728,133 @@ export default function PromoteProductScreen() {
               </View>
               <View style={s.heroStatDivider} />
               <View style={s.heroStatItem}>
-                <Text style={s.heroStatLabel}>Monthly Budget</Text>
-                <Text style={s.heroStatVal}>₹{monthlyBudgetVal.toLocaleString()}</Text>
+                <Text style={s.heroStatLabel}>Wallet Balance</Text>
+                <Text style={[s.heroStatVal, { color: DS.success }]}>₹{adWalletBalance.toLocaleString()}</Text>
               </View>
+              <View style={s.heroStatDivider} />
+              <TouchableOpacity 
+                style={{ alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: DS.radius.sm, height: 36, alignSelf: 'center' }}
+                onPress={() => setShowTopUpModal(true)}
+              >
+                <Text style={{ color: '#FFF', fontSize: 13, fontWeight: 'bold' }}>Top Up</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
 
-        {/* Promotion Analytics Spline Visual & Grid */}
+        {/* Analytics Bento Box Layout */}
         <View style={{ paddingHorizontal: 16, marginTop: -20, zIndex: 5 }}>
-          <Card style={s.analyticsGridCard}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <Text style={s.sectionHeader}>Ad Reach & ROI Indicator</Text>
-              <View style={s.ctrTrendBadge}>
-                <Ionicons name="trending-up" size={12} color={DS.success} />
-                <Text style={s.ctrTrendBadgeText}>CTR Up 12%</Text>
+          
+          {/* Bento Row 1: The Sales Funnel (Acquisition) */}
+          <AnimatedEntry delay={100} style={s.bentoContainer}>
+            <View style={s.bentoCard}>
+              <View style={s.bentoHeader}>
+                <Ionicons name="filter" size={18} color={DS.primary} />
+                <Text style={s.bentoTitle}>Sales Funnel</Text>
               </View>
-            </View>
-
-            {/* Sparkline Graph */}
-            {chartLine ? (
-              <View style={s.chartContainer}>
-                <Svg width={chartWidth} height={chartHeight}>
-                  <Defs>
-                    <SvgGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                      <Stop offset="0%" stopColor="#0D9488" stopOpacity={0.25} />
-                      <Stop offset="100%" stopColor="#0D9488" stopOpacity={0.0} />
-                    </SvgGradient>
-                  </Defs>
-                  {/* Closed Area */}
-                  <Path d={chartClosed} fill="url(#chartGrad)" />
-                  {/* Line */}
-                  <Path d={chartLine} fill="none" stroke={DS.primary} strokeWidth="3" />
-                  {/* Circles representing points */}
-                  {chartPoints.map((p, idx) => (
-                    <Circle key={idx} cx={p.x} cy={p.y} r={idx === chartPoints.length - 1 ? 5 : 3.5} fill={DS.primaryDark} stroke="#FFF" strokeWidth="1.5" />
-                  ))}
-                </Svg>
-              </View>
-            ) : null}
-
-            <View style={s.gridRowDivider} />
-
-            <View style={s.gridRow}>
-              <View style={s.gridItem}>
-                <View style={[s.iconBox, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
-                  <Ionicons name="eye-outline" size={18} color={DS.info} />
+              
+              <View style={s.funnelContainer}>
+                <View style={s.funnelStep}>
+                  <View style={[s.funnelIconWrap, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
+                    <Ionicons name="eye" size={20} color={DS.info} />
+                  </View>
+                  <Text style={s.funnelVal}>{Number(analyticsSummary?.totalSearchAppearances || 0).toLocaleString()}</Text>
+                  <Text style={s.funnelLbl}>Impressions</Text>
                 </View>
-                <View>
-                  <Text style={s.gridItemLbl}>Appearances</Text>
-                  <Text style={s.gridItemVal}>
-                    {Number(analyticsSummary?.totalSearchAppearances || 0).toLocaleString()}
-                  </Text>
+                
+                <Ionicons name="chevron-forward" size={16} style={s.funnelArrow} />
+                
+                <View style={s.funnelStep}>
+                  <View style={[s.funnelIconWrap, { backgroundColor: 'rgba(139, 92, 246, 0.1)' }]}>
+                    <Ionicons name="hand-left" size={20} color={DS.purple} />
+                  </View>
+                  <Text style={s.funnelVal}>{Number(analyticsSummary?.totalClicks || 0).toLocaleString()}</Text>
+                  <Text style={s.funnelLbl}>Clicks</Text>
                 </View>
-              </View>
-              <View style={s.gridItem}>
-                <View style={[s.iconBox, { backgroundColor: 'rgba(13, 148, 136, 0.1)' }]}>
-                  <Ionicons name="hand-left-outline" size={18} color={DS.primary} />
-                </View>
-                <View>
-                  <Text style={s.gridItemLbl}>Total Clicks</Text>
-                  <Text style={s.gridItemVal}>
-                    {Number(analyticsSummary?.totalClicks || 0).toLocaleString()}
-                  </Text>
+
+                <Ionicons name="chevron-forward" size={16} style={s.funnelArrow} />
+                
+                <View style={s.funnelStep}>
+                  <View style={[s.funnelIconWrap, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}>
+                    <Ionicons name="cart" size={20} color={DS.success} />
+                  </View>
+                  <Text style={[s.funnelVal, { color: DS.success }]}>{Number(analyticsSummary?.totalConversions || 0).toLocaleString()}</Text>
+                  <Text style={[s.funnelLbl, { color: DS.success }]}>Sales</Text>
                 </View>
               </View>
             </View>
+          </AnimatedEntry>
 
-            <View style={s.gridRowDivider} />
-
-            <View style={s.gridRow}>
-              <View style={s.gridItem}>
-                <View style={[s.iconBox, { backgroundColor: 'rgba(139, 92, 246, 0.1)' }]}>
-                  <Ionicons name="stats-chart-outline" size={18} color={DS.purple} />
-                </View>
-                <View>
-                  <Text style={s.gridItemLbl}>Overall CTR</Text>
-                  <Text style={[s.gridItemVal, { color: DS.primary }]}>
-                    {Number(analyticsSummary?.overallCtr || 0).toFixed(2)}%
-                  </Text>
-                </View>
+          {/* Bento Row 2: ROI & Reach */}
+          <AnimatedEntry delay={200} style={[s.bentoRow, { marginTop: 12 }]}>
+            {/* ROI Premium Card */}
+            <View style={[s.bentoCard, s.bentoCardDark, { flex: 1.2 }]}>
+              <View style={s.bentoHeader}>
+                <Ionicons name="trending-up" size={18} color={DS.success} />
+                <Text style={[s.bentoTitle, s.bentoTitleDark]}>Return on Ad Spend</Text>
               </View>
-              <View style={s.gridItem}>
-                <View style={[s.iconBox, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
-                  <Ionicons name="wallet-outline" size={18} color={DS.warning} />
+              <Text style={s.bentoMetricLargeDark}>
+                {analyticsSummary?.totalSpent > 0
+                  ? `${((analyticsSummary.totalRevenue || 0) / analyticsSummary.totalSpent).toFixed(1)}x`
+                  : '—'}
+              </Text>
+              <Text style={[s.bentoMetricSub, { color: DS.gray300 }]}>For every ₹1 spent, you earn {analyticsSummary?.totalSpent > 0 ? `₹${((analyticsSummary.totalRevenue || 0) / analyticsSummary.totalSpent).toFixed(1)}` : '—'}</Text>
+              
+              <View style={{ marginTop: 16, flexDirection: 'row', justifyContent: 'space-between' }}>
+                <View>
+                  <Text style={[s.bentoMetricSub, { color: DS.gray300, marginTop: 0 }]}>Total Spent</Text>
+                  <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 14 }}>₹{totalSpentVal.toLocaleString()}</Text>
                 </View>
                 <View>
-                  <Text style={s.gridItemLbl}>Total Spent</Text>
-                  <Text style={[s.gridItemVal, { color: DS.warning }]}>
-                    ₹{totalSpentVal.toLocaleString()}
-                  </Text>
+                  <Text style={[s.bentoMetricSub, { color: DS.gray300, marginTop: 0 }]}>Cost per Sale</Text>
+                  <Text style={{ color: '#EF4444', fontWeight: '700', fontSize: 14 }}>₹{Number(analyticsSummary?.overallCpa || 0).toLocaleString()}</Text>
                 </View>
               </View>
             </View>
-          </Card>
+
+            {/* Reach Card */}
+            <View style={[s.bentoCard, { flex: 0.8, justifyContent: 'center' }]}>
+              <View style={s.bentoHeader}>
+                <Ionicons name="people" size={18} color={DS.primary} />
+                <Text style={s.bentoTitle}>Reach</Text>
+              </View>
+              <Text style={[s.bentoMetricLarge, { color: DS.primary }]}>{Number(analyticsSummary?.totalReach || 0).toLocaleString()}</Text>
+              <Text style={s.bentoMetricSub}>Unique shoppers saw your ads</Text>
+            </View>
+          </AnimatedEntry>
+
+          {/* Advanced Metrics Toggle */}
+          <AnimatedEntry delay={300}>
+            <TouchableOpacity 
+              style={s.advancedToggle} 
+              onPress={() => setShowAdvancedMetrics(!showAdvancedMetrics)}
+              activeOpacity={0.7}
+            >
+              <Text style={s.advancedToggleText}>{showAdvancedMetrics ? 'Hide' : 'Show'} Advanced Technical Metrics</Text>
+              <Ionicons name={showAdvancedMetrics ? "chevron-up" : "chevron-down"} size={16} color={DS.primary} />
+            </TouchableOpacity>
+
+            {showAdvancedMetrics && (
+              <View style={s.advancedGrid}>
+                <View style={s.advancedItem}>
+                  <Text style={s.advancedItemLbl}>CTR (Click Rate)</Text>
+                  <Text style={s.advancedItemVal}>{Number(analyticsSummary?.overallCtr || 0).toFixed(2)}%</Text>
+                </View>
+                <View style={s.advancedItem}>
+                  <Text style={s.advancedItemLbl}>CVR (Conversion Rate)</Text>
+                  <Text style={s.advancedItemVal}>{Number(analyticsSummary?.overallCvr || 0).toFixed(2)}%</Text>
+                </View>
+                <View style={s.advancedItem}>
+                  <Text style={s.advancedItemLbl}>CPM (Cost per 1k views)</Text>
+                  <Text style={s.advancedItemVal}>₹{Number(analyticsSummary?.overallCpm || 0).toFixed(2)}</Text>
+                </View>
+                <View style={s.advancedItem}>
+                  <Text style={s.advancedItemLbl}>AOV (Avg Order Value)</Text>
+                  <Text style={s.advancedItemVal}>₹{Number(analyticsSummary?.overallAov || 0).toLocaleString()}</Text>
+                </View>
+              </View>
+            )}
+          </AnimatedEntry>
         </View>
 
         {/* Campaign Lists */}
@@ -960,6 +1136,54 @@ export default function PromoteProductScreen() {
         </View>
       </Modal>
 
+      {/* Top Up Wallet Modal */}
+      <Modal visible={showTopUpModal} transparent animationType="fade">
+        <View style={s.modalOverlay}>
+          <View style={[s.modalContent, { maxHeight: '50%' }]}>
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>Top Up Wallet</Text>
+              <TouchableOpacity onPress={() => setShowTopUpModal(false)} style={s.modalCloseBtn}>
+                <Ionicons name="close" size={24} color={DS.gray500} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ padding: 20 }}>
+              <View style={s.inputContainer}>
+                <Text style={s.sliderLabel}>Top Up Amount (₹)</Text>
+                <TextInput
+                  style={s.textInput}
+                  keyboardType="numeric"
+                  value={topUpAmount}
+                  onChangeText={setTopUpAmount}
+                  placeholder="Min ₹100"
+                  placeholderTextColor={DS.gray500}
+                />
+                <Text style={s.inputSubHint}>Funds will be added to your Ad Wallet to run campaigns.</Text>
+              </View>
+
+              <View style={s.modalActions}>
+                <Button
+                  title="Cancel"
+                  variant="outline"
+                  onPress={() => setShowTopUpModal(false)}
+                  style={{ flex: 1, borderColor: DS.gray300, minHeight: 44 }}
+                  textStyle={{ color: DS.gray700 }}
+                  disabled={isToppingUp}
+                />
+                <Button
+                  title="Proceed to Pay"
+                  variant="primary"
+                  onPress={handleTopUpWallet}
+                  style={{ flex: 1.3, backgroundColor: DS.primary, minHeight: 44 }}
+                  loading={isToppingUp}
+                  disabled={isToppingUp}
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Renew Budget Modal */}
       <Modal visible={showRenewModal} transparent animationType="fade">
         <View style={s.modalOverlay}>
@@ -982,7 +1206,19 @@ export default function PromoteProductScreen() {
                   placeholder="Min ₹100"
                   placeholderTextColor={DS.gray500}
                 />
-                <Text style={s.inputSubHint}>Extend this campaign's lifespan by injecting more budget.</Text>
+              </View>
+              
+              <View style={s.inputContainer}>
+                <Text style={s.sliderLabel}>Extension Duration (Days)</Text>
+                <TextInput
+                  style={s.textInput}
+                  keyboardType="number-pad"
+                  value={renewDuration}
+                  onChangeText={setRenewDuration}
+                  placeholder="e.g. 30"
+                  placeholderTextColor={DS.gray500}
+                />
+                <Text style={s.inputSubHint}>Extend this campaign's lifespan by injecting more budget and time.</Text>
               </View>
 
               <View style={s.modalActions}>
@@ -1000,6 +1236,59 @@ export default function PromoteProductScreen() {
                   style={{ flex: 1.3, backgroundColor: DS.primary, minHeight: 44 }}
                 />
               </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Negative Keywords Modal */}
+      <Modal visible={showNegativeKeywordsModal} transparent animationType="fade" onRequestClose={() => setShowNegativeKeywordsModal(false)}>
+        <View style={s.modalOverlay}>
+          <View style={s.modalContent}>
+            <View style={s.modalGrabHandle} />
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>Negative Keywords</Text>
+              <TouchableOpacity style={s.modalCloseBtn} onPress={() => setShowNegativeKeywordsModal(false)}>
+                <Ionicons name="close" size={20} color={DS.gray700} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ paddingBottom: 24 }}>
+              <Text style={{ fontSize: 13, color: DS.gray500, marginBottom: 12 }}>
+                Prevent your ad from showing when users search for these exact terms.
+              </Text>
+
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+                <TextInput
+                  style={[s.textInput, { flex: 1, marginTop: 0, height: 44 }]}
+                  placeholder="Enter keyword..."
+                  value={newKeywordInput}
+                  onChangeText={setNewKeywordInput}
+                  placeholderTextColor={DS.gray500}
+                />
+                <Button
+                  title="Add"
+                  onPress={handleAddNegativeKeyword}
+                  style={{ width: 80, height: 44, borderRadius: 12 }}
+                />
+              </View>
+
+              {negativeKeywords.length === 0 ? (
+                <Text style={{ textAlign: 'center', color: DS.gray500, fontStyle: 'italic', marginVertical: 16 }}>
+                  No negative keywords added yet.
+                </Text>
+              ) : (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {negativeKeywords.map(kw => (
+                    <View key={kw.id} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(239, 68, 68, 0.1)', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999 }}>
+                      <Text style={{ color: DS.error, fontSize: 12, fontWeight: '600', marginRight: 4 }}>{kw.keyword}</Text>
+                      <TouchableOpacity onPress={() => handleRemoveNegativeKeyword(kw.id)}>
+                        <Ionicons name="close-circle" size={16} color={DS.error} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
           </View>
         </View>
@@ -1207,8 +1496,10 @@ const s = StyleSheet.create({
     padding: 8,
     marginTop: 10,
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    rowGap: 8,
   },
-  campaignMiniMetric: { alignItems: 'center', flex: 1 },
+  campaignMiniMetric: { alignItems: 'center', minWidth: '30%', flexGrow: 1 },
   miniMetricVal: { fontSize: 12, fontWeight: '700', color: DS.gray900 },
   miniMetricLbl: { fontSize: 9, color: DS.gray500, marginTop: 1, textTransform: 'uppercase', fontWeight: '600' },
 
@@ -1268,6 +1559,61 @@ const s = StyleSheet.create({
     minHeight: 32,
   },
   gridPromoteButtonText: { fontSize: 11, fontWeight: '700', color: '#FFF' },
+
+  // --- BENTO BOX UI STYLES ---
+  bentoContainer: { gap: 12, marginTop: 16 },
+  bentoRow: { flexDirection: 'row', gap: 12 },
+  bentoCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 20,
+    padding: 16,
+    flex: 1,
+    borderWidth: 1,
+    borderColor: DS.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  bentoCardDark: {
+    backgroundColor: '#0F172A',
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  bentoHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  bentoTitle: { fontSize: 13, fontWeight: '700', color: DS.gray700 },
+  bentoTitleDark: { color: DS.gray300 },
+  bentoMetricLarge: { fontSize: 24, fontWeight: '800', color: DS.gray900, letterSpacing: -0.5 },
+  bentoMetricLargeDark: { color: '#FFF' },
+  bentoMetricSub: { fontSize: 12, color: DS.gray500, fontWeight: '500', marginTop: 4 },
+
+  funnelContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
+  funnelStep: { alignItems: 'center', flex: 1 },
+  funnelIconWrap: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  funnelVal: { fontSize: 16, fontWeight: '800', color: DS.gray900 },
+  funnelLbl: { fontSize: 11, color: DS.gray500, fontWeight: '600' },
+  funnelArrow: { color: DS.gray300, paddingHorizontal: 4 },
+
+  advancedToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  advancedToggleText: { fontSize: 13, fontWeight: '600', color: DS.primary },
+  advancedGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 12 },
+  advancedItem: {
+    width: '48%',
+    backgroundColor: DS.gray50,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: DS.border,
+  },
+  advancedItemLbl: { fontSize: 11, color: DS.gray500, fontWeight: '600', marginBottom: 4 },
+  advancedItemVal: { fontSize: 15, fontWeight: '700', color: DS.gray900 },
 
   emptyStateText: { fontSize: 14, color: DS.gray500, fontWeight: '500' },
   emptyStateSub: { fontSize: 12, color: DS.gray500 },

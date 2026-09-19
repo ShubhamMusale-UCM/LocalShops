@@ -23,6 +23,7 @@ import { useHideTabBarOnScroll } from '../../hooks/useHideTabBarOnScroll';
 import { orderService } from '../../services/orderService';
 import shopService from '../../services/shopService';
 import { getProductImageUrl } from '../../utils/image';
+import { SkeletonListItem } from '../../components/ui/Skeleton';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -469,8 +470,10 @@ const OrderManagementScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
       {/* ─── Orders List ───────────────── */}
       {loading ? (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator size="large" color={DS.primary} />
+        <View style={{ padding: 16, gap: 12 }}>
+          {[...Array(6)].map((_, i) => (
+            <SkeletonListItem key={i} lines={2} style={{ marginBottom: 8 }} />
+          ))}
         </View>
       ) : (
         <FlatList

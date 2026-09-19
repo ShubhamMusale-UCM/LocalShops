@@ -27,10 +27,14 @@ const normalizeProductImages = <T extends { images?: unknown }>(product: T): T =
   const images = product.images
     .filter((item): item is string => typeof item === 'string')
     .map((item) => item.trim())
-    .filter((item) => /^https?:\/\//i.test(item))
-    .map(normalizeSignedS3Url);
+    .filter((item) => item.length > 0)
+    .map((item) => (/^https?:\/\//i.test(item) ? normalizeSignedS3Url(item) : item));
 
-  return { ...product, images };
+  return { 
+    ...product, 
+    images,
+    image: images[0] || (product as any).image || ''
+  };
 };
 
 const isSponsoredActive = (listing: any): boolean => {
@@ -95,13 +99,16 @@ export const searchProducts = async (params: SearchParams) => {
   // Text search filter
   if (query) {
     const fuzzyMatches = await prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM "Product" 
-      WHERE word_similarity(${query}, name) >= 0.15 
-         OR word_similarity(${query}, description) >= 0.15
-         OR word_similarity(${query}, brand) >= 0.15
-         OR name ILIKE ${'%' + query + '%'}
-         OR description ILIKE ${'%' + query + '%'}
-         OR brand ILIKE ${'%' + query + '%'}
+      SELECT p.id FROM "Product" p
+      LEFT JOIN "Shop" s ON p."shopId" = s.id
+      WHERE word_similarity(${query}, p.name) >= 0.15 
+         OR word_similarity(${query}, p.description) >= 0.15
+         OR word_similarity(${query}, p.brand) >= 0.15
+         OR word_similarity(${query}, s.name) >= 0.15
+         OR p.name ILIKE ${'%' + query + '%'}
+         OR p.description ILIKE ${'%' + query + '%'}
+         OR p.brand ILIKE ${'%' + query + '%'}
+         OR s.name ILIKE ${'%' + query + '%'}
     `;
     const fuzzyIds = fuzzyMatches.map(m => m.id);
 
@@ -250,53 +257,112 @@ export const searchProducts = async (params: SearchParams) => {
 };
 
 /**
- * Get products from the same category at nearby shops for price comparison
+ * Get products from the same category or matching keywords at nearby shops for price comparison
  */
 export const getComparableProducts = async (
   productId: string,
   latitude?: number,
   longitude?: number,
-  radius: number = 5
+  radius: number = 25
 ) => {
   const product = await prisma.product.findUnique({
     where: { id: productId },
-    select: { name: true, category: true, brand: true, shop: { select: { latitude: true, longitude: true } } },
+    select: { 
+      id: true,
+      name: true, 
+      category: true, 
+      brand: true, 
+      tags: true,
+      shopId: true,
+      shop: { select: { latitude: true, longitude: true } } 
+    },
   });
 
   if (!product) return [];
 
-  const where: any = {
+  const stopWords = new Set(['and', 'for', 'the', 'with', 'from', 'pack', 'size', 'original', 'item', 'best', 'shop']);
+  const rawWords = product.name
+    .replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !stopWords.has(w));
+
+  const keywordConditions: any[] = rawWords.length > 0
+    ? rawWords.map((word) => ({ name: { contains: word, mode: 'insensitive' } }))
+    : [{ name: { contains: product.name.trim(), mode: 'insensitive' } }];
+
+  const orConditions: any[] = [
+    ...keywordConditions,
+    ...(product.brand ? [{ brand: { equals: product.brand, mode: 'insensitive' } }] : []),
+    ...(product.tags && product.tags.length > 0 ? [{ tags: { hasSome: product.tags } }] : []),
+  ];
+
+  const shopWhereBase: any = { isActive: true };
+  const baseWhere: any = {
     id: { not: productId },
+    shopId: { not: product.shopId },
     isActive: true,
-    category: product.category,
-    OR: [
-      { name: { contains: product.name.split(' ').slice(0, 3).join(' '), mode: 'insensitive' } },
-      ...(product.brand ? [{ brand: product.brand }] : []),
-    ],
+    OR: orConditions,
   };
 
-  // Geo filter if location available
-  const lat = latitude || product.shop.latitude;
-  const lng = longitude || product.shop.longitude;
-  if (lat && lng) {
+  const lat = latitude || product.shop?.latitude;
+  const lng = longitude || product.shop?.longitude;
+  const hasValidGeo = lat != null && lng != null && !(lat === 0 && lng === 0);
+
+  let products: any[] = [];
+
+  if (hasValidGeo) {
     const bbox = getBoundingBox(lat, lng, radius);
-    where.shop = {
-      isActive: true,
-      latitude: { gte: bbox.minLat, lte: bbox.maxLat },
-      longitude: { gte: bbox.minLng, lte: bbox.maxLng },
+    const geoWhere = {
+      ...baseWhere,
+      shop: {
+        ...shopWhereBase,
+        latitude: { gte: bbox.minLat, lte: bbox.maxLat },
+        longitude: { gte: bbox.minLng, lte: bbox.maxLng },
+      },
     };
+
+    products = await prisma.product.findMany({
+      where: geoWhere,
+      include: {
+        shop: {
+          select: { id: true, name: true, slug: true, latitude: true, longitude: true, averageRating: true, logo: true, coverImage: true },
+        },
+      },
+      orderBy: { price: 'asc' },
+      take: 12,
+    });
   }
 
-  const products = await prisma.product.findMany({
-    where,
-    include: {
-      shop: {
-        select: { id: true, name: true, slug: true, latitude: true, longitude: true, averageRating: true, logo: true, coverImage: true },
+  // Fallback: If no geo results (or invalid geo), search globally
+  if (products.length === 0) {
+    products = await prisma.product.findMany({
+      where: {
+        ...baseWhere,
+        shop: shopWhereBase,
       },
-    },
-    orderBy: { price: 'asc' },
-    take: 10,
-  });
+      include: {
+        shop: {
+          select: { id: true, name: true, slug: true, latitude: true, longitude: true, averageRating: true, logo: true, coverImage: true },
+        },
+      },
+      orderBy: { price: 'asc' },
+      take: 12,
+    });
+  }
 
-  return products.map((item) => normalizeProductImages(item));
+  return products.map((item) => {
+    const normalized = normalizeProductImages(item);
+    const itemLat = item.shop?.latitude;
+    const itemLng = item.shop?.longitude;
+    const itemHasGeo = itemLat != null && itemLng != null && !(itemLat === 0 && itemLng === 0);
+
+    return {
+      ...normalized,
+      shopDistance_km: hasValidGeo && itemHasGeo
+        ? haversineDistance(lat, lng, itemLat, itemLng)
+        : undefined,
+    };
+  });
 };

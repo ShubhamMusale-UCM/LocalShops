@@ -1,11 +1,14 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiClient from './api';
 
 export interface TelemetryEvent {
   campaignId: string;
   productId: string;
-  type: 'impression' | 'click' | 'conversion';
+  type: 'impression' | 'click' | 'view' | 'cart_add' | 'conversion';
   keyword?: string;
+  productPrice?: number;
   timestamp: number;
+  deviceId?: string;
 }
 
 class TelemetryService {
@@ -16,14 +19,48 @@ class TelemetryService {
   private trackedImpressions = new Map<string, number>();
   // Prevent click fraud, with 5-minute debounce
   private trackedClicks = new Map<string, number>();
+  private deviceId: string | null = null;
 
   constructor() {
+    this.initDeviceId();
     this.startBatching();
+  }
+
+  private async initDeviceId() {
+    try {
+      let id = await AsyncStorage.getItem('@device_id');
+      if (!id) {
+        id = `dev_${Math.random().toString(36).substring(2, 15)}_${Date.now()}`;
+        await AsyncStorage.setItem('@device_id', id);
+      }
+      this.deviceId = id;
+    } catch (e) {
+      this.deviceId = `dev_fallback_${Date.now()}`;
+    }
   }
 
   private startBatching() {
     if (!this.intervalId) {
-      this.intervalId = setInterval(() => this.processQueue(), 5000);
+      this.intervalId = setInterval(() => {
+        this.processQueue();
+        this.clearExpiredCaches();
+      }, 5000);
+    }
+  }
+
+  private clearExpiredCaches() {
+    const now = Date.now();
+    // 1-hour TTL for impressions
+    for (const [key, timestamp] of this.trackedImpressions.entries()) {
+      if (now - timestamp >= 60 * 60 * 1000) {
+        this.trackedImpressions.delete(key);
+      }
+    }
+    // 30-second debounce for clicks
+    for (const [key, timestamp] of this.trackedClicks.entries()) {
+      if (now - timestamp >= 30 * 1000) {
+        this.trackedClicks.delete(key);
+      }
     }
   }
 
@@ -44,16 +81,17 @@ class TelemetryService {
       type: 'impression',
       keyword,
       timestamp: Date.now(),
+      deviceId: this.deviceId || undefined,
     });
   }
 
   trackClick(campaignId: string, productId: string, keyword?: string) {
-    const key = `${campaignId}_${keyword || ''}`;
+    const key = `${campaignId}_${productId}_${keyword || ''}`;
     const now = Date.now();
     const lastClicked = this.trackedClicks.get(key);
     
-    // 5-minute debounce for clicks
-    if (lastClicked && now - lastClicked < 5 * 60 * 1000) {
+    // 30-second debounce for clicks
+    if (lastClicked && now - lastClicked < 30 * 1000) {
       return;
     }
     this.trackedClicks.set(key, now);
@@ -64,16 +102,40 @@ class TelemetryService {
       type: 'click',
       keyword,
       timestamp: Date.now(),
+      deviceId: this.deviceId || undefined,
     });
   }
 
-  trackConversion(campaignId: string, productId: string, keyword?: string) {
+  trackView(campaignId: string, productId: string) {
+    this.queue.push({
+      campaignId,
+      productId,
+      type: 'view',
+      timestamp: Date.now(),
+      deviceId: this.deviceId || undefined,
+    });
+  }
+
+  trackCartAdd(campaignId: string, productId: string, keyword?: string) {
+    this.queue.push({
+      campaignId,
+      productId,
+      type: 'cart_add',
+      keyword,
+      timestamp: Date.now(),
+      deviceId: this.deviceId || undefined,
+    });
+  }
+
+  trackConversion(campaignId: string, productId: string, keyword?: string, productPrice?: number) {
     this.queue.push({
       campaignId,
       productId,
       type: 'conversion',
       keyword,
+      productPrice,
       timestamp: Date.now(),
+      deviceId: this.deviceId || undefined,
     });
   }
 

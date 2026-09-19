@@ -1186,7 +1186,19 @@ const ShopProfileScreen: React.FC<Props> = ({ navigation, route }) => {
     const load = async () => {
       try {
         const res = await shopService.getById(shopId);
-        setShop(res.data);
+        const shopData = res.data;
+        if (!shopData?.products || shopData.products.length === 0) {
+          try {
+            const prodRes = await shopService.getProducts(shopId);
+            const prods = prodRes.data?.products || prodRes.data?.data || (Array.isArray(prodRes.data) ? prodRes.data : []);
+            if (Array.isArray(prods) && prods.length > 0) {
+              shopData.products = prods;
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        setShop(shopData);
         Animated.timing(contentOpacity, {
           toValue: 1,
           duration: 400,

@@ -44,7 +44,7 @@ export const shopService = {
 
   getMyShops: () => api.get('/shops/me/shops'),
 
-  getProducts: (shopId: string, params?: { category?: string; sort?: string; page?: number }) =>
+  getProducts: (shopId: string, params?: { category?: string; sort?: string; page?: number; limit?: number }) =>
     api.get(`/products/shop/${shopId}`, { params }),
 
   uploadImage: async (imageUri: string) => {

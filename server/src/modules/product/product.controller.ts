@@ -126,6 +126,25 @@ export class ProductController {
     }
   }
 
+  async bulkUpdate(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { shopId } = req.params;
+      const { updates } = req.body;
+      
+      // We can use the bulkUpdateProductsSchema here, but since it's already structured we'll just parse the body
+      const { bulkUpdateProductsSchema } = require('./product.validator');
+      const validated = bulkUpdateProductsSchema.parse(req.body);
+
+      const result = await productService.bulkUpdateProducts(shopId, req.user!.id, validated.updates);
+      res.json(result);
+    } catch (error: any) {
+      const statusCode = error.statusCode || 400;
+      const errorMessage = error.message || 'Failed to bulk update products';
+      const details = error.issues || error.errors;
+      res.status(statusCode).json({ error: errorMessage, details });
+    }
+  }
+
   async deleteProduct(req: AuthRequest, res: Response): Promise<void> {
     try {
       const result = await productService.deleteProduct(req.params.id, req.user!.id);

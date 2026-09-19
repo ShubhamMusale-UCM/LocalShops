@@ -77,6 +77,7 @@ export class PaymentController {
           id: order.id,
           orderId: order.id,
           orderNumber: order.orderNumber,
+          amount: order.total,
           bypassed: paymentMethod !== 'COD' && skipPaymentVerification,
           message:
             paymentMethod === 'COD'

@@ -18,6 +18,7 @@ import { Shadows } from '../../theme/shadows';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import paymentService from '../../services/paymentService';
+import telemetryService from '../../services/telemetryService';
 import { useCartStore } from '../../store/cartStore';
 
 type Props = NativeStackScreenProps<any, 'Payment'>;
@@ -75,6 +76,14 @@ const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
 
       // BYPASS: Skip Razorpay verification and directly mark as successful
       // In production, call handlePaymentSuccess with Razorpay data instead
+      
+      // Track conversions for promoted items
+      cartItems.forEach((item: any) => {
+        if (item.campaignId) {
+          telemetryService.trackConversion(item.campaignId, item.productId, undefined, item.price);
+        }
+      });
+
       setPaymentStatus('success');
       clearCart();
 
@@ -103,6 +112,13 @@ const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
         razorpay_payment_id: razorpayData.razorpay_payment_id,
         razorpay_signature: razorpayData.razorpay_signature,
         orderId: localOrderId,
+      });
+
+      // Track conversions for promoted items
+      cartItems.forEach((item: any) => {
+        if (item.campaignId) {
+          telemetryService.trackConversion(item.campaignId, item.productId, undefined, item.price);
+        }
       });
 
       setPaymentStatus('success');

@@ -23,6 +23,28 @@ const trackKeywordStats = (keyword: string, products: any[]) => {
   )).catch(() => {});
 };
 
+// Fire-and-forget impression tracking — never blocks the response
+const trackProductImpressions = (products: any[]) => {
+  if (!products || products.length === 0) return;
+
+  const productIds = products.map((p: any) => p.id).filter(Boolean);
+  const campaignIds = products.filter((p: any) => p.isSponsored && p.campaignId).map((p: any) => p.campaignId);
+
+  if (productIds.length > 0) {
+    prisma.product.updateMany({
+      where: { id: { in: productIds } },
+      data: { viewCount: { increment: 1 } },
+    }).catch(() => {}); // Silently ignore DB errors
+  }
+
+  if (campaignIds.length > 0) {
+    prisma.promotedListing.updateMany({
+      where: { id: { in: campaignIds } },
+      data: { impressions: { increment: 1 } },
+    }).catch(() => {}); // Silently ignore DB errors
+  }
+};
+
 export const SearchController = {
   /**
    * Search products with filters
@@ -49,6 +71,11 @@ export const SearchController = {
       // Track keyword stats (non-blocking fire-and-forget)
       if (queryStr && results.products.length > 0) {
         trackKeywordStats(queryStr, results.products);
+      }
+
+      // Track product views / impressions (non-blocking fire-and-forget)
+      if (results.products.length > 0) {
+        trackProductImpressions(results.products);
       }
 
       res.json({
@@ -122,7 +149,12 @@ export const SearchController = {
     try {
       const { q, limit = 10 } = req.query;
 
-      if (!q) throw new AppError('Search query required', 400);
+      if (!q) {
+        return res.json({
+          status: 'success',
+          data: [],
+        });
+      }
 
       const suggestions = await searchService.getSearchSuggestions(
         q as string,
@@ -161,6 +193,11 @@ export const SearchController = {
         parseInt((req.query.limit as string) || '20'),
         parseInt((req.query.offset as string) || '0')
       );
+
+      // Track product views / impressions (non-blocking fire-and-forget)
+      if (results.products && results.products.length > 0) {
+        trackProductImpressions(results.products);
+      }
 
       res.json({
         status: 'success',

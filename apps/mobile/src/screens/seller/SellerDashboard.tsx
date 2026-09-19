@@ -412,12 +412,38 @@ export default function SellerDashboard({ navigation }: { navigation: any }) {
                 </AnimatedPressable>
 
                 <AnimatedPressable
-                  onPress={() => navigation.navigate('PromoteProduct')}
+                  onPress={() => navigation.navigate('ManageFlashSales')}
                   style={[s.opsCard, { borderLeftColor: DS.warning, borderLeftWidth: 4 }]}
                   containerStyle={{ flex: 1 }}
                 >
                   <View style={[s.opsIconWrap, { backgroundColor: DS.warning + '15' }]}>
-                    <Ionicons name="megaphone" size={24} color={DS.warning} />
+                    <Ionicons name="flash" size={24} color={DS.warning} />
+                  </View>
+                  <Text style={s.opsCardTitle}>Flash Sales</Text>
+                  <Text style={s.opsCardDesc}>Manage discounts</Text>
+                </AnimatedPressable>
+              </View>
+
+              <View style={s.opsRow}>
+                <AnimatedPressable
+                  onPress={() => navigation.navigate('StoreSettings')}
+                  style={[s.opsCard, { borderLeftColor: DS.gray600, borderLeftWidth: 4 }]}
+                  containerStyle={{ flex: 1 }}
+                >
+                  <View style={[s.opsIconWrap, { backgroundColor: DS.gray600 + '15' }]}>
+                    <Ionicons name="settings" size={24} color={DS.gray600} />
+                  </View>
+                  <Text style={s.opsCardTitle}>Store Settings</Text>
+                  <Text style={s.opsCardDesc}>Hours & Status</Text>
+                </AnimatedPressable>
+
+                <AnimatedPressable
+                  onPress={() => navigation.navigate('PromoteProduct')}
+                  style={[s.opsCard, { borderLeftColor: DS.success, borderLeftWidth: 4 }]}
+                  containerStyle={{ flex: 1 }}
+                >
+                  <View style={[s.opsIconWrap, { backgroundColor: DS.success + '15' }]}>
+                    <Ionicons name="megaphone" size={24} color={DS.success} />
                   </View>
                   <Text style={s.opsCardTitle}>Promote</Text>
                   <Text style={s.opsCardDesc}>Boost ranking & sales</Text>

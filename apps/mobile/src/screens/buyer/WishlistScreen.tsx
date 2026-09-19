@@ -17,11 +17,48 @@ import { formatPrice } from '../../utils/formatters';
 import { GlassPanel, GlassCard, GlassButton } from '../../components/ui/Glassmorphism';
 import AmbientOrbs from '../../components/ui/AmbientOrbs';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { useAuthStore } from '../../store/authStore';
 
 const WishlistScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const items = useWishlistStore((state) => state.items);
   const removeItem = useWishlistStore((state) => state.removeItem);
+  const { isAuthenticated } = useAuthStore();
+
+  if (!isAuthenticated) {
+    return (
+      <View style={styles.container}>
+        <AmbientOrbs />
+        <View style={{ zIndex: 10 }}>
+          <GlassPanel intensity={40} style={{ borderRadius: 0, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' }}>
+            <View style={styles.header}>
+              <GlassButton onPress={() => navigation.goBack()} style={styles.backBtn} intensity={20}>
+                <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
+              </GlassButton>
+              <Text style={styles.headerTitle}>Wishlist</Text>
+              <View style={{ width: 40 }} />
+            </View>
+          </GlassPanel>
+        </View>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={styles.emptyIconBg}>
+            <Ionicons name="heart" size={44} color="#06B6D4" />
+          </View>
+          <Text style={styles.emptyTitle}>Save your favorites</Text>
+          <Text style={styles.emptySub}>Log in to add items to your wishlist and access them anytime.</Text>
+          <GlassButton 
+            onPress={() => navigation.navigate('Auth')} 
+            style={{ width: '100%', height: 48, borderRadius: 24, marginTop: 24, overflow: 'hidden' }}
+          >
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <Ionicons name="log-in-outline" size={20} color="#FFF" />
+              <Text style={{ color: '#FFF', fontSize: 16, fontFamily: 'Inter_600SemiBold' }}>Log In or Register</Text>
+            </View>
+          </GlassButton>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

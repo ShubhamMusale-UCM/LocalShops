@@ -412,6 +412,12 @@ const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
       const data = response?.data;
 
       login(data.user, data.accessToken, data.refreshToken);
+      const rootNav = navigation.getParent();
+      if (rootNav) {
+        rootNav.reset({ index: 0, routes: [{ name: 'Main' }] });
+      } else {
+        navigation.reset({ index: 0, routes: [{ name: 'Main' }] as any });
+      }
     } catch (err: any) {
       setErrors({
         general:

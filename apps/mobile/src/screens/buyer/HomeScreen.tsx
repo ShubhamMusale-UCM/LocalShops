@@ -160,6 +160,7 @@ export default function HomeScreen() {
   }), [isDarkMode]);
 
   const user = useAuthStore((s) => s.user);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const { latitude, longitude, address, setLocation } = useLocationStore();
   const setCategoryStore = useSearchStore((s) => s.setCategory);
 
@@ -239,7 +240,7 @@ export default function HomeScreen() {
         combined
           .filter((p: any) => p.isBoosted && p.campaignId)
           .forEach((p: any) => {
-            telemetryService.trackImpression(p.campaignId, p.id, undefined);
+            telemetryService.trackImpression(p.campaignId, p.id, activeCategory !== 'all' ? activeCategory : undefined);
           });
       } catch (err) {
         console.warn('Failed to load trending', err);
@@ -315,7 +316,7 @@ export default function HomeScreen() {
 
   const handleAddProductToCart = useCallback((prod: any) => {
     if (!prod) return;
-    addItem({
+    const added = addItem({
       productId: prod.id || String(Date.now()),
       shopId: prod.shopId || 's1',
       shopName: prod.shop?.name || 'Local Store',
@@ -327,9 +328,16 @@ export default function HomeScreen() {
       inStock: true,
       campaignId: prod.campaignId || undefined,
     });
-  }, [addItem]);
+    if (added && prod.campaignId) {
+      telemetryService.trackCartAdd(prod.campaignId, prod.id, activeCategory !== 'all' ? activeCategory : undefined);
+    }
+  }, [addItem, activeCategory]);
 
   const handleToggleShopWishlist = useCallback((shop: any) => {
+    if (!isAuthenticated) {
+      navigation.navigate('Auth');
+      return;
+    }
     if (!shop) return;
     toggleWishlistItem({
       productId: shop.id,
@@ -338,7 +346,7 @@ export default function HomeScreen() {
       price: 0,
       image: shop.logo || '',
     });
-  }, [toggleWishlistItem]);
+  }, [isAuthenticated, navigation, toggleWishlistItem]);
 
   const displayProducts = useMemo(() => {
     if (!Array.isArray(trendingProducts)) return [];
@@ -851,7 +859,7 @@ const styles = StyleSheet.create({
   dualPromoHeadline: { fontSize: 12, fontWeight: '800', lineHeight: 15 },
   dualPromoSub: { fontSize: 9, marginTop: 4, fontWeight: '500' },
   dualPromoIllustration: { width: 44, height: 44, flex: 0.7 },
-  shopCardItem: { width: 160, borderRadius: 20, padding: 12, justifyContent: 'space-between' },
+  shopCardItem: { width: 140, height: 160, borderRadius: 20, padding: 12, justifyContent: 'space-between', overflow: 'hidden' },
   shopTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   shopAvatarImage: { width: 36, height: 36, borderRadius: 18 },
   shopAvatarLetterContainer: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },

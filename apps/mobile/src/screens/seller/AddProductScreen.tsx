@@ -63,7 +63,10 @@ const AddProductScreen: React.FC<{ navigation: any; route?: any }> = ({ navigati
   const [focusedField, setFocusedField] = useState<string | null>(null);
 
   const categories = [
-    'Groceries', 'Electronics', 'Clothing', 'Home & Garden',
+    'Fashion & Apparel', 'Furniture & Living', 'Electronics & Audio', 'Hardware & Tools',
+    'Second-Hand & Refurbished', 'Rental Items & Gear', 'Local Services', 'Restaurants & Dining',
+    'Hotels & Stays', 'Events & Live Shows', 'Local Experiences', 'Vehicles & Mobility',
+    'Spaces & Studios', 'Groceries', 'Clothing', 'Home & Garden',
     'Sports', 'Books', 'Health & Beauty', 'Toys & Games',
     'Food & Beverages', 'Pet Supplies', 'Stationery', 'Other',
   ];

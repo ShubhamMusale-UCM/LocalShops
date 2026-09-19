@@ -31,6 +31,7 @@ import analyticsRoutes from './modules/analytics/analytics.routes';
 import adsRoutes from './modules/ads/ads.routes';
 import subscriptionRoutes from './modules/subscription/subscription.routes';
 import systemRoutes from './modules/system/system.routes';
+import flashSaleRoutes from './modules/flashsale/flashsale.routes';
 
 const app = express();
 const httpServer = createServer(app);
@@ -102,6 +103,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/ads', adsRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/system', systemRoutes);
+app.use('/api/flash-sales', flashSaleRoutes);
 
 // Expose uploaded media for local/dev storage fallback.
 app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
@@ -116,6 +118,8 @@ app.use(errorHandler as any);
 import { Server as SocketIOServer } from 'socket.io';
 import OrderUpdatesSocket from './websockets/orderUpdates.ws';
 
+import cronService from './services/cron.service';
+
 export let orderSocket: OrderUpdatesSocket;
 
 const startServer = async () => {
@@ -125,6 +129,9 @@ const startServer = async () => {
 
     // Initialize Firebase (optional, warns if not configured)
     initializeFirebase();
+    
+    // Start Cron Jobs
+    cronService.start();
 
     // Start HTTP server
     httpServer.listen(PORT, () => {

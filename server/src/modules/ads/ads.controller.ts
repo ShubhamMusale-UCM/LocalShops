@@ -3,6 +3,8 @@ import adsService from './ads.service';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import { AppError } from '../../middleware/errorHandler.middleware';
 import prisma from '../../config/database';
+import { createRazorpayOrder, verifyPaymentSignature } from '../../config/razorpay';
+import { nanoid } from 'nanoid';
 
 export const AdsController = {
   /**
@@ -10,7 +12,7 @@ export const AdsController = {
    */
   createAd: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const { productId, shopId, budgetPerDay, bidPerClick, duration } = req.body;
+      const { productId, shopId, budgetPerDay, bidPerClick, duration, targetGender = 'ALL' } = req.body;
 
       if (!productId || !shopId || !budgetPerDay || !bidPerClick || !duration) {
         throw new AppError('Missing required fields', 400);
@@ -25,13 +27,19 @@ export const AdsController = {
         throw new AppError('Unauthorized', 403);
       }
 
+      const totalBudget = Number(budgetPerDay) * Number(duration);
+      if (shop.adWalletBalance < 100) {
+        throw new AppError(`Insufficient ad wallet balance to start campaign. Need at least ₹100, have ₹${shop.adWalletBalance}`, 402);
+      }
+
       const ad = await adsService.createSponsoredListing(
         shopId,
         productId,
         Number(budgetPerDay),
         Number(bidPerClick),
         new Date(),
-        Number(duration)
+        Number(duration),
+        targetGender
       );
 
       res.status(201).json({
@@ -134,12 +142,7 @@ export const AdsController = {
       const analytics = await adsService.getAdAnalytics(adId);
 
       // Verify ownership
-      const ad = await prisma.promotedListing.findUnique({
-        where: { id: adId },
-        include: { shop: true },
-      });
-
-      if (!ad || ad.shop.ownerId !== req.user!.id) {
+      if (analytics.ad.shop.ownerId !== req.user!.id) {
         throw new AppError('Unauthorized', 403);
       }
 
@@ -210,7 +213,7 @@ export const AdsController = {
   renewBudget: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { adId } = req.params;
-      const { additionalBudget } = req.body;
+      const { additionalBudget, durationDays } = req.body;
 
       if (!additionalBudget) {
         throw new AppError('Additional budget required', 400);
@@ -224,7 +227,11 @@ export const AdsController = {
         throw new AppError('Unauthorized', 403);
       }
 
-      const ad = await adsService.renewAdBudget(adId, additionalBudget);
+      if (existing.shop.adWalletBalance < 100) {
+        throw new AppError(`Insufficient ad wallet balance to renew campaign. Need at least ₹100, have ₹${existing.shop.adWalletBalance}`, 402);
+      }
+
+      const ad = await adsService.renewAdBudget(adId, additionalBudget, durationDays);
 
       res.json({
         status: 'success',
@@ -239,19 +246,20 @@ export const AdsController = {
    * Get trending products
    */
   getTrendingProducts: async (
-    _req: Request,
+    req: any,
     res: Response,
     next: NextFunction
   ) => {
     try {
-      const { limit = 10, q, category, lat, lng } = _req.query;
+      const { limit = 10, q, category, lat, lng } = req.query;
 
       const products = await adsService.getTrendingProducts(
         parseInt(limit as string), 
         q as string, 
         category as string,
         lat ? parseFloat(lat as string) : undefined,
-        lng ? parseFloat(lng as string) : undefined
+        lng ? parseFloat(lng as string) : undefined,
+        req.user?.gender
       );
 
       res.json({
@@ -263,26 +271,7 @@ export const AdsController = {
     }
   },
 
-  /**
-   * Track sponsored click from buyer search/listing UI
-   */
-  trackAdClick: async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const { adId } = req.params;
-      const updated = await adsService.trackAdClick(adId);
 
-      res.json({
-        status: 'success',
-        data: {
-          id: updated.id,
-          clicks: updated.clicks,
-          spent: updated.spent,
-        },
-      });
-    } catch (error) {
-      next(error);
-    }
-  },
 
   /**
    * Track sponsored impressions from buyer UI (fire and forget)
@@ -326,6 +315,140 @@ export const AdsController = {
       res.status(202).json({
         status: 'success',
         message: 'Batch telemetry accepted',
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Get negative keywords
+   */
+  getNegativeKeywords: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { adId } = req.params;
+
+      const existing = await prisma.promotedListing.findUnique({
+        where: { id: adId },
+        include: { shop: true },
+      });
+      if (!existing || existing.shop.ownerId !== req.user!.id) {
+        throw new AppError('Unauthorized', 403);
+      }
+
+      const keywords = await prisma.negativeKeyword.findMany({
+        where: { promotedListingId: adId },
+      });
+
+      res.json({ status: 'success', data: keywords });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Add negative keyword
+   */
+  addNegativeKeyword: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { adId } = req.params;
+      const { keyword } = req.body;
+
+      if (!keyword) throw new AppError('Keyword required', 400);
+
+      const existing = await prisma.promotedListing.findUnique({
+        where: { id: adId },
+        include: { shop: true },
+      });
+      if (!existing || existing.shop.ownerId !== req.user!.id) {
+        throw new AppError('Unauthorized', 403);
+      }
+
+      const added = await prisma.negativeKeyword.create({
+        data: {
+          promotedListingId: adId,
+          keyword: keyword.trim().toLowerCase(),
+        }
+      });
+
+      res.json({ status: 'success', data: added });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Remove negative keyword
+   */
+  removeNegativeKeyword: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { adId, keywordId } = req.params;
+
+      const existing = await prisma.promotedListing.findUnique({
+        where: { id: adId },
+        include: { shop: true },
+      });
+      if (!existing || existing.shop.ownerId !== req.user!.id) {
+        throw new AppError('Unauthorized', 403);
+      }
+
+      await prisma.negativeKeyword.delete({
+        where: { id: keywordId, promotedListingId: adId },
+      });
+
+      res.json({ status: 'success', data: null });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  topUpWallet: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { amount, shopId } = req.body;
+      if (!amount || amount < 100) throw new AppError('Minimum top-up amount is ₹100', 400);
+
+      const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+      if (!shop) throw new AppError('Shop not found', 404);
+      if (shop.ownerId !== req.user?.id) throw new AppError('Unauthorized', 403);
+
+      const receipt = `TOPUP_${nanoid(8)}`;
+      const order = await createRazorpayOrder(amount, receipt, { shopId });
+
+      res.status(200).json({
+        success: true,
+        orderId: order.id,
+        amount: order.amount,
+        currency: order.currency,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  verifyTopUpWallet: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { razorpay_order_id, razorpay_payment_id, razorpay_signature, shopId, amount } = req.body;
+
+      const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+      if (!shop) throw new AppError('Shop not found', 404);
+      if (shop.ownerId !== req.user?.id) throw new AppError('Unauthorized', 403);
+
+      const SKIP_PAYMENT_VERIFICATION = process.env.NODE_ENV !== 'production' && process.env.SKIP_PAYMENT_VERIFICATION === 'true';
+
+      if (!SKIP_PAYMENT_VERIFICATION) {
+        const isValid = verifyPaymentSignature(razorpay_order_id, razorpay_payment_id, razorpay_signature);
+        if (!isValid) throw new AppError('Invalid payment signature', 400);
+      }
+
+      const updatedShop = await prisma.shop.update({
+        where: { id: shopId },
+        data: { adWalletBalance: { increment: amount } }
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Wallet topped up successfully',
+        newBalance: updatedShop.adWalletBalance,
       });
     } catch (error) {
       next(error);

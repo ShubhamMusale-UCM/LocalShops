@@ -1192,24 +1192,18 @@ const SearchScreen = () => {
           limit: 50,
         };
 
-        const [res, adRes] = await Promise.all([
+        const [res] = await Promise.all([
           productService.search(searchParams),
-          adsService.getTrending(10, searchQuery, searchParams.category, safeLat, safeLng)
         ]);
         
         if (requestId !== searchRequestIdRef.current) {
           return;
         }
 
-        const rawProducts = res.data?.products || [];
-        const adProducts = Array.isArray(adRes) ? adRes : [];
-        
-        // Merge sponsored ads and remove duplicates
-        const products = [...adProducts, ...rawProducts].filter(
-          (v, i, a) => a.findIndex((t: any) => t.id === v.id) === i
-        );
+        // Backend now injects sponsored products at top of results (sorted by bid)
+        const products = res.data?.products || [];
 
-        const total = Number(res.data?.pagination?.total || rawProducts.length);
+        const total = Number(res.data?.pagination?.total || products.length);
         setResults(products);
         setResultCount(total);
 

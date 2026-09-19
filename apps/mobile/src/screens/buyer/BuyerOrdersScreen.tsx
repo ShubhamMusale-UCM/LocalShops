@@ -16,7 +16,7 @@ import {
   Dimensions,
   Platform,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -30,10 +30,13 @@ import Animated, {
   useAnimatedScrollHandler,
   interpolate,
   Extrapolation,
+  Easing,
 } from 'react-native-reanimated';
 import { useTheme } from '../../theme';
 import { orderService } from '../../services/orderService';
 import { useHideTabBarOnScroll } from '../../hooks/useHideTabBarOnScroll';
+import { useAuthStore } from '../../store/authStore';
+import { Button } from '../../components/ui/Button';
 import { getProductImageUrl } from '../../utils/image';
 import { GlassPanel, GlassCard, GlassButton } from '../../components/ui/Glassmorphism';
 import AmbientOrbs from '../../components/ui/AmbientOrbs';
@@ -105,9 +108,10 @@ const OrderCard: React.FC<{
   item: BuyerOrder;
   index: number;
   isDark: boolean;
-  onPress: (id: string) => void;
-  onTrack: (id: string) => void;
-}> = ({ item, index, isDark, onPress, onTrack }) => {
+  onPress: (orderId: string) => void;
+  onTrack: (orderId: string) => void;
+  onPressReview?: (orderId: string, items: any) => void;
+}> = ({ item, index, isDark, onPress, onTrack, onPressReview }) => {
   const config = STATUS_MAP[item.status] ?? {
     color: '#64748B', bg: 'rgba(100,116,139,0.12)', label: item.status, progress: 0, emoji: '📦',
   };
@@ -215,13 +219,23 @@ const OrderCard: React.FC<{
           {/* ── CTAs ── */}
           <View style={styles.actions}>
             {item.status === 'DELIVERED' ? (
-              <TouchableOpacity
-                style={[styles.reorderBtn, { borderColor: '#22C55E' }]}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="refresh" size={14} color="#22C55E" />
-                <Text style={[styles.reorderText, { color: '#22C55E' }]}>Reorder</Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity
+                  style={[styles.reorderBtn, { borderColor: '#22C55E' }]}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="refresh" size={14} color="#22C55E" />
+                  <Text style={[styles.reorderText, { color: '#22C55E' }]}>Reorder</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.reorderBtn, { borderColor: '#F59E0B', marginLeft: 8 }]}
+                  activeOpacity={0.8}
+                  onPress={() => onPressReview && onPressReview(item.id, item.items)}
+                >
+                  <Ionicons name="star" size={14} color="#F59E0B" />
+                  <Text style={[styles.reorderText, { color: '#F59E0B' }]}>Review</Text>
+                </TouchableOpacity>
+              </>
             ) : null}
             <TouchableOpacity
               style={[styles.detailBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }]}
@@ -252,6 +266,7 @@ export default function BuyerOrdersScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
 
+  const { isAuthenticated } = useAuthStore();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [orders, setOrders] = useState<BuyerOrder[]>([]);
@@ -265,6 +280,26 @@ export default function BuyerOrdersScreen() {
   const text = isDark ? '#F8FAFC' : '#0F172A';
   const textSub = isDark ? '#94A3B8' : '#64748B';
   const border = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)';
+
+  const fadeAnim = useSharedValue(0);
+  const translateYAnim = useSharedValue(20);
+
+  useFocusEffect(
+    useCallback(() => {
+      fadeAnim.value = withTiming(1, { duration: 400 });
+      translateYAnim.value = withTiming(0, { duration: 400, easing: Easing.out(Easing.exp) });
+      return () => {
+        fadeAnim.value = 0;
+        translateYAnim.value = 20;
+      };
+    }, [])
+  );
+
+  const screenAnimStyle = useAnimatedStyle(() => ({
+    flex: 1,
+    opacity: fadeAnim.value,
+    transform: [{ translateY: translateYAnim.value }],
+  }));
 
   const loadOrders = useCallback(async (isRefresh = false) => {
     try {
@@ -285,7 +320,33 @@ export default function BuyerOrdersScreen() {
     }
   }, []);
 
-  useEffect(() => { loadOrders(); }, [loadOrders]);
+  useEffect(() => { 
+    if (isAuthenticated) {
+      loadOrders(); 
+    }
+  }, [loadOrders, isAuthenticated]);
+
+  if (!isAuthenticated) {
+    return (
+      <Animated.View style={[styles.container, { backgroundColor: '#050814', justifyContent: 'center', alignItems: 'center', padding: 24 }, screenAnimStyle]}>
+        <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+        <AmbientOrbs />
+        <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(56, 189, 248, 0.1)', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
+          <Ionicons name="receipt-outline" size={32} color="#38BDF8" />
+        </View>
+        <Text style={{ fontSize: 24, fontFamily: 'Outfit_700Bold', color: '#FFF', marginBottom: 8, textAlign: 'center' }}>Track Your Orders</Text>
+        <Text style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', fontFamily: 'Inter_400Regular', textAlign: 'center', marginBottom: 32 }}>
+          Log in to view your order history, track live deliveries, and leave reviews.
+        </Text>
+        <Button 
+          title="Log In or Register" 
+          onPress={() => navigation.navigate('Auth')} 
+          fullWidth
+          icon={<Ionicons name="log-in-outline" size={20} color="#FFF" />}
+        />
+      </Animated.View>
+    );
+  }
 
   const filteredOrders = useMemo(() => {
     if (tab === 'ACTIVE') return orders.filter(o => !['DELIVERED', 'CANCELLED', 'REFUNDED'].includes(o.status));
@@ -374,16 +435,16 @@ export default function BuyerOrdersScreen() {
 
   if (loading) {
     return (
-      <View style={[styles.loaderWrap, { backgroundColor: bg }]}>
+      <Animated.View style={[styles.loaderWrap, { backgroundColor: bg }, screenAnimStyle]}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
         <ActivityIndicator size="large" color="#2563EB" />
         <Text style={[styles.loadingText, { color: textSub }]}>Loading your orders...</Text>
-      </View>
+      </Animated.View>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: '#050814' }]}>
+    <Animated.View style={[styles.container, { backgroundColor: '#050814' }, screenAnimStyle]}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <AmbientOrbs />
 
@@ -417,10 +478,11 @@ export default function BuyerOrdersScreen() {
             isDark={isDark}
             onPress={(id) => navigation.navigate('OrderDetail', { orderId: id })}
             onTrack={(id) => navigation.navigate('OrderTracking', { orderId: id })}
+            onPressReview={(id, items) => navigation.navigate('Review', { orderId: id, items: items || [] })}
           />
         )}
       />
-    </View>
+    </Animated.View>
   );
 }
 

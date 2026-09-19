@@ -2,6 +2,7 @@ import prisma from '../../config/database';
 import { AppError } from '../../middleware/errorHandler.middleware';
 import redis, { cacheGet, cacheSet, cacheDelete, cacheDeletePattern } from '../../config/redis';
 import { searchProducts, getComparableProducts } from './product.search';
+import adsService from '../ads/ads.service';
 
 export class ProductService {
   /**
@@ -41,8 +42,21 @@ export class ProductService {
       },
     });
 
-    await cacheDeletePattern(`shop:${shopId}*`);
+    await this.invalidateProductAndShopCaches(shopId);
     return product;
+  }
+
+  private async invalidateProductAndShopCaches(shopId: string, productId?: string) {
+    const promises: Promise<void>[] = [
+      cacheDeletePattern(`shop:${shopId}*`),
+      cacheDeletePattern(`*${shopId}*`),
+      cacheDeletePattern('*products*'),
+      cacheDeletePattern('shops:nearby:*'),
+    ];
+    if (productId) {
+      promises.push(cacheDelete(`product:${productId}`));
+    }
+    await Promise.all(promises);
   }
 
   /**
@@ -152,8 +166,7 @@ export class ProductService {
 
     const updated = await prisma.product.update({ where: { id: productId }, data });
 
-    await cacheDelete(`product:${productId}`);
-    await cacheDeletePattern(`shop:${product.shopId}*`);
+    await this.invalidateProductAndShopCaches(product.shopId, productId);
     return updated;
   }
 
@@ -187,8 +200,7 @@ export class ProductService {
       });
     });
 
-    await cacheDelete(`product:${productId}`);
-    await cacheDeletePattern(`shop:${product.shop.id}*`);
+    await this.invalidateProductAndShopCaches(product.shop.id, productId);
     await cacheDelete(`shop:${product.shop.id}:ads`);
     return { success: true, message: 'Product deleted.' };
   }
@@ -202,7 +214,7 @@ export class ProductService {
     const { category, sort = 'newest', page = 1, limit = 20 } = params;
 
     const where: any = { shopId, isActive: true };
-    if (category) where.category = category;
+    if (category) where.category = { equals: category, mode: 'insensitive' };
 
     let orderBy: any;
     switch (sort) {
@@ -326,7 +338,7 @@ export class ProductService {
         data: successRows,
         skipDuplicates: true // Optional: depending on needs
       });
-      await cacheDeletePattern(`shop:${shopId}*`);
+      await this.invalidateProductAndShopCaches(shopId);
     }
 
     return {
@@ -344,8 +356,12 @@ export class ProductService {
     try {
       const product = await prisma.product.update({
         where: { id: productId },
-        data: { viewCount: { increment: 1 } }
+        data: { viewCount: { increment: 1 } },
+        include: { promotedListing: true }
       });
+
+      // Also track click for promoted listings if active and within budget
+
 
       if (keyword && keyword.trim().length > 0) {
         const today = new Date();
@@ -372,6 +388,55 @@ export class ProductService {
     } catch (e) {
       console.error('Failed to log product click:', e);
     }
+  }
+
+  /**
+   * Bulk update products
+   */
+    async bulkUpdateProducts(shopId: string, ownerId: string, updates: any[]) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
+
+    await prisma.$transaction(async (tx) => {
+      const updatePromises = updates.map(async (update) => {
+        const data: any = {};
+        if (update.price !== undefined) data.price = update.price;
+        if (update.mrp !== undefined) data.mrp = update.mrp;
+        if (update.quantity !== undefined) {
+          data.quantity = update.quantity;
+          data.inStock = update.quantity > 0;
+        } else if (update.inStock !== undefined) {
+          data.inStock = update.inStock;
+        }
+
+        // Recalculate discount
+        if (data.mrp && data.price) {
+          data.discount = Math.round(((data.mrp - data.price) / data.mrp) * 100);
+        } else if (data.price && update.mrp === undefined) {
+          // Need to fetch current MRP to recalculate discount if only price is updated
+          const existing = await tx.product.findUnique({ where: { id: update.id }, select: { mrp: true } });
+          if (existing?.mrp) {
+            data.discount = Math.round(((existing.mrp - data.price) / existing.mrp) * 100);
+          }
+        }
+
+        return tx.product.update({
+          where: { id: update.id, shopId },
+          data,
+        });
+      });
+
+      await Promise.all(updatePromises);
+    });
+    
+    // Clear caches
+    await this.invalidateProductAndShopCaches(shopId);
+    for (const update of updates) {
+      await cacheDelete(`product:${update.id}`);
+    }
+
+    return { success: true, message: `Successfully updated ${updates.length} products.` };
   }
 }
 

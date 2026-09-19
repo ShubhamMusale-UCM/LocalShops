@@ -33,6 +33,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useCartStore } from '../../store/cartStore';
 import paymentService from '../../services/paymentService';
 import api from '../../services/api';
+import telemetryService from '../../services/telemetryService';
 import { GlassPanel, GlassCard, GlassButton } from '../../components/ui/Glassmorphism';
 import AmbientOrbs from '../../components/ui/AmbientOrbs';
 import { BlurView } from 'expo-blur';
@@ -759,6 +760,13 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
   const { cartItems, subtotal, platformFee, total } = route.params;
 
   const user = useAuthStore((s) => s.user);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      navigation.navigate('Auth');
+    }
+  }, [isAuthenticated, navigation]);
   const latitude = useLocationStore((s) => s.latitude);
   const longitude = useLocationStore((s) => s.longitude);
   const city = useLocationStore((s) => s.city);
@@ -876,9 +884,9 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
       id: 'apple_pay',
       name: Platform.OS === 'ios' ? 'Apple Pay' : 'Google Pay',
       icon: 'logo-apple',
-      enabled: true,
+      enabled: false,
       gradient: ['#000000', '#1A1A1A'] as [string, string],
-      description: 'Fast & Secure checkout',
+      description: 'Coming soon',
     },
   ];
 
@@ -938,23 +946,28 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
         navigation.navigate('Payment', { order, amount: finalTotal, cartItems });
       } else if (selectedPayment === 'cod') {
         const order = await paymentService.createProductOrder(orderPayload);
-        const effectiveOrderId = (order as { id?: string, orderId?: string })?.id || (order as { id?: string, orderId?: string })?.orderId;
-        const pickupFallback = Boolean((order as { pickupFallback?: boolean })?.pickupFallback);
+        const effectiveOrderId = (order as any)?.id || (order as any)?.orderId;
+        const pickupFallback = Boolean((order as any)?.pickupFallback);
+        const serverTotal = (order as any)?.amount ?? finalTotal;
+
+        // Conversions and Revenue are now handled server-side during order creation
+        
+
+
         useCartStore.getState().clearCart();
         Alert.alert(
           'Order Confirmed! 🎉',
           pickupFallback
-            ? `Order #${String(effectiveOrderId || '').slice(-8)} placed. This shop supports pickup only. Pay ₹${finalTotal.toFixed(0)} at pickup.`
-            : `Order #${String(effectiveOrderId || '').slice(-8)} placed. Pay ₹${finalTotal.toFixed(0)} at delivery.`,
+            ? `Order #${String(effectiveOrderId || '').slice(-8)} placed. This shop supports pickup only. Pay ₹${Number(serverTotal).toFixed(0)} at pickup.`
+            : `Order #${String(effectiveOrderId || '').slice(-8)} placed. Pay ₹${Number(serverTotal).toFixed(0)} at delivery.`,
           [
             {
               text: 'View Orders',
-              onPress: () =>
-                navigation.navigate('BuyerOrders'),
+              onPress: () => navigation.navigate('Main', { screen: 'Orders' }),
             },
             {
               text: 'Continue Shopping',
-              onPress: () => navigation.navigate('Home'),
+              onPress: () => navigation.navigate('Main', { screen: 'Home' }),
             },
           ]
         );
@@ -975,17 +988,7 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
   };
 
   const handleApplyPromo = () => {
-    if (!promoCode.trim()) return;
-    if (promoCode.toUpperCase() === 'SAVE50') {
-      setAppliedPromo({
-        code: 'SAVE50',
-        discount: Math.min(50, subtotal * 0.1),
-        description: '₹50 off on orders above ₹500',
-      });
-      Alert.alert('Success! 🎉', 'Promo code applied.');
-    } else {
-      Alert.alert('Invalid Code', 'This promo code is not valid.');
-    }
+    Alert.alert('Coming Soon', 'Promo codes will be supported in a future update.');
   };
 
 

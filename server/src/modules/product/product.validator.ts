@@ -37,3 +37,13 @@ export const productSearchSchema = z.object({
   page: z.string().transform(Number).pipe(z.number().positive()).optional(),
   limit: z.string().transform(Number).pipe(z.number().positive().max(100)).optional(),
 });
+
+export const bulkUpdateProductsSchema = z.object({
+  updates: z.array(z.object({
+    id: z.string().uuid(),
+    price: z.number().positive().optional(),
+    mrp: z.number().positive().optional(),
+    quantity: z.number().int().min(0).optional(),
+    inStock: z.boolean().optional(),
+  })).min(1, 'At least one update is required').max(100, 'Cannot update more than 100 products at once'),
+});

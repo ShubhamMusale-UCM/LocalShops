@@ -16,6 +16,7 @@ import {
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Button } from '../../components/ui/Button';
 import { useAuthStore } from '../../store/authStore';
 import { OTP_LENGTH, OTP_RESEND_COOLDOWN } from '../../utils/constants';
@@ -86,7 +87,12 @@ export default function OTPVerificationScreen({ navigation, route }: Props) {
           });
         } else {
           login(data.user, data.accessToken, data.refreshToken);
-          navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+          const rootNav = navigation.getParent();
+          if (rootNav) {
+            rootNav.reset({ index: 0, routes: [{ name: 'Main' }] });
+          } else {
+            navigation.reset({ index: 0, routes: [{ name: 'Main' }] as any });
+          }
         }
       }, 500);
     } catch (err: any) {
@@ -134,7 +140,7 @@ export default function OTPVerificationScreen({ navigation, route }: Props) {
     try {
       const response = await authService.sendOTP(phone);
       const message = String(response?.data?.message ?? '');
-      const nextDevOtp = (message.match(/(\d{6})/) ?? [])[1] ?? '';
+      const nextDevOtp = __DEV__ ? (message.match(/(\d{6})/) ?? [])[1] ?? '' : '';
       if (nextDevOtp) setDevOtp(nextDevOtp);
       setResendTimer(OTP_RESEND_COOLDOWN);
       setError('');
@@ -215,28 +221,30 @@ export default function OTPVerificationScreen({ navigation, route }: Props) {
             </TouchableOpacity>
           </View>
 
-          {/* Dev OTP Auto-Fill Banner */}
-          {devOtp ? (
-            <TouchableOpacity
-              style={[
-                styles.devBanner,
-                {
-                  backgroundColor: isDark ? 'rgba(245,158,11,0.15)' : '#FEF3C7',
-                  borderColor: isDark ? 'rgba(245,158,11,0.30)' : '#FDE68A',
-                },
-              ]}
-              activeOpacity={0.85}
-              onPress={handleAutoFillDevOtp}
-            >
-              <View style={styles.devBannerLeft}>
-                <Ionicons name="flash" size={16} color="#D97706" />
-                <Text style={styles.devLabel}>DEV CODE:</Text>
-                <Text style={styles.devOtpValue}>{devOtp}</Text>
-              </View>
-              <View style={styles.devAutoFillBadge}>
-                <Text style={styles.devAutoFillText}>TAP TO FILL</Text>
-              </View>
-            </TouchableOpacity>
+          {/* ── Developer OTP Auto-Fill (Dev Only) ── */}
+          {__DEV__ && devOtp ? (
+            <Animated.View entering={FadeInDown.delay(100).springify().damping(12)}>
+              <TouchableOpacity
+                style={[
+                  styles.devBanner,
+                  {
+                    backgroundColor: isDark ? 'rgba(245,158,11,0.15)' : '#FEF3C7',
+                    borderColor: isDark ? 'rgba(245,158,11,0.30)' : '#FDE68A',
+                  },
+                ]}
+                activeOpacity={0.85}
+                onPress={handleAutoFillDevOtp}
+              >
+                <View style={styles.devBannerLeft}>
+                  <Ionicons name="flash" size={16} color="#D97706" />
+                  <Text style={styles.devLabel}>DEV CODE:</Text>
+                  <Text style={styles.devOtpValue}>{devOtp}</Text>
+                </View>
+                <View style={styles.devAutoFillBadge}>
+                  <Text style={styles.devAutoFillText}>TAP TO FILL</Text>
+                </View>
+              </TouchableOpacity>
+            </Animated.View>
           ) : null}
 
           {/* Single Invisible Input overlaying 6 Cell Boxes */}

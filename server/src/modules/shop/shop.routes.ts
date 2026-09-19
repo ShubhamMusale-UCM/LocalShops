@@ -7,6 +7,7 @@ import { cacheMiddleware } from '../../middleware/cache.middleware';
 const router = Router();
 
 // Public routes
+router.get('/search', shopController.searchShops.bind(shopController));
 router.get('/nearby', cacheMiddleware(300), shopController.getNearbyShops.bind(shopController));
 router.get('/slug/:slug', cacheMiddleware(300), shopController.getShopBySlug.bind(shopController));
 router.get('/:id', cacheMiddleware(300), shopController.getShopById.bind(shopController));
@@ -23,7 +24,8 @@ router.post('/', authenticate, authorize('SELLER', 'ADMIN'), shopController.crea
 router.put('/:id', authenticate, authorize('SELLER', 'ADMIN'), shopController.updateShop.bind(shopController));
 router.get('/me/shops', authenticate, authorize('SELLER', 'ADMIN'), shopController.getMyShops.bind(shopController));
 router.get('/:id/analytics', authenticate, authorize('SELLER', 'ADMIN'), shopController.getAnalytics.bind(shopController));
-
+router.get('/:id/followers', authenticate, authorize('SELLER', 'ADMIN'), shopController.getShopFollowers.bind(shopController));
+router.post('/:id/broadcast', authenticate, authorize('SELLER', 'ADMIN'), shopController.broadcastToFollowers.bind(shopController));
 // Save/unsave
 router.post('/:id/save', authenticate, shopController.toggleSaveShop.bind(shopController));
 router.get('/me/saved', authenticate, shopController.getSavedShops.bind(shopController));

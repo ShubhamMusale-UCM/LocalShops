@@ -11,6 +11,7 @@ import {
   TextInput,
   RefreshControl,
   Platform,
+  Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,6 +25,9 @@ import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import apiClient from '../../services/api';
+import { getPrimarySellerShop } from '../../services/sellerShopContext';
+import * as ImagePicker from 'expo-image-picker';
+import productService from '../../services/productService';
 
 interface NotificationCampaign {
   id: string;
@@ -69,7 +73,26 @@ function NotificationCampaignScreen() {
   // Form state
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Sorry, we need camera roll permissions to select an image.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setImageUrl(result.assets[0].uri);
+    }
+  };
 
   const loadCampaigns = async () => {
     try {
@@ -112,18 +135,38 @@ function NotificationCampaignScreen() {
     setIsSubmitting(true);
 
     try {
+      const shop = await getPrimarySellerShop();
+      if (!shop?.id) {
+        Alert.alert('Error', 'Shop not found. Please try again later.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      let finalImageUrl = imageUrl.trim() || undefined;
+
+      // Upload local image if it starts with file://
+      if (finalImageUrl && finalImageUrl.startsWith('file://')) {
+        try {
+          const uploadResponse = await productService.uploadImages([finalImageUrl]);
+          const uploaded = uploadResponse?.data?.images;
+          if (uploaded && uploaded.length > 0) {
+            finalImageUrl = uploaded[0];
+          }
+        } catch (uploadError) {
+          Alert.alert('Upload Error', 'Failed to upload the image.');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       const payload = {
         title: title.trim(),
-        message: message.trim(),
-        targetSegment: selectedSegment,
-        type: selectedType,
-        schedule: {
-          type: scheduleType,
-          scheduledAt: scheduleType === 'later' ? scheduledDate.toISOString() : null,
-        },
+        body: message.trim(),
+        type: selectedType === 'TRANSACTIONAL' ? 'SYSTEM' : 'PROMOTION',
+        imageUrl: finalImageUrl,
       };
 
-      await apiClient.post('/notifications/campaign/create', payload);
+      await apiClient.post(`/shops/${shop.id}/broadcast`, payload);
 
       setModalVisible(false);
       resetForm();
@@ -192,6 +235,7 @@ function NotificationCampaignScreen() {
   const resetForm = () => {
     setTitle('');
     setMessage('');
+    setImageUrl('');
     setSelectedSegment('BUYERS');
     setSelectedType('PROMOTIONAL');
     setScheduleType('now');
@@ -373,6 +417,27 @@ function NotificationCampaignScreen() {
                 maxLength={500}
               />
               <Text style={styles.charCount}>{message.length}/500</Text>
+            </View>
+
+            {/* Product Image */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Product Image (Optional)</Text>
+              {imageUrl ? (
+                <View style={styles.imagePreviewContainer}>
+                  <Image source={{ uri: imageUrl }} style={styles.imagePreview} />
+                  <TouchableOpacity
+                    style={styles.removeImageBtn}
+                    onPress={() => setImageUrl('')}
+                  >
+                    <Ionicons name="close-circle" size={24} color={Colors.error} />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity style={styles.imagePickerBtn} onPress={pickImage}>
+                  <Ionicons name="image-outline" size={24} color={Colors.primary} />
+                  <Text style={styles.imagePickerText}>Select an Image</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* Campaign Type */}
@@ -920,6 +985,41 @@ const styles = StyleSheet.create({
     color: Colors.gray[500],
     textAlign: 'right',
     marginTop: 4,
+  },
+  imagePickerBtn: {
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+    borderRadius: Spacing.radius.md,
+    padding: Spacing.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+    gap: 8,
+  },
+  imagePickerText: {
+    fontSize: 14,
+    color: Colors.gray[600],
+    fontWeight: '500',
+  },
+  imagePreviewContainer: {
+    position: 'relative',
+    borderRadius: Spacing.radius.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  imagePreview: {
+    width: '100%',
+    height: 150,
+    resizeMode: 'cover',
+  },
+  removeImageBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
   },
   typeContainer: {
     flexDirection: 'row',

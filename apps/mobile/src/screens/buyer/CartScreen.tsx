@@ -615,6 +615,7 @@ export default function CartScreen() {
   const updateQuantity = useCartStore((s) => s.updateQuantity);
   const clearCart = useCartStore((s) => s.clearCart);
   const user = useAuthStore((s) => s.user);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   const headerOpacity = useSharedValue(0);
   const checkoutTranslate = useSharedValue(100);
@@ -644,7 +645,7 @@ export default function CartScreen() {
     () => cartItems.reduce((sum, i) => sum + i.quantity, 0),
     [cartItems]
   );
-  const deliveryFee = 0;
+  // Delivery fee is calculated at checkout based on pickup vs delivery
   const platformFee = useMemo(() => (subtotal > 0 ? PLATFORM_FEE : 0), [subtotal]);
   const total = useMemo(
     () => subtotal + platformFee,
@@ -671,11 +672,8 @@ export default function CartScreen() {
   }));
 
   const handleCheckout = useCallback(() => {
-    if (!user) {
-      Alert.alert('Login Required', 'Please login to proceed.', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Login', onPress: () => navigation.navigate('Auth') },
-      ]);
+    if (!isAuthenticated) {
+      navigation.navigate('Auth');
       return;
     }
     if (cartItems.length === 0) {
@@ -685,11 +683,10 @@ export default function CartScreen() {
     navigation.navigate('Checkout', {
       cartItems,
       subtotal,
-      deliveryFee,
       platformFee,
       total,
     });
-  }, [user, cartItems, subtotal, deliveryFee, platformFee, total]);
+  }, [isAuthenticated, navigation, cartItems, subtotal, platformFee, total]);
 
   const handleRemoveItem = useCallback(
     (productId: string, name: string) => {

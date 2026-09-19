@@ -40,6 +40,7 @@ import { Card } from '../../components/ui/Card';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 import { useCartStore } from '../../store/cartStore';
 import { useWishlistStore } from '../../store/wishlistStore';
+import { useAuthStore } from '../../store/authStore';
 import { formatPrice, formatDistance, isShopOpen, formatRating } from '../../utils/formatters';
 import { openDirections, openWhatsApp, makeCall } from '../../utils/helpers';
 import { getProductImageUrl, getSingleImageUrl, sanitizeImageUrl } from '../../utils/image';
@@ -82,6 +83,7 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
   const cartItems = useCartStore((state) => state.items);
   const wishlistItems = useWishlistStore((state) => state.items);
   const toggleWishlistItem = useWishlistStore((state) => state.toggleItem);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const cartItem = useMemo(
     () => cartItems.find((item) => item.productId === product?.id),
     [cartItems, product?.id]
@@ -150,6 +152,12 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
     fetchProduct();
   }, [productId]);
 
+  useEffect(() => {
+    if (campaignId && productId) {
+      telemetryService.trackView(campaignId, productId);
+    }
+  }, [campaignId, productId]);
+
   // Handlers
   const handleGoBack = useCallback(() => {
     navigation.goBack();
@@ -169,6 +177,10 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const handleToggleWishlist = () => {
+    if (!isAuthenticated) {
+      navigation.navigate('Auth');
+      return;
+    }
     if (!product) return;
 
     toggleWishlistItem({
@@ -214,15 +226,12 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
         inStock: product.inStock,
         campaignId: campaignId || undefined,
       });
-    }
 
-    // Provide a small delay before navigating if user clicks View Cart, otherwise wait for morph animation.
-    setTimeout(() => {
-      // Show success feedback if needed, MorphingButton already provides visual success
-      if (campaignId && !cartItem) {
-        telemetryService.trackConversion(campaignId, product.id, keyword);
+      // Fire cart_add synchronously — only on first add, no stale closure risk
+      if (campaignId) {
+        telemetryService.trackCartAdd(campaignId, product.id, keyword);
       }
-    }, 1000);
+    }
   }, [product, addItem, updateQuantity, quantity, cartItem, campaignId, keyword]);
 
   const incrementQuantity = useCallback(() => {

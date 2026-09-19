@@ -59,6 +59,16 @@ export class ShopController {
     }
   }
 
+  async searchShops(req: Request, res: Response): Promise<void> {
+    try {
+      const q = req.query.q as string || '';
+      const shops = await shopService.searchShops(q);
+      res.json({ data: shops });
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
   async getNearbyShops(req: Request, res: Response): Promise<void> {
     try {
       const params = nearbyShopsSchema.parse(req.query);
@@ -119,6 +129,43 @@ export class ShopController {
       const days = parseInt(req.query.days as string) || 30;
       const data = await shopService.getShopAnalytics(req.params.id, req.user!.id, days);
       res.json(data);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async getShopFollowers(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      // Need to verify shop ownership
+      const shops = await shopService.getMyShops(req.user!.id);
+      if (!shops.find(s => s.id === req.params.id)) {
+        res.status(403).json({ error: 'Unauthorized to view this shop followers' });
+        return;
+      }
+      const followers = await shopService.getShopFollowers(req.params.id);
+      res.json({ status: 'success', data: followers });
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async broadcastToFollowers(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      // Need to verify shop ownership
+      const shops = await shopService.getMyShops(req.user!.id);
+      if (!shops.find(s => s.id === req.params.id)) {
+        res.status(403).json({ error: 'Unauthorized to broadcast for this shop' });
+        return;
+      }
+      
+      const { title, body, type, city, imageUrl } = req.body;
+      if (!title || !body || !type) {
+        res.status(400).json({ error: 'Missing required fields' });
+        return;
+      }
+
+      const result = await shopService.broadcastToFollowers(req.params.id, { title, body, type, city, imageUrl });
+      res.json({ status: 'success', data: result });
     } catch (error: any) {
       res.status(error.statusCode || 500).json({ error: error.message });
     }

@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { MMKV } from 'react-native-mmkv';
+
+const storage = new MMKV({ id: 'wishlist-store' });
+const mmkvStorage = {
+  setItem: (name: string, value: string) => storage.set(name, value),
+  getItem: (name: string) => storage.getString(name) ?? null,
+  removeItem: (name: string) => storage.delete(name),
+};
 
 export interface WishlistItem {
   productId: string;
@@ -48,7 +55,7 @@ export const useWishlistStore = create<WishlistState>()(
     }),
     {
       name: 'citylocalshop-wishlist',
-      storage: createJSONStorage(() => AsyncStorage),
+      storage: createJSONStorage(() => mmkvStorage),
     }
   )
 );

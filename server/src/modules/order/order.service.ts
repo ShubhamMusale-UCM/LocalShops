@@ -51,8 +51,18 @@ export class OrderService {
 
     // Verify all products exist, are in stock, and belong to the shop
     const productIds = data.items.map(i => i.productId);
+        const now = new Date();
     const products = await prisma.product.findMany({
       where: { id: { in: productIds }, shopId: data.shopId, isActive: true },
+      include: {
+        flashSales: {
+          where: { isActive: true, startTime: { lte: now }, endTime: { gte: now } }
+        },
+        promotedListing: {
+          where: { isActive: true, startDate: { lte: now }, endDate: { gte: now } },
+          select: { id: true }
+        }
+      }
     });
 
     if (products.length !== data.items.length) {
@@ -65,15 +75,20 @@ export class OrderService {
     }
 
     // Calculate totals using actual DB prices (not client-submitted prices)
-    let subtotal = 0;
+        let subtotal = 0;
     const orderItems = data.items.map(item => {
       const product = products.find(p => p.id === item.productId)!;
-      const itemTotal = product.price * item.quantity;
+      let actualPrice = product.price;
+      if (product.flashSales && product.flashSales.length > 0) {
+        const fs = product.flashSales[0];
+        actualPrice = +(product.price * (1 - fs.discount / 100)).toFixed(2);
+      }
+      const itemTotal = actualPrice * item.quantity;
       subtotal += itemTotal;
       return {
         productId: item.productId,
         quantity: item.quantity,
-        price: product.price,
+        price: actualPrice,
         total: itemTotal,
       };
     });
@@ -88,8 +103,7 @@ export class OrderService {
       discount = 0;
     }
 
-    const gstAmount = subtotal * 0.18; // 18% GST
-    const total = subtotal + deliveryFee + gstAmount - discount;
+    const total = subtotal + deliveryFee - discount;
     const orderNumber = `CLS${Date.now().toString(36).toUpperCase()}${nanoid(4).toUpperCase()}`;
     const orderCampaignId = data.items.find(i => i.campaignId)?.campaignId;
 
@@ -146,11 +160,31 @@ export class OrderService {
         data: { totalOrders: { increment: 1 } },
       });
 
-      // Update PromotedListing revenue if attributed
-      if (orderCampaignId) {
+        // Update PromotedListing revenue and conversions for each attributed item
+        // We process attributions per campaign to handle multiple different campaigns in one order correctly
+        const campaignTotals = new Map<string, { revenue: number, conversions: number }>();
+        for (const item of orderItems) {
+          // orderItems doesn't have campaignId, we need to look at data.items
+          const originalItem = data.items.find(i => i.productId === item.productId);
+          const product = products.find(p => p.id === item.productId);
+          
+          // SECURITY FIX: Only attribute if the client's campaignId exactly matches the database's active campaignId for this product
+          if (originalItem?.campaignId && product?.promotedListing?.id === originalItem.campaignId) {
+            const current = campaignTotals.get(originalItem.campaignId) || { revenue: 0, conversions: 0 };
+            campaignTotals.set(originalItem.campaignId, {
+              revenue: current.revenue + item.total,
+              conversions: current.conversions + item.quantity
+            });
+          }
+        }
+
+      for (const [campaignId, stats] of campaignTotals.entries()) {
         await tx.promotedListing.update({
-          where: { id: orderCampaignId },
-          data: { revenue: { increment: subtotal } }
+          where: { id: campaignId },
+          data: { 
+            revenue: { increment: stats.revenue },
+            conversions: { increment: stats.conversions }
+          }
         });
       }
 
@@ -379,6 +413,21 @@ export class OrderService {
           update: { orders: { decrement: 1 }, revenue: { decrement: order.total } },
           create: { shopId: order.shopId, date: orderDate, views: 0, uniqueViews: 0, orders: 0, revenue: 0, calls: 0, whatsappClicks: 0, directions: 0 }
         });
+
+        // REVERSE AD ATTRIBUTION
+        // If this order was attributed to an ad campaign, we must remove the revenue and conversions
+        if (updatedOrder.adCampaignId) {
+          const reversedConversions = updatedOrder.items.reduce((sum, item) => sum + item.quantity, 0);
+          const reversedRevenue = updatedOrder.items.reduce((sum, item) => sum + item.total, 0);
+          
+          await tx.promotedListing.updateMany({
+            where: { id: updatedOrder.adCampaignId },
+            data: {
+              revenue: { decrement: reversedRevenue },
+              conversions: { decrement: reversedConversions }
+            }
+          });
+        }
       }
 
       return updatedOrder;

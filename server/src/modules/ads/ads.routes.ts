@@ -1,25 +1,28 @@
 import { Router } from 'express';
 import { AdsController } from './ads.controller';
-import { authenticate } from '../../middleware/auth.middleware';
+import { authenticate, optionalAuth } from '../../middleware/auth.middleware';
 
 const router = Router();
 
-// Public route
-router.get('/trending', AdsController.getTrendingProducts);
+// Public route (optional auth for gender targeting)
+router.get('/trending', optionalAuth, AdsController.getTrendingProducts);
 router.post('/telemetry/batch', AdsController.processBatchTelemetry);
-router.post('/impression', AdsController.trackImpressions);
-router.post('/:adId/click', AdsController.trackAdClick);
 
 // Protected routes for sellers
 router.use(authenticate);
 
+router.post('/wallet/topup', AdsController.topUpWallet);
+router.post('/wallet/verify', AdsController.verifyTopUpWallet);
 router.post('/create', AdsController.createAd);
 router.get('/shop/:shopId', AdsController.getShopAds);
 router.get('/shop/:shopId/analytics', AdsController.getShopPromotionAnalytics);
+router.get('/shop/:shopId/daily-metrics', AdsController.getShopDailyMetrics);
 router.get('/:adId/analytics', AdsController.getAdAnalytics);
 router.post('/:adId/pause', AdsController.pauseAd);
 router.post('/:adId/resume', AdsController.resumeAd);
 router.post('/:adId/renew-budget', AdsController.renewBudget);
-router.get('/shop/:shopId/daily-metrics', AdsController.getShopDailyMetrics);
+router.get('/:adId/negative-keywords', AdsController.getNegativeKeywords);
+router.post('/:adId/negative-keywords', AdsController.addNegativeKeyword);
+router.delete('/:adId/negative-keywords/:keywordId', AdsController.removeNegativeKeyword);
 
 export default router;

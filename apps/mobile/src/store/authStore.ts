@@ -30,6 +30,7 @@ interface AuthState {
   accessToken: string | null;
   refreshToken: string | null;
   isAuthenticated: boolean;
+  isGuest: boolean;
   isLoading: boolean;
   _hasHydrated: boolean;
 
@@ -38,6 +39,7 @@ interface AuthState {
   setTokens: (access: string, refresh: string) => void;
   login: (user: User, accessToken: string, refreshToken: string) => void;
   logout: () => void;
+  continueAsGuest: () => void;
   switchRole: (role: AppRole) => void;
   updateUser: (data: Partial<User>) => void;
 }
@@ -50,6 +52,7 @@ export const useAuthStore = create<AuthState>()(
       accessToken: null,
       refreshToken: null,
       isAuthenticated: false,
+      isGuest: false,
       isLoading: false,
       _hasHydrated: false,
 
@@ -70,6 +73,7 @@ export const useAuthStore = create<AuthState>()(
           accessToken,
           refreshToken,
           isAuthenticated: true,
+          isGuest: false,
         });
       },
 
@@ -81,7 +85,12 @@ export const useAuthStore = create<AuthState>()(
           accessToken: null,
           refreshToken: null,
           isAuthenticated: false,
+          isGuest: false,
         });
+      },
+
+      continueAsGuest: () => {
+        set({ isGuest: true });
       },
 
       switchRole: (role) => {
@@ -102,7 +111,7 @@ export const useAuthStore = create<AuthState>()(
         const current = get().user;
         if (current) {
           const updated = { ...current, ...data };
-          set({ user: updated, activeRole: updated.role as AppRole });
+          set({ user: updated });
         }
       },
     }),
@@ -116,6 +125,7 @@ export const useAuthStore = create<AuthState>()(
         accessToken: state.accessToken,
         refreshToken: state.refreshToken,
         isAuthenticated: state.isAuthenticated,
+        isGuest: state.isGuest,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);

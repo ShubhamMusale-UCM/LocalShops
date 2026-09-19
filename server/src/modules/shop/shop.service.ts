@@ -4,6 +4,9 @@ import { getBoundingBox, haversineDistance } from '../../utils/geoUtils';
 import redis, { cacheGet, cacheSet, cacheDeletePattern } from '../../config/redis';
 import slugify from 'slugify';
 import { nanoid } from 'nanoid';
+import { NotificationService } from '../notification/notification.service';
+
+const notificationService = new NotificationService();
 
 export class ShopService {
   /**
@@ -80,12 +83,30 @@ export class ShopService {
         _count: { select: { products: true, reviews: true } },
       },
     });
-    if (!shop) throw new AppError('Shop not found.', 404);
 
+    if (!shop || !shop.isActive) throw new AppError('Shop not found.', 404);
+    
     // Log shop view asynchronously
     this.logShopView(shop.id).catch(() => {});
-
+    
     return shop;
+  }
+
+  /**
+   * Search shops by name or description
+   */
+  async searchShops(query: string) {
+    if (!query) return [];
+    return prisma.shop.findMany({
+      where: {
+        OR: [
+          { name: { contains: query, mode: 'insensitive' } },
+          { description: { contains: query, mode: 'insensitive' } }
+        ],
+        isActive: true,
+      },
+      take: 20,
+    });
   }
 
   /**
@@ -190,8 +211,11 @@ export class ShopService {
     if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
 
     const updated = await prisma.shop.update({ where: { id: shopId }, data });
-    await cacheDeletePattern(`shop:${shopId}`);
-    await cacheDeletePattern('shops:nearby:*');
+    await Promise.all([
+      cacheDeletePattern(`shop:${shopId}*`),
+      cacheDeletePattern(`*${shopId}*`),
+      cacheDeletePattern('shops:nearby:*'),
+    ]);
     return updated;
   }
 
@@ -284,11 +308,11 @@ export class ShopService {
       }
     });
 
-    // Top products — real data
+    // Top products — real data with full metadata
     const topProductsRaw = await prisma.product.findMany({
       where: { shopId },
-      orderBy: { orderCount: 'desc' },
-      take: 5,
+      orderBy: [{ orderCount: 'desc' }, { viewCount: 'desc' }],
+      take: 20,
       include: {
         _count: { select: { orderItems: true } },
         promotedListing: { select: { clicks: true, impressions: true } },
@@ -296,9 +320,14 @@ export class ShopService {
     });
 
     const topProducts = topProductsRaw.map(p => ({
+      id: p.id,
       name: p.name,
+      images: p.images || [],
+      price: p.price,
+      category: p.category,
+      inStock: p.inStock,
       units: p._count.orderItems,
-      impressions: p.viewCount,  // Real viewCount, not * 3
+      impressions: p.viewCount,  // Real viewCount (reach)
       clicks: p.promotedListing?.clicks ?? 0,
       revenue: p.price * p._count.orderItems,
       ctr: p.viewCount > 0 && (p.promotedListing?.clicks ?? 0) > 0
@@ -320,27 +349,32 @@ export class ShopService {
       where: { order: { shopId } },
     });
 
-    // Funnel using real data
+    // Real product view counts from DB
+    const productViewsAgg = await prisma.product.aggregate({
+      where: { shopId },
+      _sum: { viewCount: true },
+    });
+    const realProductViews = productViewsAgg._sum.viewCount ?? 0;
+
+    // Funnel using 100% real data
     const funnel = [
       { label: 'Shop Views', value: totals.views, color: 'from-blue-500 to-cyan-400' },
-      { label: 'Product Views', value: Math.max(realTotalAdImpressions, Math.floor(totals.views * 0.5)), color: 'from-purple-500 to-pink-400' },
-      { label: 'Add to Cart', value: Math.max(cartCount, totals.orders), color: 'from-orange-500 to-rose-400' },
+      { label: 'Product Views', value: realProductViews, color: 'from-purple-500 to-pink-400' },
+      { label: 'Add to Cart', value: cartCount, color: 'from-orange-500 to-rose-400' },
       { label: 'Orders Placed', value: totals.orders, color: 'from-emerald-500 to-teal-400' },
     ];
 
-    // Traffic sources — calculated from real data
-    const organicViews = Math.max(0, totals.views - realTotalAdImpressions);
-    const totalTrafficBase = totals.views || 1;
-    const promotedPct = Math.round((realTotalAdImpressions / totalTrafficBase) * 100);
-    const directPct = Math.round((organicViews / totalTrafficBase) * 60); // ~60% of organic = direct
-    const categoryPct = Math.round((organicViews / totalTrafficBase) * 30); // ~30% category browse
-    const externalPct = Math.max(0, 100 - promotedPct - directPct - categoryPct);
-    const trafficSources = [
-      { source: 'Direct Search', pct: Math.min(directPct, 100 - promotedPct - 5), color: 'from-blue-500 to-cyan-400' },
-      { source: 'Category Browse', pct: categoryPct, color: 'from-purple-500 to-pink-400' },
-      { source: 'Promoted', pct: promotedPct, color: 'from-amber-500 to-orange-400' },
-      { source: 'External Link', pct: externalPct, color: 'from-emerald-500 to-teal-400' },
-    ].map(s => ({ ...s, pct: Math.max(1, s.pct) }));
+    // Traffic sources — calculated from real data (no dummy multipliers)
+    const totalTrafficBase = totals.views + realTotalAdImpressions;
+    let trafficSources: { source: string; pct: number; color: string }[] = [];
+    if (totalTrafficBase > 0) {
+      const promotedPct = Math.round((realTotalAdImpressions / totalTrafficBase) * 100);
+      const organicPct = Math.max(0, 100 - promotedPct);
+      trafficSources = [
+        { source: 'Organic Views', pct: organicPct, color: 'from-blue-500 to-cyan-400' },
+        { source: 'Promoted Ads', pct: promotedPct, color: 'from-amber-500 to-orange-400' },
+      ].filter(s => s.pct > 0);
+    }
 
     // Get campaign analytics
     const { AdsService } = require('../ads/ads.service');
@@ -350,7 +384,7 @@ export class ShopService {
     const conversionRate = totals.views > 0 ? ((totals.orders / totals.views) * 100).toFixed(2) : '0.00';
 
     // Get top keywords
-    const topKeywords = await prisma.searchKeywordStat.groupBy({
+    let topKeywordsResult = await prisma.searchKeywordStat.groupBy({
       by: ['keyword'],
       where: {
         shopId,
@@ -363,10 +397,26 @@ export class ShopService {
       orderBy: {
         _sum: { searches: 'desc' }
       },
-      take: 20
+      take: 25
     });
 
-    const keywords = topKeywords.map(k => ({
+    if (topKeywordsResult.length === 0) {
+      const fallbackKeywords = await prisma.searchKeywordStat.groupBy({
+        by: ['keyword'],
+        where: { shopId },
+        _sum: {
+          searches: true,
+          clicks: true,
+        },
+        orderBy: {
+          _sum: { searches: 'desc' }
+        },
+        take: 25
+      });
+      topKeywordsResult = fallbackKeywords as any; // Type workaround for Prisma generics
+    }
+
+    const keywords = topKeywordsResult.map(k => ({
       keyword: k.keyword,
       searches: k._sum.searches || 0,
       clicks: k._sum.clicks || 0,
@@ -374,9 +424,10 @@ export class ShopService {
     }));
 
     // Real CTR from ad data
-    const realCtr = realTotalAdImpressions > 0
-      ? ((realTotalAdClicks / realTotalAdImpressions) * 100).toFixed(2)
-      : totals.views > 0 ? ((totals.orders / totals.views) * 100).toFixed(2) : '0.00';
+    const safeAdImpressions = Math.max(realTotalAdImpressions, realTotalAdClicks);
+    const realCtr = safeAdImpressions > 0
+      ? Math.min(100, Math.max(0, (realTotalAdClicks / safeAdImpressions) * 100)).toFixed(2)
+      : totals.views > 0 ? Math.min(100, Math.max(0, (totals.orders / totals.views) * 100)).toFixed(2) : '0.00';
 
     return {
       totalImpressions: totals.views + realTotalAdImpressions,
@@ -393,6 +444,68 @@ export class ShopService {
       campaigns: campaignsData.campaigns,
       keywords,
     };
+  }
+
+  /**
+   * Get all followers (users who saved the shop)
+   */
+  async getShopFollowers(shopId: string) {
+    const followers = await prisma.savedShop.findMany({
+      where: { shopId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            city: true,
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    return followers.map(f => ({
+      ...f.user,
+      followedAt: f.createdAt,
+      city: f.user.city || 'Unknown'
+    }));
+  }
+
+  /**
+   * Broadcast a notification to shop followers
+   */
+  async broadcastToFollowers(shopId: string, payload: { title: string, body: string, type: 'PROMOTION' | 'FLASH_SALE' | 'NEW_PRODUCT' | 'SYSTEM', city?: string, imageUrl?: string }) {
+    const followers = await this.getShopFollowers(shopId);
+    
+    // Filter by city if provided
+    const targetFollowers = payload.city 
+      ? followers.filter(f => f.city.toLowerCase() === payload.city?.toLowerCase())
+      : followers;
+
+    if (targetFollowers.length === 0) return { success: true, count: 0 };
+
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    
+    let sentCount = 0;
+    for (const follower of targetFollowers) {
+      // In-app notification handles push notification internally
+      try {
+        await notificationService.createNotification(follower.id, {
+          title: payload.title,
+          body: payload.body,
+          type: payload.type,
+          icon: shop?.logo || undefined,
+          image: payload.imageUrl || undefined,
+          relatedId: shopId,
+        });
+        sentCount++;
+      } catch (e) {
+        // Ignore errors to continue broadcasting
+      }
+    }
+
+    return { success: true, count: targetFollowers.length, pushSent: sentCount };
   }
 }
 

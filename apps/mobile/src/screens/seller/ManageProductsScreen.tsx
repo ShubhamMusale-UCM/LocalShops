@@ -27,6 +27,7 @@ import { Colors } from '../../theme/colors';
 import { Spacing } from '../../theme/spacing';
 import { Shadows } from '../../theme/shadows';
 import { Card } from '../../components/ui/Card';
+import { SkeletonListItem } from '../../components/ui/Skeleton';
 import productService from '../../services/productService';
 import shopService from '../../services/shopService';
 import { useHideTabBarOnScroll } from '../../hooks/useHideTabBarOnScroll';
@@ -158,7 +159,10 @@ const ProductCard: React.FC<{
   onDelete: (id: string, name: string) => void;
   onDuplicate: (product: Product) => void;
   swipeableRefs: React.MutableRefObject<Map<string, Swipeable>>;
-}> = ({ item, index, onEdit, onDelete, onDuplicate, swipeableRefs }) => {
+  isBulkEditMode?: boolean;
+  bulkEditData?: { price: string; stock: string };
+  onBulkEditChange?: (id: string, field: "price"|"stock", value: string) => void;
+}> = ({ item, index, onEdit, onDelete, onDuplicate, swipeableRefs, isBulkEditMode, bulkEditData, onBulkEditChange }) => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
   const pressScale = useRef(new Animated.Value(1)).current;
@@ -325,36 +329,63 @@ const ProductCard: React.FC<{
 
             <Text style={styles.productCategory}>{item.category}</Text>
 
-            <View style={styles.priceRow}>
-              <Text style={styles.productPrice}>₹{item.price.toFixed(0)}</Text>
-              {item.mrp && item.mrp > item.price && (
-                <Text style={styles.productMrp}>₹{item.mrp.toFixed(0)}</Text>
-              )}
-              {item.unit && (
-                <Text style={styles.productUnit}>/{item.unit}</Text>
-              )}
-            </View>
-
-            <View style={styles.productFooterRow}>
-              <View style={[styles.stockPill, { backgroundColor: stockConfig.bg }]}>
-                <Ionicons
-                  name={stockConfig.icon as any}
-                  size={12}
-                  color={stockConfig.color}
-                />
-                <Text style={[styles.stockPillText, { color: stockConfig.color }]}>
-                  {stockConfig.label}
-                </Text>
-              </View>
-              {typeof item.rating === 'number' && item.rating > 0 && (
-                <View style={styles.ratingPill}>
-                  <Ionicons name="star" size={11} color="#FBBF24" />
-                  <Text style={styles.ratingPillText}>
-                    {item.rating.toFixed(1)}
-                  </Text>
+            
+            {isBulkEditMode ? (
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 10, color: DS.gray500, marginBottom: 2 }}>Price (₹)</Text>
+                  <TextInput
+                    style={{ borderWidth: 1, borderColor: DS.inputBorder, borderRadius: 6, padding: 4, fontSize: 13, backgroundColor: DS.gray50 }}
+                    value={bulkEditData?.price !== undefined ? bulkEditData.price : String(item.price)}
+                    onChangeText={(val) => onBulkEditChange?.(item.id, 'price', val)}
+                    keyboardType="numeric"
+                  />
                 </View>
-              )}
-            </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 10, color: DS.gray500, marginBottom: 2 }}>Stock</Text>
+                  <TextInput
+                    style={{ borderWidth: 1, borderColor: DS.inputBorder, borderRadius: 6, padding: 4, fontSize: 13, backgroundColor: DS.gray50 }}
+                    value={bulkEditData?.stock !== undefined ? bulkEditData.stock : String(item.stock)}
+                    onChangeText={(val) => onBulkEditChange?.(item.id, 'stock', val)}
+                    keyboardType="numeric"
+                  />
+                </View>
+              </View>
+            ) : (
+              <>
+                <View style={styles.priceRow}>
+                  <Text style={styles.productPrice}>₹{item.price.toFixed(0)}</Text>
+                  {item.mrp && item.mrp > item.price && (
+                    <Text style={styles.productMrp}>₹{item.mrp.toFixed(0)}</Text>
+                  )}
+                  {item.unit && (
+                    <Text style={styles.productUnit}>/{item.unit}</Text>
+                  )}
+                </View>
+
+                <View style={styles.productFooterRow}>
+                  <View style={[styles.stockPill, { backgroundColor: stockConfig.bg }]}>
+                    <Ionicons
+                      name={stockConfig.icon as any}
+                      size={12}
+                      color={stockConfig.color}
+                    />
+                    <Text style={[styles.stockPillText, { color: stockConfig.color }]}>
+                      {stockConfig.label}
+                    </Text>
+                  </View>
+                  {typeof item.rating === "number" && item.rating > 0 && (
+                    <View style={styles.ratingPill}>
+                      <Ionicons name="star" size={11} color="#FBBF24" />
+                      <Text style={styles.ratingPillText}>
+                        {item.rating.toFixed(1)}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </>
+            )}
+
           </View>
         </TouchableOpacity>
       </Swipeable>
@@ -370,6 +401,53 @@ const ManageProductsScreen: React.FC = () => {
   const [currentShopId, setCurrentShopId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  const [isBulkEditMode, setIsBulkEditMode] = useState(false);
+  const [bulkEdits, setBulkEdits] = useState<Record<string, { price: string; stock: string }>>({});
+  const [savingBulk, setSavingBulk] = useState(false);
+
+  const toggleBulkEdit = () => {
+    setIsBulkEditMode(!isBulkEditMode);
+    setBulkEdits({});
+  };
+
+  const handleBulkEditChange = (id: string, field: 'price' | 'stock', value: string) => {
+    setBulkEdits(prev => ({
+      ...prev,
+      [id]: {
+        ...prev[id],
+        [field]: value
+      }
+    }));
+  };
+
+  const saveBulkEdits = async () => {
+    if (!currentShopId) return;
+    const updates = Object.keys(bulkEdits).map(id => ({
+      id,
+      price: bulkEdits[id].price !== undefined ? parseFloat(bulkEdits[id].price) : undefined,
+      quantity: bulkEdits[id].stock !== undefined ? parseInt(bulkEdits[id].stock, 10) : undefined,
+    })).filter(u => !isNaN(u.price as number) || !isNaN(u.quantity as number));
+
+    if (updates.length === 0) {
+      setIsBulkEditMode(false);
+      return;
+    }
+
+    setSavingBulk(true);
+    try {
+      await productService.bulkUpdateProducts(currentShopId, updates as any);
+      await loadProducts();
+      setIsBulkEditMode(false);
+      setBulkEdits({});
+      Alert.alert('Success', `Updated ${updates.length} products.`);
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to bulk update products');
+    } finally {
+      setSavingBulk(false);
+    }
+  };
+
 
   // Tab bar visibility on scroll
   const { onScroll, scrollEventThrottle } = useHideTabBarOnScroll();
@@ -743,9 +821,10 @@ const ManageProductsScreen: React.FC = () => {
 
       {/* ─── Product List ──────────────── */}
       {loading ? (
-        <View style={styles.loaderWrap}>
-          <ActivityIndicator size="large" color={DS.primary} />
-          <Text style={styles.loaderText}>Loading products...</Text>
+        <View style={{ padding: 16, gap: 12 }}>
+          {[...Array(6)].map((_, i) => (
+            <SkeletonListItem key={i} lines={2} style={{ marginBottom: 8 }} />
+          ))}
         </View>
       ) : (
         <FlatList
@@ -758,6 +837,9 @@ const ManageProductsScreen: React.FC = () => {
               onDelete={handleDelete}
               onDuplicate={handleDuplicate}
               swipeableRefs={swipeableRefs}
+              isBulkEditMode={isBulkEditMode}
+              bulkEditData={bulkEdits[item.id]}
+              onBulkEditChange={handleBulkEditChange}
             />
           )}
           keyExtractor={(item) => item.id}
@@ -780,7 +862,24 @@ const ManageProductsScreen: React.FC = () => {
         />
       )}
 
+      
+      {isBulkEditMode && (
+        <Animated.View style={{ position: 'absolute', bottom: 20, left: 16, right: 16, flexDirection: 'row', gap: 12, zIndex: 1000 }}>
+          <TouchableOpacity onPress={toggleBulkEdit} style={{ flex: 1, backgroundColor: DS.card, padding: 14, borderRadius: 12, alignItems: 'center', shadowColor: '#000', shadowOffset: {width: 0, height: 4}, shadowOpacity: 0.1, shadowRadius: 8, elevation: 5 }}>
+            <Text style={{ color: DS.gray700, fontWeight: '600' }}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={saveBulkEdits} style={{ flex: 2, backgroundColor: DS.primary, padding: 14, borderRadius: 12, alignItems: 'center', shadowColor: DS.primaryDark, shadowOffset: {width: 0, height: 4}, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 }}>
+            {savingBulk ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>Save Changes</Text>
+            )}
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+
       {/* ─── Sort Modal ────────────────── */}
+
       <Modal
         visible={showSortModal}
         transparent

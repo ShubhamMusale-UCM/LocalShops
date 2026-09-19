@@ -89,9 +89,34 @@ const adsService = {
     return response.data?.data || response.data || {};
   },
 
-  renewBudget: async (adId: string, additionalBudget: number) => {
-    const response = await apiClient.post(`/ads/${adId}/renew-budget`, { additionalBudget });
+  renewBudget: async (adId: string, additionalBudget: number, durationDays: number = 30) => {
+    const response = await apiClient.post(`/ads/${adId}/renew-budget`, { additionalBudget, durationDays });
     return response.data?.data || response.data;
+  },
+
+  getNegativeKeywords: async (adId: string) => {
+    const response = await apiClient.get(`/ads/${adId}/negative-keywords`);
+    return response.data?.data || response.data || [];
+  },
+
+  addNegativeKeyword: async (adId: string, keyword: string) => {
+    const response = await apiClient.post(`/ads/${adId}/negative-keywords`, { keyword });
+    return response.data?.data || response.data;
+  },
+
+  removeNegativeKeyword: async (adId: string, keywordId: string) => {
+    const response = await apiClient.delete(`/ads/${adId}/negative-keywords/${keywordId}`);
+    return response.data?.data || response.data;
+  },
+
+  topUpWallet: async (shopId: string, amount: number) => {
+    const response = await apiClient.post('/ads/wallet/topup', { shopId, amount });
+    return response.data;
+  },
+
+  verifyTopUp: async (data: any) => {
+    const response = await apiClient.post('/ads/wallet/verify', data);
+    return response.data;
   },
 
   trackClick: async (adId: string) => {

@@ -59,57 +59,73 @@ export class SearchService {
       ...(filters.shopId && { shopId: filters.shopId }),
     };
 
+    const now = new Date();
+
+    // 1. Fetch Sponsored Products dynamically (only on first page)
+    let sponsoredProducts: any[] = [];
+    if ((cleanQuery || filters.category) && offset === 0) {
+      const sponsoredRaw = await prisma.product.findMany({
+        where: {
+          ...whereClause,
+          promotedListing: {
+            isActive: true,
+            startDate: { lte: now },
+            endDate: { gte: now },
+          }
+        },
+        include: {
+          shop: { select: { id: true, name: true, slug: true, logo: true, coverImage: true, averageRating: true, address: true, city: true } },
+          promotedListing: {
+            select: { id: true, bidPerClick: true, spent: true, budget: true }
+          }
+        }
+      });
+      
+      const activeSponsored = sponsoredRaw
+        .filter(p => p.promotedListing && p.promotedListing.spent < p.promotedListing.budget)
+        .sort((a, b) => b.promotedListing!.bidPerClick - a.promotedListing!.bidPerClick)
+        .slice(0, 3); // Inject up to 3 sponsored products
+        
+      sponsoredProducts = activeSponsored.map(p => ({
+        ...p,
+        isBoosted: true,
+        isSponsored: true,
+        campaignId: p.promotedListing!.id,
+        sponsoredListingId: p.promotedListing!.id,
+      }));
+    }
+
+    // 2. Fetch organic products (excluding the injected sponsored ones)
+    const sponsoredIds = sponsoredProducts.map(p => p.id);
+    const organicWhereClause = sponsoredIds.length > 0 
+      ? { ...whereClause, id: { notIn: sponsoredIds } }
+      : whereClause;
+
     const products = await prisma.product.findMany({
-      where: whereClause,
+      where: organicWhereClause,
       include: {
         shop: { select: { id: true, name: true, slug: true, logo: true, coverImage: true, averageRating: true, address: true, city: true } },
-        promotedListing: {
-          select: {
-            id: true,
-            isActive: true,
-            startDate: true,
-            endDate: true,
-            budget: true,
-            spent: true,
-          },
-        },
       },
       skip: offset,
       take: limit,
       orderBy: { createdAt: 'desc' },
     });
 
-    // Filter by minimum rating if provided
     let filtered = products;
     if (filters.minRating) {
       filtered = products.filter((p) => (p.averageRating || 0) >= filters.minRating!);
     }
 
-    const now = new Date();
-    const mappedProducts = filtered.map((p) => {
-      const isPromoted = Boolean(
-        p.promotedListing &&
-        p.promotedListing.isActive &&
-        new Date(p.promotedListing.startDate) <= now &&
-        new Date(p.promotedListing.endDate) >= now &&
-        p.promotedListing.spent < p.promotedListing.budget
-      );
+    const mappedOrganic = filtered.map((p) => ({
+      ...p,
+      isBoosted: false,
+      isSponsored: false,
+    }));
 
-      return {
-        ...p,
-        isBoosted: isPromoted,
-        isSponsored: isPromoted,
-        campaignId: isPromoted ? p.promotedListing?.id : undefined,
-        sponsoredListingId: isPromoted ? p.promotedListing?.id : undefined,
-      };
-    });
-
-    // Sort to prioritize boosted listings first in search results
-    mappedProducts.sort((a, b) => (b.isBoosted ? 1 : 0) - (a.isBoosted ? 1 : 0));
-
+    const finalProducts = offset === 0 ? [...sponsoredProducts, ...mappedOrganic] : mappedOrganic;
     const total = await prisma.product.count({ where: whereClause });
 
-    return { products: mappedProducts, total, limit, offset };
+    return { products: finalProducts, total, limit, offset };
   }
 
   /**
@@ -297,8 +313,50 @@ export class SearchService {
       ...(nearbyShopIds && { shopId: { in: nearbyShopIds } }),
     };
 
+    const now = new Date();
+
+    // 1. Fetch Sponsored Products dynamically (only on first page)
+    let sponsoredProducts: any[] = [];
+    if ((filters.query || filters.category) && offset === 0) {
+      const sponsoredRaw = await prisma.product.findMany({
+        where: {
+          ...whereClause,
+          promotedListing: {
+            isActive: true,
+            startDate: { lte: now },
+            endDate: { gte: now },
+          }
+        },
+        include: {
+          shop: { select: { id: true, name: true, slug: true, logo: true, coverImage: true, averageRating: true, address: true, city: true } },
+          promotedListing: {
+            select: { id: true, bidPerClick: true, spent: true, budget: true }
+          }
+        }
+      });
+      
+      const activeSponsored = sponsoredRaw
+        .filter(p => p.promotedListing && p.promotedListing.spent < p.promotedListing.budget)
+        .sort((a, b) => b.promotedListing!.bidPerClick - a.promotedListing!.bidPerClick)
+        .slice(0, 3); // Inject up to 3 sponsored products
+        
+      sponsoredProducts = activeSponsored.map(p => ({
+        ...p,
+        isBoosted: true,
+        isSponsored: true,
+        campaignId: p.promotedListing!.id,
+        sponsoredListingId: p.promotedListing!.id,
+      }));
+    }
+
+    // 2. Fetch organic products (excluding the injected sponsored ones)
+    const sponsoredIds = sponsoredProducts.map(p => p.id);
+    const organicWhereClause = sponsoredIds.length > 0 
+      ? { ...whereClause, id: { notIn: sponsoredIds } }
+      : whereClause;
+
     const products = await prisma.product.findMany({
-      where: whereClause,
+      where: organicWhereClause,
       include: {
         shop: { select: { id: true, name: true, slug: true, logo: true, coverImage: true, averageRating: true, address: true, city: true } },
       },
@@ -320,9 +378,16 @@ export class SearchService {
       filtered = filtered.filter((p) => (p.averageRating || 0) >= filters.minRating!);
     }
 
+    const mappedOrganic = filtered.map((p) => ({
+      ...p,
+      isBoosted: false,
+      isSponsored: false,
+    }));
+
+    const finalProducts = offset === 0 ? [...sponsoredProducts, ...mappedOrganic] : mappedOrganic;
     const total = await prisma.product.count({ where: whereClause });
 
-    return { products: filtered, total, limit, offset };
+    return { products: finalProducts, total, limit, offset };
   }
 }
 

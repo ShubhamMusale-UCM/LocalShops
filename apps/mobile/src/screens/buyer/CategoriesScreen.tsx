@@ -15,7 +15,7 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +27,7 @@ import Animated, {
   withSpring,
   withTiming,
   FadeInRight,
+  Easing,
 } from 'react-native-reanimated';
 import { CATEGORIES } from '@citylocalshop/shared';
 import { useSearchStore } from '../../store/searchStore';
@@ -101,6 +102,26 @@ export default function CategoriesScreen() {
 
   const { onScroll, scrollEventThrottle } = useHideTabBarOnScroll();
 
+  const fadeAnim = useSharedValue(0);
+  const translateYAnim = useSharedValue(20);
+
+  useFocusEffect(
+    useCallback(() => {
+      fadeAnim.value = withTiming(1, { duration: 400 });
+      translateYAnim.value = withTiming(0, { duration: 400, easing: Easing.out(Easing.exp) });
+      return () => {
+        fadeAnim.value = 0;
+        translateYAnim.value = 20;
+      };
+    }, [])
+  );
+
+  const screenAnimStyle = useAnimatedStyle(() => ({
+    flex: 1,
+    opacity: fadeAnim.value,
+    transform: [{ translateY: translateYAnim.value }],
+  }));
+
   const handleSubCategorySelect = useCallback(
     (categoryId: string, subCategory?: string) => {
       setCategory(categoryId);
@@ -133,7 +154,7 @@ export default function CategoriesScreen() {
   }, [search]);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <Animated.View style={[styles.container, { backgroundColor: colors.background }, screenAnimStyle]}>
       <StatusBar
         barStyle={isDarkMode ? 'light-content' : 'dark-content'}
         backgroundColor={colors.card}
@@ -284,7 +305,7 @@ export default function CategoriesScreen() {
         }}
         placeholder="Search groceries, food, services..."
       />
-    </View>
+    </Animated.View>
   );
 }
 

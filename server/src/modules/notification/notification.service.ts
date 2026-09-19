@@ -85,9 +85,10 @@ export class NotificationService {
     title: string;
     body?: string;
     description?: string;
-    type: 'ORDER' | 'REVIEW' | 'PROMOTION' | 'DELIVERY' | 'SYSTEM';
+    type: 'ORDER' | 'REVIEW' | 'PROMOTION' | 'DELIVERY' | 'SYSTEM' | 'FLASH_SALE' | 'NEW_PRODUCT';
     relatedId?: string;
     icon?: string;
+    image?: string;
     actionUrl?: string;
   }) {
     const bodyText = data.body || data.description || '';
@@ -101,6 +102,7 @@ export class NotificationService {
         data: {
           relatedId: data.relatedId,
           icon: data.icon,
+          image: data.image,
           actionUrl: data.actionUrl,
         },
         isRead: false,
@@ -117,7 +119,7 @@ export class NotificationService {
           relatedId: data.relatedId,
           actionUrl: data.actionUrl,
         }),
-        image: data.icon,
+        image: data.image || data.icon,
       });
     } catch (error) {
       console.warn('Push notification failed, but in-app notification created');

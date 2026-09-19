@@ -345,7 +345,7 @@ export default function ProfileScreen() {
   const s = getStyles(colors, radius, shadows, themeDarkMode, topInset);
   const navigation = useNavigation<any>();
   const { isDarkMode, toggleTheme } = useThemeStore();
-  const { user, logout, updateUser, activeRole, switchRole } = useAuthStore();
+  const { user, isAuthenticated, logout, updateUser, activeRole, switchRole } = useAuthStore();
   const savedAddress = useLocationStore((state) => state.address);
   const savedCity = useLocationStore((state) => state.city);
   const [upgradingSeller, setUpgradingSeller] = useState(false);
@@ -398,6 +398,36 @@ export default function ProfileScreen() {
       ]
     );
   };
+
+  if (!isAuthenticated) {
+    return (
+      <View style={s.container}>
+        <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
+        <AmbientOrbs />
+        <View style={[s.stickyHeaderInner, { marginTop: topInset + 44 }]}>
+          <Text style={s.stickyTitle}>Profile</Text>
+        </View>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={[s.avatarFallback, { width: 96, height: 96, marginBottom: 24, backgroundColor: 'rgba(56, 189, 248, 0.1)' }]}>
+            <Ionicons name="person" size={40} color="#38BDF8" />
+          </View>
+          <Text style={{ fontSize: 24, fontFamily: 'Outfit_700Bold', color: '#FFF', marginBottom: 8 }}>Guest User</Text>
+          <Text style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', fontFamily: 'Inter_400Regular', textAlign: 'center', marginBottom: 32 }}>
+            Log in to manage your orders, addresses, and account details.
+          </Text>
+          <GlassButton 
+            onPress={() => navigation.navigate('Auth')} 
+            style={{ width: '100%', height: 48, borderRadius: 24, overflow: 'hidden' }}
+          >
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <Ionicons name="log-in-outline" size={20} color="#FFF" />
+              <Text style={{ color: '#FFF', fontSize: 16, fontFamily: 'Inter_600SemiBold' }}>Log In or Register</Text>
+            </View>
+          </GlassButton>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={s.container}>
@@ -530,7 +560,7 @@ export default function ProfileScreen() {
             iconBg="rgba(13, 148, 136, 0.12)"
             iconColor="#38BDF8"
             label="My Orders"
-            onPress={() => navigation.navigate('BuyerOrders')}
+            onPress={() => navigation.navigate('Orders')}
             s={s}
             colors={colors}
           />

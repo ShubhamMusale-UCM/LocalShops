@@ -33,6 +33,7 @@ router.post(
 	productController.bulkImport.bind(productController)
 );
 router.post('/shop/:shopId', authenticate, authorize('SELLER', 'ADMIN'), productController.createProduct.bind(productController));
+router.put('/shop/:shopId/bulk-update', authenticate, authorize('SELLER', 'ADMIN'), productController.bulkUpdate.bind(productController));
 router.put('/:id', authenticate, authorize('SELLER', 'ADMIN'), productController.updateProduct.bind(productController));
 router.delete('/:id', authenticate, authorize('SELLER', 'ADMIN'), productController.deleteProduct.bind(productController));
 

@@ -7,6 +7,7 @@ import Animated, { FadeInDown, FadeInUp, useSharedValue, useAnimatedStyle, withS
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '../../theme';
+import { useAuthStore } from '../../store/authStore';
 import { orderService } from '../../services/orderService';
 import { getProductImageUrl } from '../../utils/image';
 import { GlassPanel, GlassCard, GlassButton } from '../../components/ui/Glassmorphism';
@@ -30,6 +31,7 @@ const STATUS_MAP: Record<string, { color: string; bg: string; label: string; ico
 export default function OrderDetailScreen({ route, navigation }: Props) {
   const { isDarkMode } = useTheme();
   const isDark = isDarkMode;
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const params = route.params as any;
   const orderId = params?.orderId || 'Unknown';
   const insets = useSafeAreaInsets();
@@ -38,6 +40,10 @@ export default function OrderDetailScreen({ route, navigation }: Props) {
   const [order, setOrder] = useState<any>(null);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      navigation.navigate('Auth');
+      return;
+    }
     let active = true;
     const loadOrder = async () => {
       try {

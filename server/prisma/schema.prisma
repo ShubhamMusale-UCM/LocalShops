@@ -57,6 +57,7 @@ model User {
   isVerified   Boolean  @default(false)
   isActive     Boolean  @default(true)
   fcmToken     String?
+  gender       Gender?
 
   // Location
   latitude  Float?
@@ -133,6 +134,9 @@ model Shop {
   deliveryEnabled  Boolean @default(false)
   deliveryRadius   Float?
   minOrderDelivery Float?
+
+  // Ad Wallet — prepaid balance for sponsored listings
+  adWalletBalance  Float @default(0)
 
   // Relations
   products         Product[]
@@ -321,27 +325,44 @@ model ShopStory {
 }
 
 model PromotedListing {
-  id          String   @id @default(uuid())
-  shopId      String
-  shop        Shop     @relation(fields: [shopId], references: [id])
-  productId   String   @unique
-  product     Product  @relation(fields: [productId], references: [id])
-  budget      Float
-  spent       Float    @default(0)
-  bidPerClick Float    @default(10)
-  impressions Int      @default(0)
-  uniqueReach Int      @default(0)
-  clicks      Int      @default(0)
-  conversions Int      @default(0)
-  revenue     Float    @default(0)
-  startDate   DateTime
-  endDate     DateTime
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
+  id               String          @id @default(uuid())
+  shopId           String
+  shop             Shop            @relation(fields: [shopId], references: [id])
+  productId        String          @unique
+  product          Product         @relation(fields: [productId], references: [id])
+  budget           Float
+  spent            Float           @default(0)
+  bidPerClick      Float           @default(10)
+  impressions      Int             @default(0)
+  uniqueReach      Int             @default(0)
+  clicks           Int             @default(0)
+  views            Int             @default(0)
+  cartAdds         Int             @default(0)
+  conversions      Int             @default(0)
+  revenue          Float           @default(0)
+  qualityScore     Int             @default(5)
+  targetGender     TargetGender    @default(ALL)
+  startDate        DateTime
+  endDate          DateTime
+  isActive         Boolean         @default(true)
+  createdAt        DateTime        @default(now())
 
-  rollups AdDailyMetricRollup[]
-  orders  Order[]
-  keywordStats CampaignKeywordStat[]
+  rollups          AdDailyMetricRollup[]
+  orders           Order[]
+  keywordStats     CampaignKeywordStat[]
+  impressionLogs   AdImpressionLog[]
+  negativeKeywords NegativeKeyword[]
+}
+
+model NegativeKeyword {
+  id                String          @id @default(uuid())
+  promotedListingId String
+  promotedListing   PromotedListing @relation(fields: [promotedListingId], references: [id])
+  keyword           String
+  createdAt         DateTime        @default(now())
+
+  @@unique([promotedListingId, keyword])
+  @@index([promotedListingId])
 }
 
 model CampaignKeywordStat {
@@ -455,11 +476,26 @@ model AdDailyMetricRollup {
   impressions       Int             @default(0)
   clicks            Int             @default(0)
   spend             Float           @default(0)
+  views             Int             @default(0)
+  cartAdds          Int             @default(0)
   conversions       Int             @default(0)
   revenue           Float           @default(0)
+  uniqueReach       Int             @default(0)
 
   // A unique constraint allowing daily (hour = null) or hourly (hour = specific hour) rollups
   @@unique([promotedListingId, date, hour])
+  @@index([promotedListingId, date])
+}
+
+model AdImpressionLog {
+  id                String          @id @default(uuid())
+  promotedListingId String
+  promotedListing   PromotedListing @relation(fields: [promotedListingId], references: [id])
+  deviceId          String
+  createdAt         DateTime        @default(now())
+
+  @@index([promotedListingId, deviceId])
+  @@index([createdAt])
 }
 
 // ==========================================
@@ -578,4 +614,17 @@ model FlashSale {
   @@index([shopId])
   @@index([productId])
   @@index([startTime, endTime])
+}
+
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum TargetGender {
+  ALL
+  MALE
+  FEMALE
 }

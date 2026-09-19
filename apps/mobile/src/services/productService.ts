@@ -157,6 +157,9 @@ export const productService = {
 
   update: (id: string, data: any) => api.put(`/products/${id}`, data),
 
+  bulkUpdateProducts: (shopId: string, updates: {id: string, price?: number, mrp?: number, quantity?: number, inStock?: boolean}[]) => 
+    api.put(`/products/shop/${shopId}/bulk-update`, { updates }),
+
   delete: (id: string) => api.delete(`/products/${id}`),
 };
 
