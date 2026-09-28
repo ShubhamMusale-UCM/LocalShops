@@ -42,6 +42,8 @@ import { useCartStore } from '../../store/cartStore';
 import { useWishlistStore } from '../../store/wishlistStore';
 import { useSearchStore } from '../../store/searchStore';
 
+import { SkeletonCard } from '../../components/ui/Skeleton';
+
 // Service imports
 import productService from '../../services/productService';
 import shopService from '../../services/shopService';
@@ -599,11 +601,11 @@ export default function HomeScreen() {
               <Image source={IMAGES.dealSaver} style={styles.dualPromoIllustration} resizeMode="contain" />
             </GlassCard>
           </TactileView>
-          <TactileView onPress={() => setShowQuickOrderModal(true)} style={{ flex: 1 }}>
-            <GlassCard isDark={isDarkMode} style={[styles.dualPromoCardTile, { backgroundColor: isDarkMode ? 'rgba(220,38,38,0.2)' : '#FEE2E2' }]}>
+          <TactileView onPress={() => navigation.navigate('NewArrivals')} style={{ flex: 1 }}>
+            <GlassCard isDark={isDarkMode} style={[styles.dualPromoCardTile, { backgroundColor: isDarkMode ? 'rgba(59,130,246,0.2)' : '#EFF6FF' }]}>
               <View style={{ flex: 1.3 }}>
-                <Text style={[styles.dualPromoHeadline, { color: isDarkMode ? '#FCA5A5' : '#B91C1C' }]}>Instant Book</Text>
-                <Text style={[styles.dualPromoSub, { color: isDarkMode ? '#FECACA' : '#475569' }]}>Pick up fast</Text>
+                <Text style={[styles.dualPromoHeadline, { color: isDarkMode ? '#93C5FD' : '#1D4ED8' }]}>New Arrivals</Text>
+                <Text style={[styles.dualPromoSub, { color: isDarkMode ? '#BFDBFE' : '#3B82F6' }]}>Fresh drops</Text>
               </View>
               <Image source={IMAGES.dealLightning} style={styles.dualPromoIllustration} resizeMode="contain" />
             </GlassCard>
@@ -622,7 +624,13 @@ export default function HomeScreen() {
         </View>
 
         {loadingData ? (
-          <ActivityIndicator color={theme.accent} style={{ marginVertical: 20 }} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12, marginBottom: 24 }}>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <View key={i} style={{ width: 160 }}>
+                <SkeletonCard imageHeight={120} lines={2} />
+              </View>
+            ))}
+          </ScrollView>
         ) : nearbyShops.length === 0 ? (
           <GlassCard isDark={isDarkMode} intensity={20} style={[styles.emptyStateCard, { marginHorizontal: 16, marginBottom: 24 }]}>
             <Store size={28} color={theme.textMuted} />
@@ -670,7 +678,13 @@ export default function HomeScreen() {
         </View>
 
         {loadingData ? (
-          <ActivityIndicator color={theme.accent} style={{ marginVertical: 20 }} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12, marginBottom: 24 }}>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <View key={i} style={{ width: 160 }}>
+                <SkeletonCard imageHeight={120} lines={2} />
+              </View>
+            ))}
+          </ScrollView>
         ) : displayProducts.length === 0 ? (
           <GlassCard isDark={isDarkMode} intensity={20} style={[styles.emptyStateCard, { marginHorizontal: 16, marginBottom: 24 }]}>
             <Package size={28} color={theme.textMuted} />

@@ -449,6 +449,22 @@ export default function SellerDashboard({ navigation }: { navigation: any }) {
                   <Text style={s.opsCardDesc}>Boost ranking & sales</Text>
                 </AnimatedPressable>
               </View>
+
+              <View style={s.opsRow}>
+                <AnimatedPressable
+                  onPress={() => navigation.navigate('SellerAudience')}
+                  style={[s.opsCard, { borderLeftColor: DS.primary, borderLeftWidth: 4 }]}
+                  containerStyle={{ flex: 1 }}
+                >
+                  <View style={[s.opsIconWrap, { backgroundColor: DS.primary + '15' }]}>
+                    <Ionicons name="people" size={24} color={DS.primary} />
+                  </View>
+                  <Text style={s.opsCardTitle}>Audience</Text>
+                  <Text style={s.opsCardDesc}>Broadcast & Followers</Text>
+                </AnimatedPressable>
+                
+                <View style={{ flex: 1 }} />
+              </View>
             </View>
           </AnimatedEntry>
 

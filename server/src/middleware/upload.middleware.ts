@@ -54,6 +54,12 @@ export const uploadMultiple = multer({
   limits: { fileSize: MAX_FILE_SIZE },
 }).array('images', 10);
 
+export const uploadPhotos = multer({
+  storage,
+  fileFilter,
+  limits: { fileSize: MAX_FILE_SIZE },
+}).array('photos', 3);
+
 // Mixed fields (for product: images + video)
 export const uploadProductMedia = multer({
   storage,

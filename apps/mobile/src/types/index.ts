@@ -1,10 +1,11 @@
-export type Category = 'all' | 'audio' | 'wearable' | 'design';
+export type Category = string;
 
 export interface Product {
   id: string;
   title: string;
   price: number;
   category: Category;
+  subCategory?: string;
   image: string;
   images?: string[];
   shop?: {
@@ -34,6 +35,7 @@ export interface CartItem {
   qty: number;
   image: string;
   category?: Category;
+  subCategory?: string;
   desc?: string;
   isBoosted?: boolean;
   campaignId?: string;

@@ -912,9 +912,11 @@ const ProductMiniCard: React.FC<{
 const ShopCover: React.FC<{
   shop: any;
   openStatus: { isOpen: boolean; message: string };
+  isSaved?: boolean;
+  onToggleSave?: () => void;
   onBack: () => void;
   onShare: () => void;
-}> = ({ shop, openStatus, onBack, onShare }) => {
+}> = ({ shop, openStatus, isSaved, onToggleSave, onBack, onShare }) => {
   const { colors, radius, shadows, isDarkMode } = useTheme();
   const styles = getStyles(colors, radius, shadows, isDarkMode);
   const [logoError, setLogoError] = useState(false);
@@ -979,6 +981,13 @@ const ShopCover: React.FC<{
         </Pressable>
 
         <View style={styles.coverActionRight}>
+          <Pressable
+            onPress={onToggleSave}
+            style={[styles.coverActionBtn, isSaved && { backgroundColor: 'rgba(52, 211, 153, 0.2)', borderColor: 'rgba(52, 211, 153, 0.4)' }]}
+            accessibilityLabel={isSaved ? "Unfollow shop" : "Follow shop"}
+          >
+            <Ionicons name={isSaved ? "checkmark" : "person-add-outline"} size={18} color={isSaved ? '#34D399' : '#FFFFFF'} />
+          </Pressable>
           <Pressable
             onPress={onShare}
             style={styles.coverActionBtn}
@@ -1220,6 +1229,18 @@ const ShopProfileScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   }, [shop]);
 
+  const handleToggleSave = useCallback(async () => {
+    if (shop) {
+      setIsSaved(!isSaved);
+      try {
+        await shopService.toggleSave(shop.id);
+      } catch (e) {
+        // Rollback on failure
+        setIsSaved(isSaved);
+      }
+    }
+  }, [shop, isSaved]);
+
   if (loading) return <ShopSkeleton />;
 
   if (!shop) {
@@ -1299,6 +1320,8 @@ const ShopProfileScreen: React.FC<Props> = ({ navigation, route }) => {
         <ShopCover
           shop={shop}
           openStatus={openStatus}
+          isSaved={isSaved}
+          onToggleSave={handleToggleSave}
           onBack={() => navigation.goBack()}
           onShare={handleShare}
         />

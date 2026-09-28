@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import orderService from './order.service';
 import { createOrderSchema, updateOrderStatusSchema, orderQuerySchema } from './order.validator';
+import reviewService from '../review/review.service';
+import { processAndUploadImage } from '../../utils/imageProcessor';
 
 export class OrderController {
   async create(req: AuthRequest, res: Response): Promise<void> {
@@ -78,6 +80,47 @@ export class OrderController {
       const { status, note } = req.body;
       const returnReq = await orderService.updateReturnStatus(req.params.returnId, req.user!.id, status, note);
       res.json(returnReq);
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({ error: error.message });
+    }
+  }
+
+  async addReview(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { rating, comment } = req.body;
+      const orderId = req.params.id;
+      
+      const order = await orderService.getOrderById(orderId, req.user!.id);
+      if (!order) throw new Error('Order not found');
+      
+      const productId = order.items?.[0]?.productId;
+      if (!productId) throw new Error('Order has no items');
+      
+      const files = req.files as Express.Multer.File[] | undefined;
+      const photos: string[] = [];
+      
+      if (files && files.length > 0) {
+        const protocol = req.protocol || 'http';
+        const host = req.get('host') || 'localhost:5000';
+        const publicBaseUrl = `${protocol}://${host}`;
+        
+        for (const file of files) {
+          const url = await processAndUploadImage(file, 'reviews', publicBaseUrl);
+          photos.push(url);
+        }
+      }
+      
+      const reviewPayload = {
+        shopId: order.shopId,
+        productId,
+        orderId,
+        rating: Number(rating),
+        comment,
+        photos
+      };
+      
+      const review = await reviewService.createReview(req.user!.id, reviewPayload);
+      res.status(201).json(review);
     } catch (error: any) {
       res.status(error.statusCode || 400).json({ error: error.message });
     }

@@ -61,6 +61,30 @@ export const CATEGORIES = [
     showcaseFields: ['rooms', 'amenities', 'price_range', 'rating', 'images', 'contact_info'],
   },
   {
+    id: 'property',
+    name: 'Real Estate & Properties',
+    icon: '🏢',
+    subCategories: ['Flats & Apartments', 'Villas', 'Commercial Space', 'Plots & Land', 'PG/Co-living', 'Builder Floors'],
+  },
+  {
+    id: 'tours',
+    name: 'Tour Packages',
+    icon: '✈️',
+    subCategories: ['Domestic Tours', 'International Tours', 'Weekend Getaways', 'Adventure Trips', 'Honeymoon Packages', 'Pilgrimage'],
+  },
+  {
+    id: 'places',
+    name: 'Places to Visit',
+    icon: '🗺️',
+    subCategories: ['Historical Sites', 'Parks & Nature', 'Museums', 'Amusement Parks', 'Religious Places', 'Monuments'],
+  },
+  {
+    id: 'secondhand',
+    name: 'Second Hand Market',
+    icon: '♻️',
+    subCategories: ['Used Cars & Bikes', 'Refurbished Electronics', 'Used Furniture', 'Pre-owned Books', 'Used Appliances'],
+  },
+  {
     id: 'health',
     name: 'Health & Wellness',
     icon: '💊',
@@ -113,6 +137,36 @@ export const CATEGORIES = [
     name: 'Local Services',
     icon: '🔨',
     subCategories: ['Electrician', 'Plumber', 'Carpenter', 'AC Repair', 'Pest Control', 'Cleaning', 'Movers & Packers'],
+  },
+  {
+    id: 'toys',
+    name: 'Toys & Games',
+    icon: '🧸',
+    subCategories: ['Action Figures', 'Board Games', 'Educational Toys', 'Dolls', 'Outdoor Play'],
+  },
+  {
+    id: 'garden',
+    name: 'Home & Garden',
+    icon: '🪴',
+    subCategories: ['Plants', 'Seeds', 'Garden Tools', 'Pots & Planters', 'Fertilizers'],
+  },
+  {
+    id: 'education',
+    name: 'Education',
+    icon: '🎓',
+    subCategories: ['Courses', 'Tutors', 'School Supplies', 'Uniforms', 'Test Prep'],
+  },
+  {
+    id: 'art',
+    name: 'Art & Collectibles',
+    icon: '🎨',
+    subCategories: ['Paintings', 'Sculptures', 'Handicrafts', 'Antiques', 'Art Supplies'],
+  },
+  {
+    id: 'secondhand',
+    name: 'Second Hand Market',
+    icon: '♻️',
+    subCategories: ['Used Cars & Bikes', 'Refurbished Electronics', 'Used Furniture', 'Pre-owned Books'],
   },
 ] as const;
 

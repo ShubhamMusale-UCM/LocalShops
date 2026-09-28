@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,18 +7,25 @@ import {
   StyleSheet,
   TextInput,
   Image,
-  Modal,
   ActivityIndicator,
   Alert,
+  StatusBar,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
-import { colors, spacing, typography, shadows } from '../../theme';
-import Button from '../../components/ui/Button';
-import Card from '../../components/ui/Card';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeInUp, FadeInDown, ZoomIn } from 'react-native-reanimated';
+
+import { useTheme } from '../../theme';
+import { GlassPanel, GlassCard, GlassButton } from '../../components/ui/Glassmorphism';
+import AmbientOrbs from '../../components/ui/AmbientOrbs';
+import { TouchSpring } from '../../components/ui/TouchSpring';
 import reviewService from '../../services/reviewService';
-import { getSingleImageUrl } from '../../utils/image';
+import shopService from '../../services/shopService';
+import { getProductImageUrl } from '../../utils/image';
 
 interface Product {
   id: string;
@@ -35,29 +42,15 @@ interface OrderItem {
   quantity: number;
 }
 
-const ReviewScreen: React.FC = () => {
-  const navigation = useNavigation();
-  const route = useRoute() as any;
-  const { orderId, items } = route.params || {
-    orderId: '',
-    items: [
-      {
-        orderId: 'ORD-001',
-        product: {
-          id: '1',
-          name: 'Fresh Milk 1L',
-          image:
-            'https://images.unsplash.com/photo-1550583724-b2692b25a968?w=500',
-          price: 60,
-          shopId: 'shop-1',
-          shopName: 'Daily Fresh Dairy',
-        },
-        quantity: 2,
-      },
-    ],
-  };
+export default function ReviewScreen() {
+  const navigation = useNavigation<any>();
+  const route = useRoute<any>();
+  const { orderId, items } = route.params || { orderId: '', items: [] };
+  const insets = useSafeAreaInsets();
+  const { colors, radius, isDarkMode } = useTheme();
+  const isDark = isDarkMode;
 
-  const [selectedProduct, setSelectedProduct] = useState<OrderItem | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<OrderItem | null>(items[0] || null);
   const [rating, setRating] = useState(0);
   const [title, setTitle] = useState('');
   const [comment, setComment] = useState('');
@@ -65,6 +58,28 @@ const ReviewScreen: React.FC = () => {
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
+  const [checkingReview, setCheckingReview] = useState(true);
+
+  // Check if already reviewed
+  useEffect(() => {
+    let active = true;
+    const checkExisting = async () => {
+      if (!selectedProduct) return;
+      try {
+        setCheckingReview(true);
+        // We fetch the product's reviews and see if the user's review is there
+        // In a real app, there'd be an endpoint like /reviews/me/product/:id
+        // We'll simulate checking by assuming it's clear for now or calling API if available
+        // For now, assume it's clear and let the backend enforce the 409 error
+      } catch (err) {
+        // ignore
+      } finally {
+        if (active) setCheckingReview(false);
+      }
+    };
+    checkExisting();
+    return () => { active = false; };
+  }, [selectedProduct]);
 
   const handlePickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -90,20 +105,25 @@ const ReviewScreen: React.FC = () => {
       Alert.alert('Select Product', 'Please select a product to review');
       return;
     }
-
     if (rating === 0) {
-      Alert.alert('Rating Required', 'Please select a rating');
+      Alert.alert('Rating Required', 'Please tap a star to leave a rating');
       return;
     }
-
     if (comment.trim().length < 10) {
       Alert.alert('Comment Too Short', 'Please write at least 10 characters');
       return;
     }
 
     setIsSubmitting(true);
-
     try {
+      // 1. Upload photos first
+      const uploadedUrls = [];
+      for (const uri of photos) {
+        const url = await shopService.uploadImage(uri);
+        uploadedUrls.push(url);
+      }
+
+      // 2. Submit review
       await reviewService.createReview({
         productId: selectedProduct.product.id,
         shopId: selectedProduct.product.shopId,
@@ -111,446 +131,263 @@ const ReviewScreen: React.FC = () => {
         rating,
         title,
         comment,
-        photos,
+        photos: uploadedUrls,
         isAnonymous,
       });
 
       setReviewSubmitted(true);
-      Alert.alert('Review Submitted', 'Thank you for your review!', [
-        {
-          text: 'OK',
-          onPress: () => navigation.goBack(),
-        },
-      ]);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to submit review. Please try again.');
-      console.error(error);
+    } catch (error: any) {
+      const msg = error?.response?.data?.error || error.message || 'Failed to submit review.';
+      Alert.alert('Error', msg);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const resetForm = () => {
-    setSelectedProduct(null);
-    setRating(0);
-    setTitle('');
-    setComment('');
-    setPhotos([]);
-    setIsAnonymous(false);
-    setReviewSubmitted(false);
-  };
+  const textPrimary = isDark ? '#F8FAFC' : '#0F172A';
+  const textSecondary = isDark ? '#94A3B8' : '#64748B';
 
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={28} color={colors.gray900} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Write a Review</Text>
-        <View style={{ width: 28 }} />
-      </View>
-
-      {reviewSubmitted ? (
-        <View style={styles.successContainer}>
-          <Ionicons name="checkmark-circle" size={64} color={colors.success} />
+  if (reviewSubmitted) {
+    return (
+      <View style={[styles.container, { backgroundColor: '#050814' }]}>
+        <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+        <AmbientOrbs />
+        <Animated.View entering={ZoomIn.springify()} style={styles.successContainer}>
+          <View style={styles.successIconRing}>
+            <Ionicons name="checkmark" size={48} color="#22C55E" />
+          </View>
           <Text style={styles.successTitle}>Review Submitted!</Text>
           <Text style={styles.successText}>
-            Thank you for your feedback. Your review helps others make better choices.
+            Thank you for your feedback. Your review helps the community and local businesses.
           </Text>
-          <Button
-            label="Back to Orders"
-            onPress={() => {
-              resetForm();
-              navigation.goBack();
-            }}
-            style={{ marginTop: spacing.lg }}
-          />
-        </View>
-      ) : (
-        <ScrollView showsVerticalScrollIndicator={false} style={styles.content}>
-          {/* Select Product */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Select Product</Text>
-            {items.map((item: OrderItem) => (
-              <TouchableOpacity
-                key={item.product.id}
-                style={[
-                  styles.productCard,
-                  selectedProduct?.product.id === item.product.id && styles.selectedCard,
-                ]}
-                onPress={() => setSelectedProduct(item)}
-              >
-                <Image
-                  source={{ uri: getSingleImageUrl(item.product.image) }}
-                  style={styles.productImage}
-                />
-                <View style={styles.productInfo}>
-                  <Text style={styles.productName}>{item.product.name}</Text>
-                  <Text style={styles.productShop}>{item.product.shopName}</Text>
-                  <Text style={styles.productPrice}>₹{item.product.price}</Text>
-                </View>
-                {selectedProduct?.product.id === item.product.id && (
-                  <Ionicons
-                    name="checkmark-circle"
-                    size={24}
-                    color={colors.primary}
-                  />
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
+          <TouchSpring 
+            style={styles.doneBtn}
+            onPress={() => navigation.goBack()}
+          >
+            <LinearGradient colors={['#38BDF8', '#0284C7']} style={styles.doneBtnGrad}>
+              <Text style={styles.doneBtnText}>Back to Booking</Text>
+            </LinearGradient>
+          </TouchSpring>
+        </Animated.View>
+      </View>
+    );
+  }
 
-          {/* Rating */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Rating</Text>
-            <View style={styles.ratingContainer}>
-              {[1, 2, 3, 4, 5].map((star) => (
-                <TouchableOpacity
-                  key={star}
-                  onPress={() => setRating(star)}
-                  style={styles.starButton}
+  return (
+    <View style={[styles.container, { backgroundColor: '#050814' }]}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <AmbientOrbs />
+
+      {/* Header */}
+      <GlassPanel intensity={30} style={[styles.header, { paddingTop: insets.top + 12 }]}>
+        <TouchSpring onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <View style={styles.backBtnInner}>
+            <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
+          </View>
+        </TouchSpring>
+        <View style={styles.headerTitleWrap}>
+          <Text style={styles.headerTitle}>Write a Review</Text>
+        </View>
+        <View style={{ width: 44 }} />
+      </GlassPanel>
+
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 80 }]}
+      >
+        {/* Product Selection */}
+        <Animated.View entering={FadeInDown.delay(100).springify()}>
+          <Text style={[styles.sectionTitle, { color: textPrimary }]}>Select Item</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20, paddingHorizontal: 20 }}>
+            {items.map((item: OrderItem) => {
+              const isSelected = selectedProduct?.product.id === item.product.id;
+              return (
+                <TouchSpring
+                  key={item.product.id}
+                  onPress={() => setSelectedProduct(item)}
+                  style={[styles.productPill, isSelected && { borderColor: '#38BDF8', backgroundColor: 'rgba(56,189,248,0.1)' }]}
                 >
+                  <Image source={{ uri: getProductImageUrl([item.product.image]) }} style={styles.productImgSmall} />
+                  <Text style={[styles.productPillText, { color: isSelected ? '#38BDF8' : textSecondary }]} numberOfLines={1}>
+                    {item.product.name}
+                  </Text>
+                </TouchSpring>
+              );
+            })}
+          </ScrollView>
+        </Animated.View>
+
+        {/* Rating Stars */}
+        <Animated.View entering={FadeInDown.delay(200).springify()} style={{ marginTop: 24 }}>
+          <GlassCard intensity={20} style={styles.ratingCard}>
+            <Text style={[styles.ratingTitle, { color: textPrimary }]}>How was your experience?</Text>
+            <View style={styles.starsRow}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <TouchSpring key={star} onPress={() => setRating(star)}>
                   <Ionicons
                     name={star <= rating ? 'star' : 'star-outline'}
-                    size={48}
-                    color={star <= rating ? colors.warning : colors.gray300}
+                    size={42}
+                    color={star <= rating ? '#F59E0B' : 'rgba(255,255,255,0.2)'}
                   />
-                </TouchableOpacity>
+                </TouchSpring>
               ))}
             </View>
             {rating > 0 && (
-              <View style={styles.ratingLabel}>
-                <Text style={styles.ratingEmoji}>
-                  {rating <= 2
-                    ? '😞'
-                    : rating === 3
-                    ? '😐'
-                    : rating === 4
-                    ? '🙂'
-                    : '😍'}
-                </Text>
-                <Text style={styles.ratingText}>
-                  {rating === 1
-                    ? 'Poor'
-                    : rating === 2
-                    ? 'Not Great'
-                    : rating === 3
-                    ? 'Good'
-                    : rating === 4
-                    ? 'Great'
-                    : 'Excellent'}
-                </Text>
-              </View>
+              <Text style={styles.ratingLabelText}>
+                {rating === 1 ? 'Poor' : rating === 2 ? 'Not Great' : rating === 3 ? 'Good' : rating === 4 ? 'Great' : 'Excellent!'}
+              </Text>
             )}
-          </View>
+          </GlassCard>
+        </Animated.View>
 
-          {/* Title */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Review Title (Optional)</Text>
+        {/* Written Review */}
+        <Animated.View entering={FadeInDown.delay(300).springify()} style={{ marginTop: 24 }}>
+          <Text style={[styles.sectionTitle, { color: textPrimary }]}>Tell us more</Text>
+          <View style={styles.inputWrap}>
             <TextInput
-              style={styles.titleInput}
-              placeholder="e.g., Great quality and fresh"
+              style={[styles.titleInput, { color: textPrimary }]}
+              placeholder="Headline (e.g. Great Service!)"
+              placeholderTextColor="rgba(255,255,255,0.4)"
               value={title}
               onChangeText={setTitle}
-              maxLength={100}
-              placeholderTextColor={colors.gray400}
             />
-            <Text style={[styles.charCount, { color: colors.gray500 }]}>
-              {title.length}/100
-            </Text>
           </View>
-
-          {/* Comment */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Your Review</Text>
+          <View style={[styles.inputWrap, { marginTop: 12 }]}>
             <TextInput
-              style={styles.commentInput}
-              placeholder="Share your experience with this product..."
+              style={[styles.commentInput, { color: textPrimary }]}
+              placeholder="Share your detailed experience..."
+              placeholderTextColor="rgba(255,255,255,0.4)"
               value={comment}
               onChangeText={setComment}
               multiline
+              textAlignVertical="top"
               maxLength={1000}
-              placeholderTextColor={colors.gray400}
             />
             <Text style={styles.charCount}>{comment.length}/1000</Text>
           </View>
+        </Animated.View>
 
-          {/* Photos */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Add Photos (Optional)</Text>
-            <View style={styles.photosGrid}>
-              {photos.map((photo, idx) => (
-                <View key={idx} style={styles.photoItem}>
-                  <Image source={{ uri: photo }} style={styles.photo} />
-                  <TouchableOpacity
-                    style={styles.removePhotoButton}
-                    onPress={() => removePhoto(idx)}
-                  >
-                    <Ionicons name="close-circle" size={24} color={colors.error} />
-                  </TouchableOpacity>
-                </View>
-              ))}
-
-              {photos.length < 5 && (
-                <TouchableOpacity
-                  style={styles.photoAddButton}
-                  onPress={handlePickImage}
-                >
-                  <Ionicons name="camera" size={32} color={colors.primary} />
-                  <Text style={styles.photoAddText}>
-                    {photos.length}/5
-                  </Text>
+        {/* Photos */}
+        <Animated.View entering={FadeInDown.delay(400).springify()} style={{ marginTop: 24 }}>
+          <Text style={[styles.sectionTitle, { color: textPrimary }]}>Add Photos</Text>
+          <View style={styles.photosGrid}>
+            {photos.map((photo, idx) => (
+              <View key={idx} style={styles.photoItem}>
+                <Image source={{ uri: photo }} style={styles.photo} />
+                <TouchableOpacity style={styles.removePhotoBtn} onPress={() => removePhoto(idx)}>
+                  <Ionicons name="close-circle" size={24} color="#EF4444" />
                 </TouchableOpacity>
+              </View>
+            ))}
+            {photos.length < 5 && (
+              <TouchSpring style={styles.addPhotoBtn} onPress={handlePickImage}>
+                <Ionicons name="camera-outline" size={28} color="#38BDF8" />
+                <Text style={styles.addPhotoTxt}>{photos.length}/5</Text>
+              </TouchSpring>
+            )}
+          </View>
+        </Animated.View>
+
+        {/* Post Button */}
+        <Animated.View entering={FadeInUp.delay(500).springify()} style={{ marginTop: 40 }}>
+          <TouchSpring 
+            style={[styles.submitBtn, (!selectedProduct || rating === 0 || comment.length < 10) && { opacity: 0.5 }]}
+            disabled={!selectedProduct || rating === 0 || comment.length < 10 || isSubmitting}
+            onPress={handleSubmitReview}
+          >
+            <LinearGradient colors={['#38BDF8', '#0284C7']} style={styles.submitBtnGrad}>
+              {isSubmitting ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text style={styles.submitBtnText}>Post Review</Text>
               )}
-            </View>
-          </View>
+            </LinearGradient>
+          </TouchSpring>
+        </Animated.View>
 
-          {/* Anonymous */}
-          <View style={styles.section}>
-            <TouchableOpacity
-              style={styles.anonymousButton}
-              onPress={() => setIsAnonymous(!isAnonymous)}
-            >
-              <View style={styles.checkbox}>
-                {isAnonymous && (
-                  <Ionicons name="checkmark" size={16} color={colors.white} />
-                )}
-              </View>
-              <View>
-                <Text style={styles.anonymousLabel}>Post anonymously</Text>
-                <Text style={styles.anonymousSubtitle}>
-                  Your name won't be visible
-                </Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          {/* Submit Button */}
-          <View style={styles.submitSection}>
-            <Button
-              label="Submit Review"
-              onPress={handleSubmitReview}
-              loading={isSubmitting}
-              disabled={!selectedProduct || rating === 0 || comment.length < 10}
-            />
-          </View>
-        </ScrollView>
-      )}
+      </ScrollView>
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.gray50,
-  },
+  container: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.white,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: colors.gray100,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.gray900,
-  },
-  content: {
+  backBtn: { width: 44, height: 44 },
+  backBtnInner: {
     flex: 1,
-    padding: spacing.lg,
-  },
-  successContainer: {
-    flex: 1,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-  },
-  successTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.gray900,
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  successText: {
-    fontSize: 14,
-    color: colors.gray600,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  section: {
-    marginBottom: spacing.lg,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.gray900,
-    marginBottom: spacing.md,
-  },
-  productCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    borderWidth: 2,
-    borderColor: colors.gray200,
-  },
-  selectedCard: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary + '08',
-  },
-  productImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-    marginRight: spacing.md,
-    backgroundColor: colors.gray100,
-  },
-  productInfo: {
-    flex: 1,
-  },
-  productName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.gray900,
-    marginBottom: spacing.xs,
-  },
-  productShop: {
-    fontSize: 12,
-    color: colors.gray600,
-    marginBottom: spacing.xs,
-  },
-  productPrice: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.primary,
-  },
-  ratingContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  starButton: {
-    padding: spacing.sm,
-  },
-  ratingLabel: {
-    alignItems: 'center',
-    marginTop: spacing.md,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.white,
-    borderRadius: 12,
-  },
-  ratingEmoji: {
-    fontSize: 40,
-    marginBottom: spacing.sm,
-  },
-  ratingText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.warning,
-  },
-  titleInput: {
-    backgroundColor: colors.white,
     borderWidth: 1,
-    borderColor: colors.gray300,
-    borderRadius: 8,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    fontSize: 14,
-    color: colors.gray900,
+    borderColor: 'rgba(255,255,255,0.05)',
   },
-  commentInput: {
-    backgroundColor: colors.white,
+  headerTitleWrap: { alignItems: 'center' },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFF' },
+  content: { padding: 20 },
+  
+  sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 12, marginLeft: 4 },
+  
+  productPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 6,
+    paddingRight: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 30,
     borderWidth: 1,
-    borderColor: colors.gray300,
-    borderRadius: 8,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    fontSize: 14,
-    color: colors.gray900,
-    minHeight: 120,
-    textAlignVertical: 'top',
+    borderColor: 'rgba(255,255,255,0.1)',
+    marginRight: 12,
   },
-  charCount: {
-    fontSize: 12,
-    color: colors.gray500,
-    marginTop: spacing.sm,
-    textAlign: 'right',
-  },
-  photosGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-  },
-  photoItem: {
-    position: 'relative',
-  },
-  photo: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-  },
-  removePhotoButton: {
-    position: 'absolute',
-    top: -8,
-    right: -8,
-  },
-  photoAddButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    borderStyle: 'dashed',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primary + '10',
-  },
-  photoAddText: {
-    fontSize: 12,
-    color: colors.primary,
-    marginTop: spacing.xs,
-  },
-  anonymousButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
-    backgroundColor: colors.white,
-    borderRadius: 12,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
-  },
-  anonymousLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.gray900,
-    marginBottom: spacing.xs,
-  },
-  anonymousSubtitle: {
-    fontSize: 12,
-    color: colors.gray600,
-  },
-  submitSection: {
-    paddingBottom: spacing.lg,
-  },
-});
+  productImgSmall: { width: 32, height: 32, borderRadius: 16, marginRight: 8, backgroundColor: 'rgba(255,255,255,0.1)' },
+  productPillText: { fontSize: 13, fontWeight: '600', maxWidth: 120 },
+  
+  ratingCard: { padding: 24, alignItems: 'center', borderRadius: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  ratingTitle: { fontSize: 16, fontWeight: '700', marginBottom: 16 },
+  starsRow: { flexDirection: 'row', gap: 12 },
+  ratingLabelText: { fontSize: 16, fontWeight: '800', color: '#F59E0B', marginTop: 16 },
 
-export default ReviewScreen;
+  inputWrap: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  titleInput: { padding: 16, fontSize: 15, fontWeight: '600' },
+  commentInput: { padding: 16, fontSize: 15, minHeight: 120 },
+  charCount: { position: 'absolute', bottom: 12, right: 16, fontSize: 11, color: 'rgba(255,255,255,0.4)' },
+  
+  photosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  photoItem: { position: 'relative', width: 80, height: 80 },
+  photo: { width: '100%', height: '100%', borderRadius: 16 },
+  removePhotoBtn: { position: 'absolute', top: -8, right: -8, backgroundColor: '#050814', borderRadius: 12 },
+  addPhotoBtn: {
+    width: 80, height: 80, borderRadius: 16,
+    borderWidth: 1.5, borderColor: 'rgba(56,189,248,0.5)', borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(56,189,248,0.05)',
+  },
+  addPhotoTxt: { fontSize: 11, color: '#38BDF8', fontWeight: '700', marginTop: 4 },
+
+  submitBtn: { borderRadius: 20, overflow: 'hidden' },
+  submitBtnGrad: { paddingVertical: 18, alignItems: 'center', justifyContent: 'center' },
+  submitBtnText: { color: '#FFF', fontSize: 16, fontWeight: '800' },
+
+  successContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  successIconRing: { width: 96, height: 96, borderRadius: 48, backgroundColor: 'rgba(34,197,94,0.1)', alignItems: 'center', justifyContent: 'center', marginBottom: 24, borderWidth: 1, borderColor: 'rgba(34,197,94,0.3)' },
+  successTitle: { fontSize: 24, fontWeight: '900', color: '#FFF', marginBottom: 12 },
+  successText: { fontSize: 15, color: '#94A3B8', textAlign: 'center', lineHeight: 22, marginBottom: 40 },
+  doneBtn: { width: '100%', borderRadius: 20, overflow: 'hidden' },
+  doneBtnGrad: { paddingVertical: 18, alignItems: 'center' },
+  doneBtnText: { color: '#FFF', fontSize: 16, fontWeight: '800' },
+});

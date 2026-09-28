@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, typography, shadows } from '../../theme';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
+import { SkeletonCard } from '../../components/ui/Skeleton';
 import { orderService } from '../../services/orderService';
 
 interface OrderStatus {
@@ -148,8 +149,9 @@ const OrderTrackingScreen: React.FC<{ route: any; navigation: any }> = ({ route,
 
   if (isLoading) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" color={colors.primary} />
+      <View style={[styles.container, styles.centerContent, { paddingHorizontal: 16, paddingTop: 40, justifyContent: 'flex-start' }]}>
+        <SkeletonCard imageHeight={0} lines={4} style={{ marginBottom: 16, width: '100%' }} />
+        <SkeletonCard imageHeight={0} lines={4} style={{ width: '100%' }} />
       </View>
     );
   }

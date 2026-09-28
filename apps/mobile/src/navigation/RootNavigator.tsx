@@ -14,6 +14,7 @@ import ProductDetailScreen from '../screens/buyer/ProductDetailScreen';
 import ShopProfileScreen from '../screens/buyer/ShopProfileScreen';
 import ShopProductsScreen from '../screens/buyer/ShopProductsScreen';
 import TrendingAllScreen from '../screens/buyer/TrendingAllScreen';
+import NewArrivalsScreen from '../screens/buyer/NewArrivalsScreen';
 
 import CartScreen from '../screens/buyer/CartScreen';
 import CheckoutScreen from '../screens/buyer/CheckoutScreen';
@@ -103,6 +104,11 @@ export const RootNavigator = () => {
           <Stack.Screen
             name="TrendingAll"
             component={TrendingAllScreen}
+            options={{ animation: 'slide_from_right' }}
+          />
+          <Stack.Screen
+            name="NewArrivals"
+            component={NewArrivalsScreen}
             options={{ animation: 'slide_from_right' }}
           />
 

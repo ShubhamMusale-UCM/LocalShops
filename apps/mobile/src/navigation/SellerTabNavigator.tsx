@@ -24,6 +24,7 @@ import SellerHelpSupportScreen from '../screens/seller/SellerHelpSupportScreen';
 import AddServicesScreen from '../screens/seller/AddServicesScreen';
 import StoreSettingsScreen from '../screens/seller/StoreSettingsScreen';
 import ManageFlashSalesScreen from '../screens/seller/ManageFlashSalesScreen';
+import SellerAudienceScreen from '../screens/seller/SellerAudienceScreen';
 import { orderService } from '../services/orderService';
 import { getPrimarySellerShop } from '../services/sellerShopContext';
 
@@ -181,6 +182,7 @@ export const SellerStackNavigator = () => (
     <SellerStack.Screen name="AddServices" component={AddServicesScreen} />
     <SellerStack.Screen name="StoreSettings" component={StoreSettingsScreen} />
     <SellerStack.Screen name="ManageFlashSales" component={ManageFlashSalesScreen} />
+    <SellerStack.Screen name="SellerAudience" component={SellerAudienceScreen} />
   </SellerStack.Navigator>
 );
 

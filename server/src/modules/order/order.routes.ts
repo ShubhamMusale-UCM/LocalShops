@@ -2,6 +2,7 @@ import { Router } from 'express';
 import orderController from './order.controller';
 import { authenticate, authorize } from '../../middleware/auth.middleware';
 import { orderLimiter } from '../../middleware/rateLimiter.middleware';
+import { uploadPhotos } from '../../middleware/upload.middleware';
 
 const router = Router();
 
@@ -14,6 +15,7 @@ router.get('/', orderController.getMyOrders.bind(orderController));
 router.get('/:id', orderController.getById.bind(orderController));
 router.post('/:id/cancel', orderController.cancel.bind(orderController));
 router.post('/:id/return', orderController.requestReturn.bind(orderController));
+router.post('/:id/review', uploadPhotos, orderController.addReview.bind(orderController));
 
 // Seller routes
 router.get('/shop/:shopId', authorize('SELLER', 'ADMIN'), orderController.getShopOrders.bind(orderController));

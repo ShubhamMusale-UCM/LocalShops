@@ -158,7 +158,7 @@ export const searchProducts = async (params: SearchParams) => {
         shop: {
           select: {
             id: true, name: true, slug: true,
-            latitude: true, longitude: true,
+            latitude: true, longitude: true, address: true, city: true,
             averageRating: true, isVerified: true,
             isOpen: true, deliveryEnabled: true,
             logo: true, coverImage: true,
@@ -327,7 +327,7 @@ export const getComparableProducts = async (
       where: geoWhere,
       include: {
         shop: {
-          select: { id: true, name: true, slug: true, latitude: true, longitude: true, averageRating: true, logo: true, coverImage: true },
+          select: { id: true, name: true, slug: true, latitude: true, longitude: true, address: true, city: true, averageRating: true, logo: true, coverImage: true },
         },
       },
       orderBy: { price: 'asc' },
@@ -344,7 +344,7 @@ export const getComparableProducts = async (
       },
       include: {
         shop: {
-          select: { id: true, name: true, slug: true, latitude: true, longitude: true, averageRating: true, logo: true, coverImage: true },
+          select: { id: true, name: true, slug: true, latitude: true, longitude: true, address: true, city: true, averageRating: true, logo: true, coverImage: true },
         },
       },
       orderBy: { price: 'asc' },

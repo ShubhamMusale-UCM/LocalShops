@@ -30,6 +30,7 @@ import shopService from '../../services/shopService';
 import { useAuthStore } from '../../store/authStore';
 import { useLocationStore } from '../../store/locationStore';
 import { networkDiagnostics } from '../../utils/networkCheck';
+import { CATEGORIES } from '@citylocalshop/shared';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MAX_PHOTOS = 5;
@@ -62,14 +63,7 @@ const AddProductScreen: React.FC<{ navigation: any; route?: any }> = ({ navigati
   // Animation states
   const [focusedField, setFocusedField] = useState<string | null>(null);
 
-  const categories = [
-    'Fashion & Apparel', 'Furniture & Living', 'Electronics & Audio', 'Hardware & Tools',
-    'Second-Hand & Refurbished', 'Rental Items & Gear', 'Local Services', 'Restaurants & Dining',
-    'Hotels & Stays', 'Events & Live Shows', 'Local Experiences', 'Vehicles & Mobility',
-    'Spaces & Studios', 'Groceries', 'Clothing', 'Home & Garden',
-    'Sports', 'Books', 'Health & Beauty', 'Toys & Games',
-    'Food & Beverages', 'Pet Supplies', 'Stationery', 'Other',
-  ];
+  const categories = CATEGORIES.map(c => ({ id: c.id, label: c.name }));
 
   const units = [
     'pcs', 'kg', 'g', 'L', 'ml', 'dozen', 'pack', 'box',
@@ -418,22 +412,22 @@ const AddProductScreen: React.FC<{ navigation: any; route?: any }> = ({ navigati
           <ScrollView style={styles.modalBody}>
             {categories.map((cat) => (
               <TouchableOpacity
-                key={cat}
+                key={cat.id}
                 style={styles.categoryOption}
                 onPress={() => {
-                  setCategory(cat);
+                  setCategory(cat.id);
                   setShowCategoryModal(false);
                 }}
               >
                 <Text
                   style={[
                     styles.categoryOptionText,
-                    category === cat && styles.categoryOptionSelected,
+                    category === cat.id && styles.categoryOptionSelected,
                   ]}
                 >
-                  {cat}
+                  {cat.label}
                 </Text>
-                {category === cat && (
+                {category === cat.id && (
                   <Ionicons name="checkmark-circle" size={22} color={Colors.primary} />
                 )}
               </TouchableOpacity>
@@ -599,7 +593,7 @@ const AddProductScreen: React.FC<{ navigation: any; route?: any }> = ({ navigati
             <View style={styles.categorySelectorLeft}>
               <Ionicons name="grid-outline" size={20} color={Colors.primary} />
               <Text style={category ? styles.categorySelectorText : styles.categorySelectorPlaceholder}>
-                {category || 'Select a category'}
+                {categories.find(c => c.id === category)?.label || category || 'Select a category'}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={Colors.gray[500]} />

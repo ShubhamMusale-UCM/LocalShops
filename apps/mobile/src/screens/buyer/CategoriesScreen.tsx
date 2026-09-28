@@ -54,6 +54,10 @@ const CATEGORY_IMAGES: Record<string, any> = {
   hardware: require('../../assets/bubble_chair.png'),
   pets: require('../../assets/cat_toys.png'),
   services: require('../../assets/explore_icon.png'),
+  property: require('../../assets/explore_icon.png'),
+  tours: require('../../assets/explore_icon.png'),
+  places: require('../../assets/explore_icon.png'),
+  secondhand: require('../../assets/explore_icon.png'),
 };
 
 const SUB_PALETTES = [

@@ -890,7 +890,7 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
     },
   ];
 
-  const deliveryFee = deliveryType === 'DELIVERY' ? 40 : 0;
+  const deliveryFee = 0; // Booking only
   const finalTotal = (appliedPromo ? total - appliedPromo.discount : total) + deliveryFee;
   const itemCount = cartItems.reduce(
     (sum: number, item: CartItem) => sum + item.quantity,
@@ -938,7 +938,7 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
           pincode: selectedPincode,
         },
         paymentMethod: (selectedPayment === 'cod' ? 'COD' : 'ONLINE') as 'COD' | 'ONLINE',
-        deliveryType: deliveryType,
+        deliveryType: 'PICKUP', // Booking only
       };
 
       if (selectedPayment === 'razorpay') {
@@ -1077,30 +1077,6 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
         })
       )}
 
-      {/* Delivery Toggle */}
-      <View style={{ flexDirection: 'row', marginTop: 16, gap: 10 }}>
-        <TouchableOpacity
-          style={[
-            { flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, alignItems: 'center', borderColor: 'rgba(255,255,255,0.1)' },
-            deliveryType === 'PICKUP' && { backgroundColor: 'rgba(56, 189, 248, 0.15)', borderColor: '#38BDF8' }
-          ]}
-          onPress={() => setDeliveryType('PICKUP')}
-        >
-          <Ionicons name="storefront-outline" size={20} color={deliveryType === 'PICKUP' ? '#38BDF8' : colors.textSecondary} />
-          <Text style={{ color: deliveryType === 'PICKUP' ? '#38BDF8' : colors.textSecondary, marginTop: 4, fontFamily: 'Inter_600SemiBold', fontSize: 13 }}>Pickup</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[
-            { flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, alignItems: 'center', borderColor: 'rgba(255,255,255,0.1)' },
-            deliveryType === 'DELIVERY' && { backgroundColor: 'rgba(56, 189, 248, 0.15)', borderColor: '#38BDF8' }
-          ]}
-          onPress={() => setDeliveryType('DELIVERY')}
-        >
-          <Ionicons name="bicycle-outline" size={20} color={deliveryType === 'DELIVERY' ? '#38BDF8' : colors.textSecondary} />
-          <Text style={{ color: deliveryType === 'DELIVERY' ? '#38BDF8' : colors.textSecondary, marginTop: 4, fontFamily: 'Inter_600SemiBold', fontSize: 13 }}>Delivery (₹40)</Text>
-        </TouchableOpacity>
-      </View>
     </SectionCard>
   );
 

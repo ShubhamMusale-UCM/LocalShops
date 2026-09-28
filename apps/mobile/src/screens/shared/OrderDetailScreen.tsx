@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, StatusBar, Platform, Image, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, StatusBar, Platform, Image, Dimensions, Alert } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -237,24 +237,67 @@ export default function OrderDetailScreen({ route, navigation }: Props) {
 
         {/* Actions */}
         <Animated.View entering={FadeInUp.delay(300).springify()} style={styles.actionSection}>
-          {order.status === 'DELIVERED' ? (
-            <TouchSpring style={styles.actionBtn}>
+          {['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP', 'DELIVERED'].includes(order.status) && (
+            <TouchSpring 
+              style={[styles.actionBtn, { marginBottom: 12 }]}
+              onPress={() => navigation.navigate('Review', {
+                orderId: order.id,
+                items: (order.items || []).map((line: any) => ({
+                  orderId: order.id,
+                  product: {
+                    id: line.product?.id || line.productId,
+                    name: line.product?.name || `Product ${String(line.productId || '').slice(-6)}`,
+                    image: line.product?.images?.[0] || line.product?.image || '',
+                    price: line.price,
+                    shopId: order.shop?.id || order.shopId,
+                    shopName: order.shop?.name || 'Shop',
+                  },
+                  quantity: line.quantity,
+                })),
+              })}
+            >
               <LinearGradient colors={['#22C55E', '#16A34A']} style={styles.actionGrad}>
                 <Ionicons name="star" size={20} color="#FFF" />
                 <Text style={styles.actionText}>Leave a Review</Text>
               </LinearGradient>
             </TouchSpring>
-          ) : order.status !== 'CANCELLED' && order.status !== 'REFUNDED' ? (
+          )}
+
+          {order.status !== 'CANCELLED' && order.status !== 'REFUNDED' && order.status !== 'DELIVERED' && (
             <TouchSpring 
-              style={styles.actionBtn}
+              style={[styles.actionBtn, { marginBottom: 12 }]}
               onPress={() => navigation.navigate('OrderTracking', { orderId: order.id })}
             >
               <LinearGradient colors={['#06B6D4', '#0284C7']} style={styles.actionGrad}>
                 <Ionicons name="navigate-outline" size={20} color="#FFF" />
-                <Text style={styles.actionText}>Track Order</Text>
+                <Text style={styles.actionText}>Track Booking</Text>
               </LinearGradient>
             </TouchSpring>
-          ) : null}
+          )}
+
+          {(order.status === 'PLACED' || order.status === 'CONFIRMED') && (
+            <TouchSpring 
+              style={styles.actionBtn}
+              onPress={() => {
+                Alert.alert('Cancel Booking', 'Are you sure you want to cancel this booking?', [
+                  { text: 'No', style: 'cancel' },
+                  { text: 'Yes, Cancel', style: 'destructive', onPress: async () => {
+                      try {
+                        await orderService.cancel(order.id);
+                        navigation.goBack();
+                      } catch (error) {
+                        Alert.alert('Error', 'Failed to cancel booking.');
+                      }
+                  }}
+                ]);
+              }}
+            >
+              <LinearGradient colors={['#EF4444', '#DC2626']} style={styles.actionGrad}>
+                <Ionicons name="close-circle-outline" size={20} color="#FFF" />
+                <Text style={styles.actionText}>Cancel Booking</Text>
+              </LinearGradient>
+            </TouchSpring>
+          )}
         </Animated.View>
         
       </ScrollView>

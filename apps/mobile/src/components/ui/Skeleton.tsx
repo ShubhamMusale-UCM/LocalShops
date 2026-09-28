@@ -50,7 +50,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
   height,
   borderRadius = DESIGN.radius.sm,
   style,
-  shimmer = false,
+  shimmer = true,
   animate = true,
 }) => {
   const shimmerAnim = useRef(new Animated.Value(-1)).current;

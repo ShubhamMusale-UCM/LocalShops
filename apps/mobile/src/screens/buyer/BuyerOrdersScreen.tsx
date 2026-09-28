@@ -15,6 +15,7 @@ import {
   Image,
   Dimensions,
   Platform,
+  Alert,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,7 +37,9 @@ import { useTheme } from '../../theme';
 import { orderService } from '../../services/orderService';
 import { useHideTabBarOnScroll } from '../../hooks/useHideTabBarOnScroll';
 import { useAuthStore } from '../../store/authStore';
+import { useCartStore } from '../../store/cartStore';
 import { Button } from '../../components/ui/Button';
+import { SkeletonCard } from '../../components/ui/Skeleton';
 import { getProductImageUrl } from '../../utils/image';
 import { GlassPanel, GlassCard, GlassButton } from '../../components/ui/Glassmorphism';
 import AmbientOrbs from '../../components/ui/AmbientOrbs';
@@ -63,9 +66,10 @@ interface BuyerOrder {
     quantity: number;
     price: number;
     total: number;
-    product?: { id: string; name: string; images?: string[]; price: number };
+    product?: { id: string; name: string; images?: string[]; price: number; image?: string };
   }>;
-  shop?: { name?: string };
+  shopId: string;
+  shop?: { id?: string; name?: string; slug?: string; phone?: string };
 }
 
 // ─── Status theme map ─────────────────────────────────────────────────────────
@@ -111,7 +115,8 @@ const OrderCard: React.FC<{
   onPress: (orderId: string) => void;
   onTrack: (orderId: string) => void;
   onPressReview?: (orderId: string, items: any) => void;
-}> = ({ item, index, isDark, onPress, onTrack, onPressReview }) => {
+  onPressReorder?: (orderId: string, items: any, shopId: string, shopName: string) => void;
+}> = ({ item, index, isDark, onPress, onTrack, onPressReview, onPressReorder }) => {
   const config = STATUS_MAP[item.status] ?? {
     color: '#64748B', bg: 'rgba(100,116,139,0.12)', label: item.status, progress: 0, emoji: '📦',
   };
@@ -218,11 +223,12 @@ const OrderCard: React.FC<{
 
           {/* ── CTAs ── */}
           <View style={styles.actions}>
-            {item.status === 'DELIVERED' ? (
+            {['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP', 'DELIVERED'].includes(item.status) ? (
               <>
                 <TouchableOpacity
                   style={[styles.reorderBtn, { borderColor: '#22C55E' }]}
                   activeOpacity={0.8}
+                  onPress={() => onPressReorder && onPressReorder(item.id, item.items, item.shopId, item.shop?.name || 'Local Merchant')}
                 >
                   <Ionicons name="refresh" size={14} color="#22C55E" />
                   <Text style={[styles.reorderText, { color: '#22C55E' }]}>Reorder</Text>
@@ -230,7 +236,18 @@ const OrderCard: React.FC<{
                 <TouchableOpacity
                   style={[styles.reorderBtn, { borderColor: '#F59E0B', marginLeft: 8 }]}
                   activeOpacity={0.8}
-                  onPress={() => onPressReview && onPressReview(item.id, item.items)}
+                  onPress={() => onPressReview && onPressReview(item.id, (item.items || []).map((line: any) => ({
+                    orderId: item.id,
+                    product: {
+                      id: line.product?.id || line.productId,
+                      name: line.product?.name || `Product ${String(line.productId || '').slice(-6)}`,
+                      image: line.product?.images?.[0] || line.product?.image || '',
+                      price: line.price,
+                      shopId: item.shopId,
+                      shopName: item.shop?.name || 'Shop',
+                    },
+                    quantity: line.quantity,
+                  })))}
                 >
                   <Ionicons name="star" size={14} color="#F59E0B" />
                   <Text style={[styles.reorderText, { color: '#F59E0B' }]}>Review</Text>
@@ -437,8 +454,11 @@ export default function BuyerOrdersScreen() {
     return (
       <Animated.View style={[styles.loaderWrap, { backgroundColor: bg }, screenAnimStyle]}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
-        <ActivityIndicator size="large" color="#2563EB" />
-        <Text style={[styles.loadingText, { color: textSub }]}>Loading your orders...</Text>
+        <View style={{ width: '100%', paddingHorizontal: 16, paddingTop: 120 }}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonCard key={i} imageHeight={0} lines={4} style={{ marginBottom: 16 }} />
+          ))}
+        </View>
       </Animated.View>
     );
   }
@@ -478,7 +498,67 @@ export default function BuyerOrdersScreen() {
             isDark={isDark}
             onPress={(id) => navigation.navigate('OrderDetail', { orderId: id })}
             onTrack={(id) => navigation.navigate('OrderTracking', { orderId: id })}
-            onPressReview={(id, items) => navigation.navigate('Review', { orderId: id, items: items || [] })}
+            onPressReview={(id, items) => navigation.navigate('Review', { orderId: id, items: items })}
+            onPressReorder={(id, items, shopId, shopName) => {
+              const cart = useCartStore.getState();
+              // Try to add the first item to see if there is a shop conflict
+              // If there is a conflict, addItem will trigger an Alert and return false.
+              // For simplicity, we just add items one by one.
+              if (!items || items.length === 0) return;
+              
+              // Clear cart manually if needed, or let addItem handle it.
+              // To provide best UX, we will just clear and add all if user confirms in CartStore, but CartStore alert is per-item.
+              // So let's check manually here:
+              if (cart.items.length > 0 && cart.items[0].shopId !== shopId) {
+                Alert.alert(
+                  'Replace cart items?',
+                  `Your cart contains items from "${cart.items[0].shopName}". Do you want to discard them and reorder from this shop?`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Replace',
+                      style: 'destructive',
+                      onPress: () => {
+                        cart.clearCart();
+                        items.forEach((line: any) => {
+                          const p = line.product || {};
+                          cart.addItem({
+                            productId: p.id || line.productId,
+                            shopId: shopId,
+                            shopName: shopName,
+                            name: p.name || 'Product',
+                            price: line.price,
+                            image: p.images?.[0] || p.image || '',
+                            inStock: true,
+                          });
+                          // add quantity
+                          cart.updateQuantity(p.id || line.productId, line.quantity);
+                        });
+                        navigation.navigate('Cart');
+                      },
+                    },
+                  ]
+                );
+              } else {
+                items.forEach((line: any) => {
+                  const p = line.product || {};
+                  const existing = cart.items.find(i => i.productId === (p.id || line.productId));
+                  if (!existing) {
+                    cart.addItem({
+                      productId: p.id || line.productId,
+                      shopId: shopId,
+                      shopName: shopName,
+                      name: p.name || 'Product',
+                      price: line.price,
+                      image: p.images?.[0] || p.image || '',
+                      inStock: true,
+                    });
+                  }
+                  cart.updateQuantity(p.id || line.productId, (existing ? existing.quantity : 0) + line.quantity);
+                });
+                navigation.navigate('Cart');
+              }
+            }}
           />
         )}
       />

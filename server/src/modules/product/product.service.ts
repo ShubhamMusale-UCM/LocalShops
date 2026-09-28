@@ -228,6 +228,17 @@ export class ProductService {
     const [products, total] = await Promise.all([
       prisma.product.findMany({
         where, orderBy,
+        include: {
+          shop: {
+            select: {
+              id: true, name: true, slug: true,
+              latitude: true, longitude: true, address: true, city: true,
+              averageRating: true, isVerified: true,
+              isOpen: true, deliveryEnabled: true,
+              logo: true, coverImage: true,
+            },
+          },
+        },
         skip: (page - 1) * limit, take: limit,
       }),
       prisma.product.count({ where }),

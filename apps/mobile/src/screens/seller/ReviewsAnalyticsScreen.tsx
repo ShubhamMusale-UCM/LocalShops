@@ -1,1108 +1,278 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
-  ScrollView,
+  StyleSheet,
+  FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
-  StyleSheet,
-  Animated,
-  Platform,
   StatusBar,
-  Dimensions,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import apiClient from '../../services/api';
+import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 
-const { width: SCREEN_W } = Dimensions.get('window');
+import { useTheme } from '../../theme';
+import { GlassPanel, GlassCard } from '../../components/ui/Glassmorphism';
+import AmbientOrbs from '../../components/ui/AmbientOrbs';
+import { TouchSpring } from '../../components/ui/TouchSpring';
+import { useAuthStore } from '../../store/authStore';
+import shopService from '../../services/shopService';
+import reviewService, { ShopReviewsResponse, ReviewResponse } from '../../services/reviewService';
 
-const DS3 = {
-  primary: '#0D9488',
-  primaryDark: '#0F766E',
-  primaryLight: '#CCFBF1',
-  primaryFaded: 'rgba(13,148,136,0.08)',
-  success: '#10B981',
-  error: '#EF4444',
-  warning: '#F59E0B',
-  info: '#3B82F6',
-  purple: '#8B5CF6',
-  gray900: '#1F2937',
-  gray700: '#4B5563',
-  gray600: '#6B7280',
-  gray500: '#9CA3AF',
-  gray400: '#D1D5DB',
-  gray300: '#E5E7EB',
-  gray200: '#EEF2F6',
-  gray100: '#F3F4F6',
-  gray50: '#F9FAFB',
-  background: '#F8FAFC',
-  card: '#FFFFFF',
-  border: '#F1F5F9',
-  inputBorder: '#E2E8F0',
-  white: '#FFFFFF',
-};
+export default function ReviewsAnalyticsScreen() {
+  const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const { colors, isDarkMode } = useTheme();
+  const isDark = isDarkMode;
+  const user = useAuthStore(s => s.user);
 
-type TimeRange = 'week' | 'month' | 'year';
-
-interface EarningsSummary {
-  totalEarnings: number;
-  thisMonthEarnings: number;
-  thisWeekEarnings: number;
-  pendingPayout: number;
-  completedPayouts: number;
-  averageOrderValue: number;
-  totalOrders: number;
-}
-
-interface PaymentBreakdown {
-  orders: number;
-  subscriptionRefunds: number;
-  bonuses: number;
-  deductions: number;
-}
-
-const FALLBACK_SUMMARY: EarningsSummary = {
-  totalEarnings: 0,
-  thisMonthEarnings: 0,
-  thisWeekEarnings: 0,
-  pendingPayout: 0,
-  completedPayouts: 0,
-  averageOrderValue: 0,
-  totalOrders: 0,
-};
-
-const FALLBACK_BREAKDOWN: PaymentBreakdown = {
-  orders: 0,
-  subscriptionRefunds: 0,
-  bonuses: 0,
-  deductions: 0,
-};
-
-const formatINR = (amount: number) =>
-  `₹${amount.toLocaleString('en-IN')}`;
-
-interface AnimatedCounterProps {
-  value: number;
-  prefix?: string;
-  suffix?: string;
-  style?: object;
-  delay?: number;
-}
-
-function AnimatedCounter({
-  value,
-  prefix = '',
-  suffix = '',
-  style,
-  delay = 0,
-}: AnimatedCounterProps) {
-  const animValue = useRef(new Animated.Value(0)).current;
-  const [displayValue, setDisplayValue] = useState(0);
-
-  useEffect(() => {
-    const listener = animValue.addListener(({ value: v }) => {
-      setDisplayValue(Math.round(v));
-    });
-    Animated.timing(animValue, {
-      toValue: value,
-      duration: 1000,
-      delay,
-      useNativeDriver: false,
-    }).start();
-    return () => animValue.removeListener(listener);
-  }, [value]);
-
-  return (
-    <Text style={style}>
-      {prefix}
-      {displayValue.toLocaleString('en-IN')}
-      {suffix}
-    </Text>
-  );
-}
-
-interface TimeRangeChipProps {
-  label: string;
-  value: TimeRange;
-  active: boolean;
-  onPress: () => void;
-  index: number;
-}
-
-function TimeRangeChip({
-  label,
-  value,
-  active,
-  onPress,
-  index,
-}: TimeRangeChipProps) {
-  const pressAnim = useRef(new Animated.Value(1)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.spring(fadeAnim, {
-      toValue: 1,
-      delay: index * 60,
-      damping: 14,
-      stiffness: 120,
-      useNativeDriver: true,
-    }).start();
-  }, []);
-
-  const onPressIn = () =>
-    Animated.spring(pressAnim, {
-      toValue: 0.94,
-      damping: 12,
-      stiffness: 200,
-      useNativeDriver: true,
-    }).start();
-
-  const onPressOut = () =>
-    Animated.spring(pressAnim, {
-      toValue: 1,
-      damping: 12,
-      stiffness: 200,
-      useNativeDriver: true,
-    }).start();
-
-  return (
-    <Animated.View
-      style={{ opacity: fadeAnim, transform: [{ scale: pressAnim }] }}
-    >
-      <TouchableOpacity
-        onPress={onPress}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
-        activeOpacity={1}
-        style={[
-          earningsStyles.rangeChip,
-          active && earningsStyles.rangeChipActive,
-        ]}
-      >
-        {active && (
-          <Ionicons name="checkmark-circle" size={13} color={DS3.white} />
-        )}
-        <Text
-          style={[
-            earningsStyles.rangeChipText,
-            active && earningsStyles.rangeChipTextActive,
-          ]}
-        >
-          {label}
-        </Text>
-      </TouchableOpacity>
-    </Animated.View>
-  );
-}
-
-interface EarningsRowProps {
-  label: string;
-  value: string;
-  type?: 'credit' | 'debit' | 'neutral';
-  icon?: string;
-  delay?: number;
-  showBorder?: boolean;
-}
-
-function EarningsRow({
-  label,
-  value,
-  type = 'neutral',
-  icon,
-  delay = 0,
-  showBorder = true,
-}: EarningsRowProps) {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const translateX = useRef(new Animated.Value(-12)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.spring(fadeAnim, {
-        toValue: 1,
-        delay,
-        damping: 14,
-        stiffness: 120,
-        useNativeDriver: true,
-      }),
-      Animated.spring(translateX, {
-        toValue: 0,
-        delay,
-        damping: 14,
-        stiffness: 120,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, []);
-
-  const valueColor =
-    type === 'credit'
-      ? DS3.success
-      : type === 'debit'
-      ? DS3.error
-      : DS3.gray900;
-
-  return (
-    <Animated.View
-      style={[
-        earningsStyles.earningsRow,
-        showBorder && earningsStyles.earningsRowBorder,
-        { opacity: fadeAnim, transform: [{ translateX }] },
-      ]}
-    >
-      {icon && (
-        <View
-          style={[
-            earningsStyles.earningsRowIcon,
-            {
-              backgroundColor:
-                type === 'credit'
-                  ? 'rgba(16,185,129,0.1)'
-                  : type === 'debit'
-                  ? 'rgba(239,68,68,0.1)'
-                  : DS3.primaryFaded,
-            },
-          ]}
-        >
-          <Ionicons
-            name={icon as any}
-            size={14}
-            color={
-              type === 'credit'
-                ? DS3.success
-                : type === 'debit'
-                ? DS3.error
-                : DS3.primary
-            }
-          />
-        </View>
-      )}
-      <Text style={earningsStyles.earningsLabel}>{label}</Text>
-      <Text style={[earningsStyles.earningsValue, { color: valueColor }]}>
-        {type === 'credit' ? '+' : type === 'debit' ? '-' : ''}
-        {value}
-      </Text>
-    </Animated.View>
-  );
-}
-
-interface SectionCardEProps {
-  children: React.ReactNode;
-  delay?: number;
-  style?: object;
-}
-
-function SectionCardE({ children, delay = 0, style }: SectionCardEProps) {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(24)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.spring(fadeAnim, {
-        toValue: 1,
-        delay,
-        damping: 14,
-        stiffness: 100,
-        useNativeDriver: true,
-      }),
-      Animated.spring(translateY, {
-        toValue: 0,
-        delay,
-        damping: 14,
-        stiffness: 100,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, []);
-
-  return (
-    <Animated.View
-      style={[
-        earningsStyles.card,
-        style,
-        { opacity: fadeAnim, transform: [{ translateY }] },
-      ]}
-    >
-      {children}
-    </Animated.View>
-  );
-}
-
-export default function EarningsBreakdownScreen() {
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState<TimeRange>('month');
-  const [summary, setSummary] = useState<EarningsSummary>(FALLBACK_SUMMARY);
-  const [breakdown, setBreakdown] = useState<PaymentBreakdown>(
-    FALLBACK_BREAKDOWN
-  );
-  const [refreshing, setRefreshing] = useState(false);
-
-  const headerFade = useRef(new Animated.Value(0)).current;
-  const headerTranslate = useRef(new Animated.Value(-16)).current;
-  const totalEarningsAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.spring(headerFade, {
-        toValue: 1,
-        delay: 50,
-        damping: 14,
-        stiffness: 100,
-        useNativeDriver: true,
-      }),
-      Animated.spring(headerTranslate, {
-        toValue: 0,
-        delay: 50,
-        damping: 14,
-        stiffness: 100,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, []);
-
-  const netEarnings = useMemo(() => {
-    return (
-      breakdown.orders +
-      breakdown.bonuses -
-      breakdown.subscriptionRefunds -
-      breakdown.deductions
-    );
-  }, [breakdown]);
-
-  const loadData = async (isRefresh = false) => {
-    try {
-      if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-      const [summaryRes, breakdownRes] = await Promise.all([
-        apiClient.get('/analytics/seller', { params: { dateRange: timeRange } }),
-        apiClient.get('/analytics/ads'),
-      ]);
-
-      const sellerStats = summaryRes.data?.data?.stats || summaryRes.data?.stats || {};
-      const adsStats = breakdownRes.data?.data || breakdownRes.data || {};
-
-      const totalRevenue = Number(sellerStats.totalRevenue || 0);
-      const totalOrders = Number(sellerStats.totalOrders || 0);
-
-      const summaryData = {
-        totalEarnings: totalRevenue,
-        thisMonthEarnings: timeRange === 'month' ? totalRevenue : 0,
-        thisWeekEarnings: timeRange === 'week' ? totalRevenue : 0,
-        pendingPayout: 0,
-        completedPayouts: 0,
-        averageOrderValue:
-          totalOrders > 0 ? totalRevenue / totalOrders : 0,
-        totalOrders,
-      };
-
-      const breakdownData = {
-        orders: totalRevenue,
-        subscriptionRefunds: 0,
-        bonuses: 0,
-        deductions: Number(adsStats.totalSpent || 0),
-      };
-
-      setSummary({ ...FALLBACK_SUMMARY, ...summaryData });
-      setBreakdown({ ...FALLBACK_BREAKDOWN, ...breakdownData });
-    } catch {
-      setSummary(FALLBACK_SUMMARY);
-      setBreakdown(FALLBACK_BREAKDOWN);
-      // Keep UI stable even when analytics data is unavailable.
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+  const [reviewsData, setReviewsData] = useState<ShopReviewsResponse | null>(null);
+  const [shopStats, setShopStats] = useState<any>(null);
 
   useEffect(() => {
     loadData();
-  }, [timeRange]);
+  }, []);
 
-  const statusBarHeight =
-    Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 44;
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const shopsResponse = await shopService.getMyShops();
+      const shops = shopsResponse?.data || [];
+      if (shops && shops.length > 0) {
+        const shop = shops[0];
+        setShopStats({
+          averageRating: shop.averageRating,
+          totalReviews: shop.totalReviews,
+        });
+        
+        const data = await reviewService.getShopReviews(shop.id, { limit: 50 });
+        setReviewsData(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const rangeOptions: { label: string; value: TimeRange }[] = [
-    { label: 'This Week', value: 'week' },
-    { label: 'This Month', value: 'month' },
-    { label: 'This Year', value: 'year' },
-  ];
+  const bg = isDark ? '#050814' : '#F8FAFC';
+  const text = isDark ? '#F8FAFC' : '#0F172A';
+  const textSub = isDark ? '#94A3B8' : '#64748B';
 
-  const netIsPositive = netEarnings >= 0;
+  const renderHeader = () => {
+    if (!reviewsData) return null;
 
-  if (loading) {
+    const avg = shopStats?.averageRating || 0;
+    const total = shopStats?.totalReviews || 0;
+
+    const distribution = reviewsData.ratingDistribution || [];
+    const maxCount = Math.max(...distribution.map(d => d.count), 1);
+
     return (
-      <View style={earningsStyles.loaderScreen}>
-        <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
-        <View style={earningsStyles.loaderContent}>
-          <View style={earningsStyles.loaderIconWrap}>
-            <ActivityIndicator size="large" color={DS3.primary} />
+      <View style={{ marginBottom: 24 }}>
+        <GlassCard intensity={20} style={styles.summaryCard}>
+          <Text style={[styles.sectionTitle, { color: text }]}>Overall Rating</Text>
+          
+          <View style={styles.ratingRow}>
+            <View style={styles.ratingLeft}>
+              <Text style={styles.bigRating}>{avg.toFixed(1)}</Text>
+              <View style={styles.starsRow}>
+                {[1,2,3,4,5].map(s => (
+                  <Ionicons 
+                    key={s} 
+                    name={s <= Math.round(avg) ? 'star' : 'star-outline'} 
+                    size={16} 
+                    color={s <= Math.round(avg) ? '#F59E0B' : 'rgba(255,255,255,0.2)'} 
+                  />
+                ))}
+              </View>
+              <Text style={[styles.totalReviews, { color: textSub }]}>Based on {total} reviews</Text>
+            </View>
+
+            <View style={styles.ratingRight}>
+              {[5,4,3,2,1].map(r => {
+                const item = distribution.find(d => d.rating === r) || { rating: r, count: 0 };
+                const pct = (item.count / maxCount) * 100;
+                return (
+                  <View key={r} style={styles.barRow}>
+                    <Text style={[styles.barLabel, { color: textSub }]}>{r}</Text>
+                    <Ionicons name="star" size={10} color={textSub} style={{ marginRight: 6 }} />
+                    <View style={styles.barBg}>
+                      <View style={[styles.barFill, { width: `${pct}%`, backgroundColor: r >= 4 ? '#22C55E' : r === 3 ? '#F59E0B' : '#EF4444' }]} />
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
           </View>
-          <Text style={earningsStyles.loaderTitle}>Loading Earnings</Text>
-          <Text style={earningsStyles.loaderSub}>
-            Fetching your financial data...
-          </Text>
-        </View>
+        </GlassCard>
+
+        <Text style={[styles.sectionTitle, { color: text, marginTop: 24 }]}>Recent Reviews</Text>
       </View>
     );
-  }
+  };
 
-  return (
-    <View style={earningsStyles.screen}>
-      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-      <ScrollView
-        style={earningsStyles.scroll}
-        contentContainerStyle={earningsStyles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
-        <LinearGradient
-          colors={[DS3.primary, DS3.primaryDark]}
-          style={[
-            earningsStyles.header,
-            { paddingTop: statusBarHeight + 20 },
-          ]}
-        >
-          <Animated.View
-            style={{
-              opacity: headerFade,
-              transform: [{ translateY: headerTranslate }],
-            }}
-          >
-            <View style={earningsStyles.headerTopRow}>
+  const renderItem = ({ item, index }: { item: ReviewResponse, index: number }) => {
+    return (
+      <Animated.View entering={FadeInDown.delay(index * 50).springify()}>
+        <GlassCard intensity={15} style={styles.reviewCard}>
+          <View style={styles.reviewHeader}>
+            <View style={styles.reviewerInfo}>
+              <View style={styles.avatarWrap}>
+                {item.user?.avatar ? (
+                  <Image source={{ uri: item.user.avatar }} style={styles.avatar} />
+                ) : (
+                  <Ionicons name="person" size={16} color="#FFF" />
+                )}
+              </View>
               <View>
-                <Text style={earningsStyles.headerLabel}>
-                  Total Earnings
+                <Text style={[styles.reviewerName, { color: text }]}>{item.user?.name || 'Customer'}</Text>
+                <Text style={[styles.reviewDate, { color: textSub }]}>
+                  {new Date(item.createdAt).toLocaleDateString()}
                 </Text>
-                <AnimatedCounter
-                  value={summary.totalEarnings}
-                  prefix="₹"
-                  style={earningsStyles.headerAmount}
-                  delay={200}
-                />
-              </View>
-              <View style={earningsStyles.headerBadge}>
-                <Ionicons name="trending-up" size={16} color={DS3.white} />
               </View>
             </View>
-
-            {/* Quick Stats */}
-            <View style={earningsStyles.quickStats}>
-              <View style={earningsStyles.quickStatItem}>
-                <Ionicons
-                  name="calendar"
-                  size={14}
-                  color="rgba(255,255,255,0.8)"
-                />
-                <View>
-                  <Text style={earningsStyles.quickStatLabel}>This Month</Text>
-                  <Text style={earningsStyles.quickStatValue}>
-                    {formatINR(summary.thisMonthEarnings)}
-                  </Text>
-                </View>
-              </View>
-              <View style={earningsStyles.quickStatDivider} />
-              <View style={earningsStyles.quickStatItem}>
-                <Ionicons
-                  name="time"
-                  size={14}
-                  color="rgba(255,255,255,0.8)"
-                />
-                <View>
-                  <Text style={earningsStyles.quickStatLabel}>This Week</Text>
-                  <Text style={earningsStyles.quickStatValue}>
-                    {formatINR(summary.thisWeekEarnings)}
-                  </Text>
-                </View>
-              </View>
-              <View style={earningsStyles.quickStatDivider} />
-              <View style={earningsStyles.quickStatItem}>
-                <Ionicons
-                  name="hourglass"
-                  size={14}
-                  color="rgba(255,255,255,0.8)"
-                />
-                <View>
-                  <Text style={earningsStyles.quickStatLabel}>Pending</Text>
-                  <Text style={earningsStyles.quickStatValue}>
-                    {formatINR(summary.pendingPayout)}
-                  </Text>
-                </View>
-              </View>
+            <View style={styles.ratingBadge}>
+              <Ionicons name="star" size={12} color="#F59E0B" />
+              <Text style={styles.ratingText}>{item.rating}.0</Text>
             </View>
+          </View>
 
-            {/* Time Range Filter */}
-            <View style={earningsStyles.rangeRow}>
-              {rangeOptions.map((opt, i) => (
-                <TimeRangeChip
-                  key={opt.value}
-                  label={opt.label}
-                  value={opt.value}
-                  active={timeRange === opt.value}
-                  onPress={() => setTimeRange(opt.value)}
-                  index={i}
-                />
+          {item.title ? <Text style={[styles.reviewTitle, { color: text }]}>{item.title}</Text> : null}
+          <Text style={[styles.reviewComment, { color: textSub }]}>{item.comment}</Text>
+          
+          {item.photos && item.photos.length > 0 && (
+            <View style={styles.photosRow}>
+              {item.photos.map((p, i) => (
+                <Image key={i} source={{ uri: p }} style={styles.reviewPhoto} />
               ))}
             </View>
-          </Animated.View>
-        </LinearGradient>
+          )}
 
-        <View style={earningsStyles.body}>
-          {/* Summary Card */}
-          <SectionCardE delay={80}>
-            <View style={earningsStyles.cardHeaderRow}>
-              <View
-                style={[
-                  earningsStyles.cardIconWrap,
-                  { backgroundColor: DS3.primaryFaded },
-                ]}
-              >
-                <Ionicons name="wallet" size={18} color={DS3.primary} />
-              </View>
-              <Text style={earningsStyles.cardTitle}>Earnings Summary</Text>
-              <View style={earningsStyles.updatedBadge}>
-                <View style={earningsStyles.updatedDot} />
-                <Text style={earningsStyles.updatedText}>Updated</Text>
-              </View>
-            </View>
-
-            <View style={earningsStyles.bigValueWrap}>
-              <AnimatedCounter
-                value={summary.totalEarnings}
-                prefix="₹"
-                style={earningsStyles.bigValue}
-                delay={200}
-              />
-              <Text style={earningsStyles.bigValueLabel}>Total Earnings</Text>
-            </View>
-
-            <EarningsRow
-              label="This Month"
-              value={formatINR(summary.thisMonthEarnings)}
-              icon="calendar-outline"
-              type="neutral"
-              delay={100}
+          {/* Sentiment Badge (Seller only insight) */}
+          <View style={[styles.sentimentBadge, { 
+            backgroundColor: item.sentiment === 'POSITIVE' ? 'rgba(34,197,94,0.1)' : item.sentiment === 'NEGATIVE' ? 'rgba(239,68,68,0.1)' : 'rgba(100,116,139,0.1)',
+            borderColor: item.sentiment === 'POSITIVE' ? 'rgba(34,197,94,0.3)' : item.sentiment === 'NEGATIVE' ? 'rgba(239,68,68,0.3)' : 'rgba(100,116,139,0.3)',
+          }]}>
+            <Ionicons 
+              name={item.sentiment === 'POSITIVE' ? 'trending-up' : item.sentiment === 'NEGATIVE' ? 'trending-down' : 'remove'} 
+              size={12} 
+              color={item.sentiment === 'POSITIVE' ? '#22C55E' : item.sentiment === 'NEGATIVE' ? '#EF4444' : '#94A3B8'} 
             />
-            <EarningsRow
-              label="This Week"
-              value={formatINR(summary.thisWeekEarnings)}
-              icon="time-outline"
-              type="neutral"
-              delay={160}
-            />
-            <EarningsRow
-              label="Pending Payout"
-              value={formatINR(summary.pendingPayout)}
-              icon="hourglass-outline"
-              type="neutral"
-              delay={220}
-              showBorder={false}
-            />
-          </SectionCardE>
+            <Text style={[styles.sentimentText, { 
+              color: item.sentiment === 'POSITIVE' ? '#22C55E' : item.sentiment === 'NEGATIVE' ? '#EF4444' : '#94A3B8'
+            }]}>
+              {item.sentiment} SENTIMENT
+            </Text>
+          </View>
 
-          {/* Payment Breakdown */}
-          <SectionCardE delay={160}>
-            <View style={earningsStyles.cardHeaderRow}>
-              <View
-                style={[
-                  earningsStyles.cardIconWrap,
-                  { backgroundColor: 'rgba(139,92,246,0.1)' },
-                ]}
-              >
-                <Ionicons name="receipt" size={18} color={DS3.purple} />
-              </View>
-              <Text style={earningsStyles.cardTitle}>Payment Breakdown</Text>
-            </View>
+        </GlassCard>
+      </Animated.View>
+    );
+  };
 
-            <EarningsRow
-              label="Orders Revenue"
-              value={formatINR(breakdown.orders)}
-              icon="bag-check"
-              type="credit"
-              delay={100}
-            />
-            <EarningsRow
-              label="Bonuses"
-              value={formatINR(breakdown.bonuses)}
-              icon="gift"
-              type="credit"
-              delay={160}
-            />
-            <EarningsRow
-              label="Subscription Refunds"
-              value={formatINR(breakdown.subscriptionRefunds)}
-              icon="return-down-back"
-              type="debit"
-              delay={220}
-            />
-            <EarningsRow
-              label="Deductions"
-              value={formatINR(breakdown.deductions)}
-              icon="remove-circle"
-              type="debit"
-              delay={280}
-              showBorder={false}
-            />
+  return (
+    <View style={[styles.container, { backgroundColor: bg }]}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <AmbientOrbs />
 
-            {/* Net Earnings Banner */}
-            <View
-              style={[
-                earningsStyles.netBanner,
-                {
-                  backgroundColor: netIsPositive
-                    ? 'rgba(16,185,129,0.08)'
-                    : 'rgba(239,68,68,0.08)',
-                  borderColor: netIsPositive
-                    ? 'rgba(16,185,129,0.2)'
-                    : 'rgba(239,68,68,0.2)',
-                },
-              ]}
-            >
-              <View style={earningsStyles.netBannerLeft}>
-                <View
-                  style={[
-                    earningsStyles.netIconWrap,
-                    {
-                      backgroundColor: netIsPositive
-                        ? 'rgba(16,185,129,0.15)'
-                        : 'rgba(239,68,68,0.15)',
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name={netIsPositive ? 'trending-up' : 'trending-down'}
-                    size={18}
-                    color={netIsPositive ? DS3.success : DS3.error}
-                  />
-                </View>
-                <View>
-                  <Text style={earningsStyles.netLabel}>Net Earnings</Text>
-                  <Text style={earningsStyles.netSubLabel}>
-                    After all deductions
-                  </Text>
-                </View>
-              </View>
-              <Text
-                style={[
-                  earningsStyles.netValue,
-                  {
-                    color: netIsPositive ? DS3.success : DS3.error,
-                  },
-                ]}
-              >
-                {netIsPositive ? '+' : '-'}
-                {formatINR(Math.abs(netEarnings))}
-              </Text>
-            </View>
-          </SectionCardE>
-
-          {/* Performance Card */}
-          <SectionCardE delay={240}>
-            <View style={earningsStyles.cardHeaderRow}>
-              <View
-                style={[
-                  earningsStyles.cardIconWrap,
-                  { backgroundColor: 'rgba(59,130,246,0.1)' },
-                ]}
-              >
-                <Ionicons name="bar-chart" size={18} color={DS3.info} />
-              </View>
-              <Text style={earningsStyles.cardTitle}>Performance</Text>
-            </View>
-
-            <View style={earningsStyles.perfGrid}>
-              <View style={earningsStyles.perfCard}>
-                <View
-                  style={[
-                    earningsStyles.perfIconWrap,
-                    { backgroundColor: DS3.primaryFaded },
-                  ]}
-                >
-                  <Ionicons
-                    name="stats-chart"
-                    size={20}
-                    color={DS3.primary}
-                  />
-                </View>
-                <AnimatedCounter
-                  value={summary.averageOrderValue}
-                  prefix="₹"
-                  style={earningsStyles.perfValue}
-                  delay={300}
-                />
-                <Text style={earningsStyles.perfLabel}>Avg Order Value</Text>
-              </View>
-              <View style={earningsStyles.perfCard}>
-                <View
-                  style={[
-                    earningsStyles.perfIconWrap,
-                    { backgroundColor: 'rgba(139,92,246,0.1)' },
-                  ]}
-                >
-                  <Ionicons
-                    name="cube"
-                    size={20}
-                    color={DS3.purple}
-                  />
-                </View>
-                <AnimatedCounter
-                  value={summary.totalOrders}
-                  style={earningsStyles.perfValue}
-                  delay={360}
-                />
-                <Text style={earningsStyles.perfLabel}>Total Orders</Text>
-              </View>
-              <View style={earningsStyles.perfCard}>
-                <View
-                  style={[
-                    earningsStyles.perfIconWrap,
-                    { backgroundColor: 'rgba(16,185,129,0.1)' },
-                  ]}
-                >
-                  <Ionicons
-                    name="checkmark-circle"
-                    size={20}
-                    color={DS3.success}
-                  />
-                </View>
-                <AnimatedCounter
-                  value={summary.completedPayouts}
-                  prefix="₹"
-                  style={earningsStyles.perfValue}
-                  delay={420}
-                />
-                <Text style={earningsStyles.perfLabel}>
-                  Completed Payouts
-                </Text>
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={earningsStyles.refreshBtn}
-              onPress={() => loadData(true)}
-              disabled={refreshing}
-            >
-              {refreshing ? (
-                <ActivityIndicator size="small" color={DS3.primary} />
-              ) : (
-                <>
-                  <Ionicons
-                    name="refresh"
-                    size={16}
-                    color={DS3.primary}
-                  />
-                  <Text style={earningsStyles.refreshBtnText}>
-                    Refresh Data
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </SectionCardE>
+      <GlassPanel intensity={30} style={[styles.header, { paddingTop: insets.top + 12 }]}>
+        <TouchSpring onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <View style={styles.backBtnInner}>
+            <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
+          </View>
+        </TouchSpring>
+        <View style={styles.headerTitleWrap}>
+          <Text style={styles.headerTitle}>Reviews & Ratings</Text>
         </View>
-      </ScrollView>
+        <View style={{ width: 44 }} />
+      </GlassPanel>
+
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#38BDF8" />
+        </View>
+      ) : (
+        <FlatList
+          data={reviewsData?.reviews || []}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          ListHeaderComponent={renderHeader}
+          contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40 }}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View style={styles.emptyWrap}>
+              <Ionicons name="chatbubbles-outline" size={48} color={textSub} />
+              <Text style={[styles.emptyTitle, { color: text }]}>No Reviews Yet</Text>
+              <Text style={[styles.emptySub, { color: textSub }]}>When customers leave reviews, they will appear here.</Text>
+            </View>
+          }
+        />
+      )}
     </View>
   );
 }
 
-const earningsStyles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: DS3.background },
-  scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 100 },
-  loaderScreen: {
-    flex: 1,
-    backgroundColor: DS3.background,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loaderContent: { alignItems: 'center', gap: 12 },
-  loaderIconWrap: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: DS3.primaryFaded,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  loaderTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: DS3.gray900,
-  },
-  loaderSub: {
-    fontSize: 13,
-    color: DS3.gray500,
-    fontWeight: '500',
-  },
+const styles = StyleSheet.create({
+  container: { flex: 1 },
   header: {
-    paddingHorizontal: 20,
-    paddingBottom: 24,
-  },
-  headerTopRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 20,
-  },
-  headerLabel: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.75)',
-    fontWeight: '600',
-    marginBottom: 4,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  headerAmount: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: DS3.white,
-    letterSpacing: -1,
-  },
-  headerBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  quickStats: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 16,
-    alignItems: 'center',
-  },
-  quickStatItem: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  quickStatDivider: {
-    width: 1,
-    height: 32,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    marginHorizontal: 6,
-  },
-  quickStatLabel: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.65)',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
-  quickStatValue: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: DS3.white,
-    marginTop: 1,
-  },
-  rangeRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  rangeChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    minHeight: 36,
-  },
-  rangeChipActive: {
-    backgroundColor: DS3.white,
-  },
-  rangeChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.85)',
-  },
-  rangeChipTextActive: {
-    color: DS3.primary,
-  },
-  body: { padding: 16, gap: 14 },
-  card: {
-    backgroundColor: DS3.card,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: DS3.border,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 16,
-  },
-  cardIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: DS3.gray900,
-    flex: 1,
-  },
-  updatedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(16,185,129,0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-  },
-  updatedDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: DS3.success,
-  },
-  updatedText: { fontSize: 11, fontWeight: '600', color: DS3.success },
-  bigValueWrap: {
-    backgroundColor: DS3.primaryFaded,
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  bigValue: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: DS3.primary,
-    letterSpacing: -0.8,
-  },
-  bigValueLabel: {
-    fontSize: 12,
-    color: DS3.gray500,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  earningsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    gap: 10,
-    minHeight: 44,
-  },
-  earningsRowBorder: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: DS3.border,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
-  earningsRowIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
-    justifyContent: 'center',
-    alignItems: 'center',
+  backBtn: { width: 44, height: 44 },
+  backBtnInner: {
+    flex: 1, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
   },
-  earningsLabel: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '500',
-    color: DS3.gray600,
-  },
-  earningsValue: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: DS3.gray900,
-  },
-  netBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 14,
-    marginTop: 14,
-  },
-  netBannerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  netIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  netLabel: { fontSize: 14, fontWeight: '700', color: DS3.gray900 },
-  netSubLabel: {
-    fontSize: 11,
-    color: DS3.gray500,
-    fontWeight: '500',
-    marginTop: 1,
-  },
-  netValue: { fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
-  perfGrid: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 16,
-  },
-  perfCard: {
-    flex: 1,
-    backgroundColor: DS3.gray50,
-    borderRadius: 14,
-    padding: 12,
-    alignItems: 'center',
-    gap: 6,
-    borderWidth: 1,
-    borderColor: DS3.border,
-  },
-  perfIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  perfValue: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: DS3.gray900,
-    letterSpacing: -0.3,
-  },
-  perfLabel: {
-    fontSize: 10,
-    color: DS3.gray500,
-    fontWeight: '600',
-    textAlign: 'center',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
-  refreshBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 13,
-    borderRadius: 12,
-    backgroundColor: DS3.primaryFaded,
-    borderWidth: 1,
-    borderColor: DS3.primaryLight,
-    minHeight: 44,
-  },
-  refreshBtnText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: DS3.primary,
-  },
+  headerTitleWrap: { alignItems: 'center' },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFF' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  
+  sectionTitle: { fontSize: 18, fontWeight: '800', marginBottom: 16 },
+  
+  summaryCard: { padding: 24, borderRadius: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  ratingLeft: { alignItems: 'center', flex: 1 },
+  bigRating: { fontSize: 48, fontWeight: '900', color: '#FFF', letterSpacing: -2 },
+  starsRow: { flexDirection: 'row', gap: 4, marginVertical: 8 },
+  totalReviews: { fontSize: 13, fontWeight: '500' },
+  
+  ratingRight: { flex: 1.5, paddingLeft: 16, borderLeftWidth: 1, borderLeftColor: 'rgba(255,255,255,0.1)' },
+  barRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  barLabel: { fontSize: 12, fontWeight: '700', width: 12 },
+  barBg: { flex: 1, height: 6, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 3, overflow: 'hidden' },
+  barFill: { height: '100%', borderRadius: 3 },
+
+  reviewCard: { padding: 20, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)', marginBottom: 16 },
+  reviewHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  reviewerInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  avatarWrap: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatar: { width: '100%', height: '100%' },
+  reviewerName: { fontSize: 14, fontWeight: '700' },
+  reviewDate: { fontSize: 12, marginTop: 2 },
+  ratingBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(245,158,11,0.1)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+  ratingText: { fontSize: 12, fontWeight: '800', color: '#F59E0B' },
+  
+  reviewTitle: { fontSize: 15, fontWeight: '700', marginBottom: 6 },
+  reviewComment: { fontSize: 14, lineHeight: 22 },
+  
+  photosRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  reviewPhoto: { width: 64, height: 64, borderRadius: 12 },
+
+  sentimentBadge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: 1, marginTop: 16 },
+  sentimentText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+
+  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
+  emptyTitle: { fontSize: 18, fontWeight: '800', marginTop: 16, marginBottom: 8 },
+  emptySub: { fontSize: 14, textAlign: 'center', paddingHorizontal: 40 },
 });
