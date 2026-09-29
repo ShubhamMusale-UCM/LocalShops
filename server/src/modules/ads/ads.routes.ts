@@ -5,6 +5,7 @@ import { authenticate, optionalAuth } from '../../middleware/auth.middleware';
 const router = Router();
 
 // Public route (optional auth for gender targeting)
+router.get('/personalized', optionalAuth, AdsController.getPersonalizedAds);
 router.get('/trending', optionalAuth, AdsController.getTrendingProducts);
 router.post('/telemetry/batch', AdsController.processBatchTelemetry);
 

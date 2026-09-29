@@ -59,6 +59,14 @@ interface AdStats {
 const trackedImpressionsCache = new Set<string>();
 
 const adsService = {
+  getPersonalized: async (limit = 10, lat?: number, lng?: number) => {
+    const params: any = { limit };
+    if (lat !== undefined) params.lat = lat;
+    if (lng !== undefined) params.lng = lng;
+    const response = await apiClient.get('/ads/personalized', { params });
+    return response.data?.data || response.data || [];
+  },
+
   getTrending: async (limit = 10, query?: string, category?: string, lat?: number, lng?: number) => {
     const params: any = { limit };
     if (query) params.q = query;

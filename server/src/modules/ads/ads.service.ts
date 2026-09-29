@@ -722,6 +722,101 @@ export class AdsService {
     return Array.from(byDate.entries()).map(([date, metrics]) => ({ date, ...metrics }));
   }
 
+  async getPersonalizedAds(userId: string, limit: number = 10, lat?: number, lng?: number, userGender?: string) {
+    const recentSearches = await prisma.userSearchHistory.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: { keyword: true }
+    });
+    
+    const keywords = Array.from(new Set(recentSearches.map(s => s.keyword)));
+    
+    if (keywords.length === 0) {
+      return this.getTrendingProducts(limit, undefined, undefined, lat, lng, userGender);
+    }
+    
+    const whereClause: any = {
+      isActive: true,
+      startDate: { lte: new Date() },
+      endDate: { gte: new Date() },
+      product: { 
+        is: { 
+          isActive: true,
+          OR: keywords.map(kw => ({
+            OR: [
+              { name: { contains: kw, mode: 'insensitive' } },
+              { description: { contains: kw, mode: 'insensitive' } },
+              { category: { contains: kw, mode: 'insensitive' } }
+            ]
+          }))
+        } 
+      },
+    };
+    
+    if (userGender && userGender !== 'OTHER') {
+      whereClause.OR = [
+        { targetGender: 'ALL' },
+        { targetGender: userGender }
+      ];
+    } else {
+      whereClause.targetGender = 'ALL';
+    }
+
+    whereClause.shop = { adWalletBalance: { gt: 0 } };
+
+    if (lat !== undefined && lng !== undefined) {
+      const bbox = getBoundingBox(lat, lng, 50);
+      whereClause.shop = {
+        ...whereClause.shop,
+        latitude: { gte: bbox.minLat, lte: bbox.maxLat },
+        longitude: { gte: bbox.minLng, lte: bbox.maxLng },
+      };
+    }
+
+    const listings = await prisma.promotedListing.findMany({
+      where: whereClause,
+      include: {
+        product: {
+          include: { shop: { select: { id: true, name: true, logo: true, coverImage: true, latitude: true, longitude: true } } },
+        },
+      },
+      take: limit * 5, 
+    });
+
+    const now = new Date().getTime();
+    
+    const validListings = listings
+      .filter((l) => {
+        if (l.spent >= l.budget) return false;
+        
+        const campaignDurationMs = new Date(l.endDate).getTime() - new Date(l.startDate).getTime();
+        const elapsedMs = now - new Date(l.startDate).getTime();
+        const idealSpendRatio = elapsedMs / campaignDurationMs;
+        const actualSpendRatio = l.spent / l.budget;
+        
+        if (actualSpendRatio > idealSpendRatio * 1.5) return false;
+        return true;
+      })
+      .map(l => {
+        const adRank = l.bidPerClick * (l.qualityScore || 5);
+        let distance = 0;
+        if (lat !== undefined && lng !== undefined && l.product.shop.latitude && l.product.shop.longitude) {
+           distance = haversineDistance(lat, lng, l.product.shop.latitude, l.product.shop.longitude);
+        }
+        const geoScore = Math.max(0, 50 - distance); 
+        return { ...l, finalScore: adRank + (geoScore * 0.5) };
+      })
+      .sort((a, b) => b.finalScore - a.finalScore)
+      .slice(0, limit);
+
+    if (validListings.length === 0) {
+      return this.getTrendingProducts(limit, undefined, undefined, lat, lng, userGender);
+    }
+      
+    return validListings.map(({ finalScore, ...rest }) => rest);
+  }
+
   async getTrendingProducts(limit: number = 10, query?: string, category?: string, lat?: number, lng?: number, userGender?: string) {
     if (lat === undefined || lng === undefined) {
       return [];

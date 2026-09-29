@@ -218,7 +218,9 @@ export default function HomeScreen() {
       try {
         const [prodRes, adRes] = await Promise.all([
           productService.getTrending(memoLat, memoLng, radiusRange),
-          adsService.getTrending(30, undefined, activeCategory !== 'all' ? activeCategory : undefined, memoLat, memoLng)
+          activeCategory === 'all' 
+            ? adsService.getPersonalized(30, memoLat, memoLng)
+            : adsService.getTrending(30, undefined, activeCategory, memoLat, memoLng)
         ]);
 
         const prodData = prodRes?.data;
@@ -671,7 +673,7 @@ export default function HomeScreen() {
 
         {/* Trending Products */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionHeaderTitleText, { color: theme.text }]}>Trending Products</Text>
+          <Text style={[styles.sectionHeaderTitleText, { color: theme.text }]}>{activeCategory === 'all' ? 'Recommended for You' : 'Trending Products'}</Text>
           <TactileView onPress={() => navigation.navigate('Search')}>
             <Text style={[styles.sectionSeeAllText, { color: theme.accent }]}>See All</Text>
           </TactileView>

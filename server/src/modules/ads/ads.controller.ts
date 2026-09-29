@@ -243,6 +243,41 @@ export const AdsController = {
   },
 
   /**
+   * Get personalized ads
+   */
+  getPersonalizedAds: async (
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction
+  ) => {
+    try {
+      const { limit = 10, lat, lng } = req.query;
+      const user = req.user as any;
+      const parsedLimit = parseInt(limit as string);
+      const parsedLat = lat ? parseFloat(lat as string) : undefined;
+      const parsedLng = lng ? parseFloat(lng as string) : undefined;
+
+      let products;
+      if (!user) {
+        products = await adsService.getTrendingProducts(
+          parsedLimit, undefined, undefined, parsedLat, parsedLng
+        );
+      } else {
+        products = await adsService.getPersonalizedAds(
+          user.id, parsedLimit, parsedLat, parsedLng, user?.gender
+        );
+      }
+
+      res.json({
+        status: 'success',
+        data: products,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
    * Get trending products
    */
   getTrendingProducts: async (

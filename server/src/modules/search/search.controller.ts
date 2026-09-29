@@ -2,6 +2,16 @@ import { Request, Response, NextFunction } from 'express';
 import searchService from './search.service';
 import { AppError } from '../../middleware/errorHandler.middleware';
 import prisma from '../../config/database';
+import { AuthRequest } from '../../middleware/auth.middleware';
+
+// Fire-and-forget user search history tracking
+const trackUserSearchHistory = (userId: string | undefined, keyword: string) => {
+  if (!userId || !keyword || keyword.trim().length < 2) return;
+  const kw = keyword.trim().toLowerCase();
+  prisma.userSearchHistory.create({
+    data: { userId, keyword: kw }
+  }).catch(() => {});
+};
 
 // Fire-and-forget keyword stat tracking — never blocks the response
 const trackKeywordStats = (keyword: string, products: any[]) => {
@@ -49,7 +59,7 @@ export const SearchController = {
   /**
    * Search products with filters
    */
-  searchProducts: async (req: Request, res: Response, next: NextFunction) => {
+  searchProducts: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { q, category, minPrice, maxPrice, minRating, shopId, limit = 20, offset = 0 } = req.query;
 
@@ -71,6 +81,7 @@ export const SearchController = {
       // Track keyword stats (non-blocking fire-and-forget)
       if (queryStr && results.products.length > 0) {
         trackKeywordStats(queryStr, results.products);
+        trackUserSearchHistory(req.user?.id, queryStr);
       }
 
       // Track product views / impressions (non-blocking fire-and-forget)
@@ -173,7 +184,7 @@ export const SearchController = {
   /**
    * Advanced search with multiple filters
    */
-  advancedSearch: async (req: Request, res: Response, next: NextFunction) => {
+  advancedSearch: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const filters = {
         query: req.query.q as string,
@@ -197,6 +208,9 @@ export const SearchController = {
       // Track product views / impressions (non-blocking fire-and-forget)
       if (results.products && results.products.length > 0) {
         trackProductImpressions(results.products);
+        if (filters.query) {
+          trackUserSearchHistory(req.user?.id, filters.query);
+        }
       }
 
       res.json({
