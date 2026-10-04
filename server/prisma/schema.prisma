@@ -78,6 +78,7 @@ model User {
   returnRequests   ReturnRequest[]
   supportTickets   SupportTicket[]
   searchHistory    UserSearchHistory[]
+  buyerWallet      BuyerWallet?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -149,6 +150,7 @@ model Shop {
   analytics        ShopAnalytics[]
   flashSales       FlashSale[]
   searchKeywordStats SearchKeywordStat[]
+  adWalletTransactions SellerAdWalletTransaction[]
 
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -248,6 +250,10 @@ model Order {
   paymentStatus     String  @default("PENDING")
   razorpayOrderId   String?
   razorpayPaymentId String?
+
+  // Wallet Economy
+  coinsUsed     Float    @default(0)
+  coinsCredited Float    @default(0)
 
   // Communication
   buyerNote  String?
@@ -449,6 +455,8 @@ model ReferralEarning {
   type           String
   amount         Float
   isPaid         Boolean  @default(false)
+  status         ReferralEarningStatus @default(PENDING)
+  activatedAt    DateTime?
   createdAt      DateTime @default(now())
 }
 
@@ -640,3 +648,80 @@ model UserSearchHistory {
   @@index([userId])
   @@index([createdAt])
 }
+
+// ============= WALLET ECONOMY ENUMS =============
+
+enum WalletTransactionType {
+  REFERRAL_CREDIT
+  BOOKING_DEBIT
+  BOOKING_REFUND
+  SELLER_AD_CREDIT
+  AD_SPEND_DEBIT
+  EXPIRY_DEBIT
+  ADMIN_CREDIT
+  ADMIN_DEBIT
+}
+
+enum ReferralEarningStatus {
+  PENDING
+  ACTIVATED
+  EXPIRED
+}
+
+// ============= WALLET ECONOMY MODELS =============
+
+model BuyerWallet {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  balance   Float    @default(0)
+  lifetime  Float    @default(0)
+  spent     Float    @default(0)
+  expired   Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id            String                @id @default(uuid())
+  walletId      String
+  wallet        BuyerWallet           @relation(fields: [walletId], references: [id])
+  type          WalletTransactionType
+  amount        Float
+  direction     String                // 'CREDIT' or 'DEBIT'
+  balanceAfter  Float
+  description   String
+  referenceId   String?
+  referenceType String?               // 'ORDER', 'REFERRAL', 'AD_CAMPAIGN', 'SYSTEM'
+  expiresAt     DateTime?
+  isExpired     Boolean               @default(false)
+  createdAt     DateTime              @default(now())
+
+  @@index([walletId])
+  @@index([referenceId])
+  @@index([expiresAt])
+  @@index([type])
+}
+
+model SellerAdWalletTransaction {
+  id            String                @id @default(uuid())
+  shopId        String
+  shop          Shop                  @relation(fields: [shopId], references: [id])
+  type          WalletTransactionType
+  amount        Float
+  direction     String                // 'CREDIT' or 'DEBIT'
+  balanceAfter  Float
+  description   String
+  referenceId   String?
+  referenceType String?               // 'ORDER', 'AD_CAMPAIGN', 'SYSTEM'
+  expiresAt     DateTime?
+  isExpired     Boolean               @default(false)
+  createdAt     DateTime              @default(now())
+
+  @@index([shopId])
+  @@index([referenceId])
+  @@index([expiresAt])
+}
+

@@ -12,7 +12,7 @@ export const AdsController = {
    */
   createAd: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const { productId, shopId, budgetPerDay, bidPerClick, duration, targetGender = 'ALL' } = req.body;
+      const { productId, shopId, budgetPerDay, bidPerClick, duration, targetGender = 'ALL', razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
       if (!productId || !shopId || !budgetPerDay || !bidPerClick || !duration) {
         throw new AppError('Missing required fields', 400);
@@ -28,9 +28,41 @@ export const AdsController = {
       }
 
       const totalBudget = Number(budgetPerDay) * Number(duration);
-      if (shop.adWalletBalance < 100) {
-        throw new AppError(`Insufficient ad wallet balance to start campaign. Need at least ₹100, have ₹${shop.adWalletBalance}`, 402);
+
+      // --- SPLIT PAYMENT LOGIC ---
+      const { default: walletService } = await import('../wallet/wallet.service');
+      const split = await walletService.calculateAdPaymentSplit(shopId, totalBudget);
+
+      if (!split.isFullWalletPayment) {
+        if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+          throw new AppError(`Insufficient wallet balance. Need ₹${totalBudget}, have ₹${split.walletBalance}. Please provide Razorpay payment details for the remaining ₹${split.razorpayAmount}.`, 402);
+        }
+
+        const SKIP_PAYMENT_VERIFICATION = process.env.NODE_ENV !== 'production' && process.env.SKIP_PAYMENT_VERIFICATION === 'true';
+        if (!SKIP_PAYMENT_VERIFICATION) {
+          const isValid = verifyPaymentSignature(razorpay_order_id, razorpay_payment_id, razorpay_signature);
+          if (!isValid) throw new AppError('Invalid payment signature', 400);
+        }
+
+        // Auto-top-up the wallet with the Razorpay amount so the creation can succeed
+        await prisma.shop.update({
+          where: { id: shopId },
+          data: { adWalletBalance: { increment: split.razorpayAmount } }
+        });
+        
+        await prisma.sellerAdWalletTransaction.create({
+          data: {
+            shopId,
+            type: 'SELLER_AD_CREDIT',
+            amount: split.razorpayAmount,
+            direction: 'CREDIT',
+            balanceAfter: split.walletBalance + split.razorpayAmount,
+            description: `Ad payment split top-up (Razorpay ID: ${razorpay_payment_id})`,
+            referenceType: 'AD_CAMPAIGN',
+          }
+        });
       }
+      // ---------------------------
 
       const ad = await adsService.createSponsoredListing(
         shopId,
@@ -225,10 +257,6 @@ export const AdsController = {
       });
       if (!existing || existing.shop.ownerId !== req.user!.id) {
         throw new AppError('Unauthorized', 403);
-      }
-
-      if (existing.shop.adWalletBalance < 100) {
-        throw new AppError(`Insufficient ad wallet balance to renew campaign. Need at least ₹100, have ₹${existing.shop.adWalletBalance}`, 402);
       }
 
       const ad = await adsService.renewAdBudget(adId, additionalBudget, durationDays);
@@ -485,6 +513,27 @@ export const AdsController = {
         message: 'Wallet topped up successfully',
         newBalance: updatedShop.adWalletBalance,
       });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Preview split payment for ads
+   */
+  calculatePayment: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { shopId, budgetPerDay, duration } = req.body;
+      if (!shopId || !budgetPerDay || !duration) throw new AppError('Missing required fields', 400);
+
+      const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+      if (shop?.ownerId !== req.user!.id) throw new AppError('Unauthorized', 403);
+
+      const { default: walletService } = await import('../wallet/wallet.service');
+      const budget = Number(budgetPerDay) * Number(duration);
+      const split = await walletService.calculateAdPaymentSplit(shopId, budget);
+      
+      res.json({ status: 'success', data: split });
     } catch (error) {
       next(error);
     }

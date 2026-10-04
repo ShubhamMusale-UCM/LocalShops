@@ -29,6 +29,8 @@ import RefundPolicyScreen from '../screens/buyer/RefundPolicyScreen';
 import TermsAndConditionsScreen from '../screens/buyer/TermsAndConditionsScreen';
 import HelpScreen from '../screens/buyer/HelpScreen';
 import ReviewScreen from '../screens/buyer/ReviewScreen';
+import WalletScreen from '../screens/buyer/WalletScreen';
+import ReferralScreen from '../screens/buyer/ReferralScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -146,6 +148,16 @@ export const RootNavigator = () => {
           <Stack.Screen
             name="Review"
             component={ReviewScreen}
+            options={{ animation: 'slide_from_right' }}
+          />
+          <Stack.Screen
+            name="Wallet"
+            component={WalletScreen}
+            options={{ animation: 'slide_from_right' }}
+          />
+          <Stack.Screen
+            name="Referral"
+            component={ReferralScreen}
             options={{ animation: 'slide_from_right' }}
           />
 

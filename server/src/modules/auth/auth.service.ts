@@ -23,9 +23,10 @@ export class AuthService {
     // Generate and store OTP
     const otp = await otpHandler.generateOTP(normalizedPhone);
 
+    const isDev = process.env.NODE_ENV !== 'production';
     return {
       success: true,
-      message: 'OTP sent successfully. (Dev: ' + otp + ')',
+      message: isDev ? 'OTP sent successfully. (Dev: ' + otp + ')' : 'OTP sent successfully.',
     };
   }
 
@@ -60,6 +61,7 @@ export class AuthService {
 
     // New user — generate a temporary token for registration
     const tempToken = nanoid();
+    await otpHandler.generateTempToken(normalizedPhone, tempToken);
 
     return {
       isNewUser: true,
@@ -83,6 +85,12 @@ export class AuthService {
   }) {
     const normalizedPhone = normalizeIndianPhone(data.phone);
     const normalizedRole = String(data.role || 'BUYER').toUpperCase();
+
+    // Verify temp token (which client passes as idToken)
+    if (!data.idToken) {
+      throw new AppError('Registration token is required. Please verify OTP first.', 401);
+    }
+    await otpHandler.verifyTempToken(normalizedPhone, data.idToken);
 
     // Check if user already exists
     const existing = await prisma.user.findUnique({ where: { phone: normalizedPhone } });
@@ -159,6 +167,11 @@ export class AuthService {
           },
         });
       }
+
+      // Create buyer wallet for every new user (used for referral coins)
+      await tx.buyerWallet.create({
+        data: { userId: createdUser.id, balance: 0, lifetime: 0, spent: 0, expired: 0 },
+      });
 
       return createdUser;
     });

@@ -45,7 +45,7 @@ class ReviewService {
    * Create a review for a product or shop
    */
   async createReview(payload: CreateReviewPayload): Promise<ReviewResponse> {
-    const { data } = await api.post('/review', payload);
+    const { data } = await api.post('/reviews', payload);
     return data;
   }
 
@@ -61,7 +61,7 @@ class ReviewService {
       rating?: number;
     }
   ): Promise<ShopReviewsResponse> {
-    const { data } = await api.get(`/review/shop/${shopId}`, { params });
+    const { data } = await api.get(`/reviews/shop/${shopId}`, { params });
     return data;
   }
 
@@ -69,7 +69,7 @@ class ReviewService {
    * Get reviews for a product
    */
   async getProductReviews(productId: string): Promise<ReviewResponse[]> {
-    const { data } = await api.get(`/review/product/${productId}`);
+    const { data } = await api.get(`/reviews/product/${productId}`);
     return data;
   }
 
@@ -77,7 +77,7 @@ class ReviewService {
    * Mark a review as helpful
    */
   async markReviewHelpful(reviewId: string): Promise<{ success: boolean }> {
-    const { data } = await api.post(`/review/${reviewId}/helpful`);
+    const { data } = await api.post(`/reviews/${reviewId}/helpful`);
     return data;
   }
 
@@ -88,7 +88,7 @@ class ReviewService {
     reviewId: string,
     payload: Partial<CreateReviewPayload>
   ): Promise<ReviewResponse> {
-    const { data } = await api.patch(`/review/${reviewId}`, payload);
+    const { data } = await api.patch(`/reviews/${reviewId}`, payload);
     return data;
   }
 
@@ -96,7 +96,7 @@ class ReviewService {
    * Delete a review
    */
   async deleteReview(reviewId: string): Promise<{ success: boolean }> {
-    const { data } = await api.delete(`/review/${reviewId}`);
+    const { data } = await api.delete(`/reviews/${reviewId}`);
     return data;
   }
 
@@ -111,7 +111,7 @@ class ReviewService {
     topIssues: string[];
     topStrengths: string[];
   }> {
-    const { data } = await api.get(`/review/shop/${shopId}/summary`);
+    const { data } = await api.get(`/reviews/shop/${shopId}/summary`);
     return data;
   }
 }

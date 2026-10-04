@@ -542,6 +542,63 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
     );
   };
 
+  const renderReviews = () => {
+    if (!product?.reviews || product.reviews.length === 0) return null;
+
+    return (
+      <Animated.View entering={FadeInDown.delay(100)} style={styles.section}>
+        <Text style={styles.sectionTitle}>Recent Reviews</Text>
+        {product.reviews.map((review: any) => (
+          <GlassCard key={review.id} style={styles.reviewCard}>
+            <View style={styles.reviewHeader}>
+              <View style={styles.reviewerInfo}>
+                {review.user?.avatar ? (
+                  <Image source={{ uri: sanitizeImageUrl(review.user.avatar) || undefined }} style={styles.reviewerAvatar} />
+                ) : (
+                  <View style={[styles.reviewerAvatar, styles.reviewerAvatarPlaceholder]}>
+                    <Text style={styles.reviewerAvatarText}>{review.user?.name?.charAt(0) || 'U'}</Text>
+                  </View>
+                )}
+                <View style={styles.reviewerMeta}>
+                  <Text style={styles.reviewerName}>{review.user?.name || 'Anonymous'}</Text>
+                  <View style={styles.ratingRow}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Ionicons
+                        key={star}
+                        name={star <= review.rating ? 'star' : 'star-outline'}
+                        size={12}
+                        color="#FBBF24"
+                      />
+                    ))}
+                    <Text style={styles.reviewDate}>
+                      {new Date(review.createdAt).toLocaleDateString()}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+              {review.isVerifiedPurchase && (
+                <View style={styles.verifiedBadge}>
+                  <Ionicons name="checkmark-circle" size={12} color="#22C55E" />
+                </View>
+              )}
+            </View>
+            
+            {review.title && <Text style={styles.reviewTitle}>{review.title}</Text>}
+            <Text style={styles.reviewComment}>{review.comment}</Text>
+            
+            {review.photos && review.photos.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.reviewPhotos}>
+                {review.photos.map((photo: string, idx: number) => (
+                  <Image key={idx} source={{ uri: sanitizeImageUrl(photo) || undefined }} style={styles.reviewPhoto} />
+                ))}
+              </ScrollView>
+            )}
+          </GlassCard>
+        ))}
+      </Animated.View>
+    );
+  };
+
   const renderBottomBar = () => (
     <Animated.View
       entering={FadeInUp.delay(60)}
@@ -623,6 +680,7 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
         {renderProductInfo()}
         {renderShopCard()}
         {renderComparisons()}
+        {renderReviews()}
         <View style={{ height: 100 }} />
       </AnimatedScrollView>
 
@@ -906,14 +964,15 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       color: isDarkMode ? '#FFFFFF' : '#0F172A',
     },
     section: {
-      paddingHorizontal: 16,
-      marginBottom: 16,
+      paddingHorizontal: 20,
+      marginBottom: 24,
+      marginTop: 8,
     },
     sectionTitle: {
       fontSize: 18,
-      fontWeight: '700',
-      color: '#FFF',
-      marginBottom: 12,
+      fontFamily: 'Outfit_700Bold',
+      color: isDarkMode ? '#FFFFFF' : '#0F172A',
+      marginBottom: 16,
     },
     compareCard: {
       marginBottom: 8,
@@ -1041,6 +1100,84 @@ const getStyles = (colors: any, radius: any, shadows: any, isDarkMode: boolean) 
       color: colors.textSecondary,
       marginTop: 16,
       textAlign: 'center',
+    },
+    reviewCard: {
+      padding: 16,
+      marginBottom: 12,
+    },
+    reviewHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      marginBottom: 12,
+    },
+    reviewerInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    reviewerAvatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      marginRight: 12,
+    },
+    reviewerAvatarPlaceholder: {
+      backgroundColor: 'rgba(255,255,255,0.1)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    reviewerAvatarText: {
+      color: '#fff',
+      fontSize: 16,
+      fontWeight: 'bold',
+    },
+    reviewerMeta: {
+      justifyContent: 'center',
+    },
+    reviewerName: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: colors.textPrimary,
+      marginBottom: 4,
+    },
+    ratingRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 2,
+    },
+    reviewDate: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      marginLeft: 6,
+    },
+    verifiedBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(34, 197, 94, 0.1)',
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 12,
+    },
+    reviewTitle: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: colors.textPrimary,
+      marginBottom: 6,
+    },
+    reviewComment: {
+      fontSize: 14,
+      color: colors.textSecondary,
+      lineHeight: 20,
+      marginBottom: 12,
+    },
+    reviewPhotos: {
+      flexDirection: 'row',
+    },
+    reviewPhoto: {
+      width: 80,
+      height: 80,
+      borderRadius: 8,
+      marginRight: 8,
     },
   });
 };

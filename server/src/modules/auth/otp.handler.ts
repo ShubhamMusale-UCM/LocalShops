@@ -64,6 +64,28 @@ export class OTPHandler {
     const exists = await redis.exists(key);
     return exists > 0;
   }
+
+  /**
+   * Generate a temporary token valid for registration
+   */
+  async generateTempToken(phone: string, token: string): Promise<void> {
+    const key = `temp_token:${phone}`;
+    await redis.setex(key, 15 * 60, token); // 15 mins expiry
+  }
+
+  /**
+   * Verify registration temp token
+   */
+  async verifyTempToken(phone: string, token: string): Promise<boolean> {
+    const key = `temp_token:${phone}`;
+    const stored = await redis.get(key);
+    if (!stored || stored !== token) {
+      throw new AppError('Registration session expired or invalid. Please request a new OTP.', 401);
+    }
+    // Don't delete immediately to allow retries on failed registration (e.g. username taken), 
+    // but maybe delete on success.
+    return true;
+  }
 }
 
 export default new OTPHandler();

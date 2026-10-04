@@ -14,6 +14,7 @@ router.use(authenticate);
 
 router.post('/wallet/topup', AdsController.topUpWallet);
 router.post('/wallet/verify', AdsController.verifyTopUpWallet);
+router.post('/calculate-payment', AdsController.calculatePayment);
 router.post('/create', AdsController.createAd);
 router.get('/shop/:shopId', AdsController.getShopAds);
 router.get('/shop/:shopId/analytics', AdsController.getShopPromotionAnalytics);

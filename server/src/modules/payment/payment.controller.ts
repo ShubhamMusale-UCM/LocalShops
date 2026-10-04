@@ -11,7 +11,7 @@ export class PaymentController {
    */
   async createProductPaymentOrder(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const { cartItems, deliveryAddress, paymentMethod, deliveryType, clientRequestId } = req.body;
+      const { cartItems, deliveryAddress, paymentMethod, deliveryType, clientRequestId, coinsToUse } = req.body;
       const skipPaymentVerification = process.env.SKIP_PAYMENT_VERIFICATION === 'true';
 
       const idempotencyKey =
@@ -58,6 +58,7 @@ export class PaymentController {
         deliveryAddress: deliveryAddress || {},
         paymentMethod: paymentMethod === 'COD' ? 'COD' : 'ONLINE',
         notes: req.body.notes,
+        coinsToUse: coinsToUse ? Number(coinsToUse) : 0,
       });
 
       // If COD or testing bypass mode, return order directly without Razorpay

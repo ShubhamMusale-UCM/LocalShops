@@ -463,7 +463,17 @@ export default function SellerDashboard({ navigation }: { navigation: any }) {
                   <Text style={s.opsCardDesc}>Broadcast & Followers</Text>
                 </AnimatedPressable>
                 
-                <View style={{ flex: 1 }} />
+                <AnimatedPressable
+                  onPress={() => navigation.navigate('SellerAdWallet')}
+                  style={[s.opsCard, { borderLeftColor: DS.warning, borderLeftWidth: 4 }]}
+                  containerStyle={{ flex: 1 }}
+                >
+                  <View style={[s.opsIconWrap, { backgroundColor: DS.warning + '15' }]}>
+                    <Ionicons name="wallet" size={24} color={DS.warning} />
+                  </View>
+                  <Text style={s.opsCardTitle}>Ad Wallet</Text>
+                  <Text style={s.opsCardDesc}>Manage ad balance</Text>
+                </AnimatedPressable>
               </View>
             </View>
           </AnimatedEntry>

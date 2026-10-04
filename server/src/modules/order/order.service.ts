@@ -4,6 +4,8 @@ import { cacheDelete, cacheDeletePattern } from '../../config/redis';
 import { nanoid } from 'nanoid';
 import { sendOrderConfirmationEmail } from '../../utils/emailService';
 import { createRazorpayRefund } from '../../config/razorpay';
+import walletService, { WALLET_CONFIG } from '../wallet/wallet.service';
+import notificationService from '../notification/notification.service';
 
 const toStatusHistory = (value: unknown): any[] => (Array.isArray(value) ? value : []);
 
@@ -40,11 +42,15 @@ export class OrderService {
     paymentMethod: string;
     notes?: string;
     couponCode?: string;
+    coinsToUse?: number;
   }) {
     // Verify shop exists and is open
     const shop = await prisma.shop.findUnique({ where: { id: data.shopId } });
     if (!shop) throw new AppError('Shop not found.', 404);
     if (!shop.isActive) throw new AppError('Shop is not active.', 400);
+    if (shop.ownerId === userId) {
+      throw new AppError('You cannot place an order on your own shop.', 400);
+    }
 
     // Determine delivery type
     const effectiveDeliveryType = data.deliveryType === 'DELIVERY' ? 'DELIVERY' : 'PICKUP';
@@ -107,6 +113,19 @@ export class OrderService {
     const orderNumber = `CLS${Date.now().toString(36).toUpperCase()}${nanoid(4).toUpperCase()}`;
     const orderCampaignId = data.items.find(i => i.campaignId)?.campaignId;
 
+    // ============= WALLET COIN USAGE =============
+    let coinsUsed = 0;
+    let coinsCredited = 0;
+    if (data.coinsToUse && data.coinsToUse > 0) {
+      const wallet = await walletService.getOrCreateBuyerWallet(userId);
+      const maxUsable = walletService.calculateMaxCoinUsage(wallet.balance, total);
+      coinsUsed = Math.min(data.coinsToUse, maxUsable);
+      coinsUsed = Math.floor(coinsUsed * 100) / 100; // Round to 2 decimal places
+      if (coinsUsed > 0) {
+        coinsCredited = coinsUsed; // Same amount goes to seller ad wallet
+      }
+    }
+
     // Create order with items in a transaction
     const order = await prisma.$transaction(async (tx) => {
       const newOrder = await tx.order.create({
@@ -136,6 +155,8 @@ export class OrderService {
               : null,
           paymentMethod: data.paymentMethod as any,
           paymentStatus: 'PENDING',
+          coinsUsed,
+          coinsCredited,
           buyerNote: data.notes || null,
           adCampaignId: orderCampaignId || null,
           items: { create: orderItems },
@@ -196,6 +217,35 @@ export class OrderService {
         update: { orders: { increment: 1 }, revenue: { increment: total } },
         create: { shopId: data.shopId, date: today, views: 0, uniqueViews: 0, orders: 1, revenue: total, calls: 0, whatsappClicks: 0, directions: 0 }
       });
+
+      // ============= WALLET TRANSACTIONS =============
+      if (coinsUsed > 0) {
+        // 1. Debit buyer wallet
+        const buyerWallet = await tx.buyerWallet.findUnique({ where: { userId } });
+        if (!buyerWallet || buyerWallet.balance < coinsUsed) {
+          throw new Error('Insufficient wallet balance for coin usage.');
+        }
+        const newBuyerBalance = buyerWallet.balance - coinsUsed;
+        await tx.buyerWallet.update({
+          where: { userId },
+          data: {
+            balance: { decrement: coinsUsed },
+            spent: { increment: coinsUsed },
+          },
+        });
+        await tx.walletTransaction.create({
+          data: {
+            walletId: buyerWallet.id,
+            type: 'BOOKING_DEBIT',
+            amount: coinsUsed,
+            direction: 'DEBIT',
+            balanceAfter: newBuyerBalance,
+            description: `Coins used on order #${orderNumber}`,
+            referenceId: newOrder.id,
+            referenceType: 'ORDER',
+          },
+        });
+      }
 
       return newOrder;
     });
@@ -358,6 +408,10 @@ export class OrderService {
       }
     }
 
+    // Referral activation: when an order is delivered, check if this buyer
+    // was referred and this is their first delivered order — activate the referral.
+    let referralActivation = null;
+
     if (status === 'CANCELLED') {
       if (order.paymentStatus === 'COMPLETED') {
         updateData.paymentStatus = 'REFUND_PENDING';
@@ -459,7 +513,66 @@ export class OrderService {
       console.warn('Socket emit failed for order update:', e);
     }
 
+    // Post-delivery: activate referral rewards (non-blocking) and credit seller ad wallet
+    if (status === 'DELIVERED') {
+      this.processDeliveryReferral(order.userId).catch(() => {});
+      
+      if (order.coinsCredited > 0) {
+        walletService.creditSellerAdWallet(
+          order.shopId,
+          order.coinsCredited,
+          `Ad credit from delivered order #${order.orderNumber}`,
+          orderId,
+          'ORDER'
+        ).catch((err) => console.error('Failed to credit seller ad wallet on delivery:', err));
+      }
+    }
+
+    // ============= REFUND COINS ON CANCELLATION =============
+    if (status === 'CANCELLED' && order.coinsUsed > 0) {
+      try {
+        // 1. Refund buyer wallet
+        const wallet = await prisma.buyerWallet.findUnique({ where: { userId: order.userId } });
+        if (wallet) {
+          await walletService.creditBuyerWallet(
+            order.userId,
+            order.coinsUsed,
+            'BOOKING_REFUND',
+            `Coins refunded from cancelled order #${order.orderNumber}`,
+            orderId,
+            'ORDER',
+          );
+        }
+      } catch (walletError) {
+        console.error('Wallet refund error on order status cancellation:', walletError);
+      }
+    }
+
     return updated;
+  }
+
+  /**
+   * Post-delivery processing: activates referral rewards if applicable.
+   * Called after order status is set to DELIVERED.
+   */
+  private async processDeliveryReferral(userId: string) {
+    try {
+      const result = await walletService.activateReferralIfEligible(userId);
+      if (result && result.amountCredited > 0) {
+        // Send push notification to referrer
+        await notificationService.createNotification(result.referrerId, {
+          title: '🎉 Referral Reward!',
+          body: `You earned ₹${result.amountCredited} coins! Your friend completed their first booking.`,
+          type: 'REFERRAL_REWARD',
+          relatedId: userId,
+        });
+      }
+      return result;
+    } catch (error) {
+      // Non-blocking: don't fail the order update if referral processing errors
+      console.error('Referral activation error:', error);
+      return null;
+    }
   }
 
   /**
@@ -516,6 +629,28 @@ export class OrderService {
       return updatedOrder;
     });
 
+    // ============= REFUND COINS ON CANCELLATION =============
+    if (order.coinsUsed > 0) {
+      try {
+        // 1. Refund buyer wallet
+        const wallet = await prisma.buyerWallet.findUnique({ where: { userId } });
+        if (wallet) {
+          // Restore with same expiry (90 days from now)
+          await walletService.creditBuyerWallet(
+            userId,
+            order.coinsUsed,
+            'BOOKING_REFUND',
+            `Coins refunded from cancelled order #${order.orderNumber}`,
+            orderId,
+            'ORDER',
+          );
+        }
+      } catch (walletError) {
+        // Non-blocking: log but don't fail the cancellation
+        console.error('Wallet refund error on order cancellation:', walletError);
+      }
+    }
+
     // Invalidate product caches when stock is restored
     if (order.status === 'CONFIRMED') {
       try {
@@ -539,7 +674,7 @@ export class OrderService {
     }
 
     // Trigger Razorpay Refund if applicable
-    if (order.razorpayPaymentId && order.paymentStatus === 'PAID') {
+    if (order.razorpayPaymentId && (order.paymentStatus === 'COMPLETED' || order.paymentStatus === 'PAID')) {
       try {
         await createRazorpayRefund(order.razorpayPaymentId, order.total, { orderId });
         await prisma.order.update({
@@ -637,6 +772,17 @@ export class OrderService {
           statusHistory: history,
         }
       });
+
+      // Reverse seller ad wallet credit if coins were credited
+      if (returnReq.order.coinsCredited > 0) {
+        walletService.debitSellerAdWallet(
+          returnReq.order.shopId,
+          returnReq.order.coinsCredited,
+          `Ad credit reversed from refunded order #${returnReq.order.orderNumber}`,
+          returnReq.order.id,
+          'ORDER'
+        ).catch((err) => console.error('Failed to reverse ad credit on return refund:', err));
+      }
     }
 
     return updated;

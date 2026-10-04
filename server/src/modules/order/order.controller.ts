@@ -22,6 +22,8 @@ export class OrderController {
       const result = await orderService.getUserOrders(req.user!.id, params);
       res.json(result);
     } catch (error: any) {
+      console.error('Error in getMyOrders:', error);
+      require('fs').writeFileSync('last_error.log', JSON.stringify({ message: error.message, stack: error.stack, error }));
       res.status(error.statusCode || 500).json({ error: error.message });
     }
   }
@@ -105,8 +107,8 @@ export class OrderController {
         const publicBaseUrl = `${protocol}://${host}`;
         
         for (const file of files) {
-          const url = await processAndUploadImage(file, 'reviews', publicBaseUrl);
-          photos.push(url);
+          const processed = await processAndUploadImage(file.buffer, 'reviews', false, publicBaseUrl, file.mimetype);
+          photos.push(processed.full);
         }
       }
       

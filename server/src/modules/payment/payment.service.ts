@@ -5,6 +5,7 @@ import { createRazorpayOrder, verifyPaymentSignature, verifyWebhookSignature } f
 export class PaymentService {
   /**
    * Create a Razorpay order for online payment
+   * Accounts for wallet coins: Razorpay amount = total - coinsUsed
    */
   async createPaymentOrder(orderId: string, userId: string) {
     const order = await prisma.order.findUnique({ 
@@ -15,13 +16,41 @@ export class PaymentService {
     if (order.userId !== userId) throw new AppError('Not authorized.', 403);
     if (order.paymentStatus === 'COMPLETED') throw new AppError('Payment already completed.', 400);
 
+    // Calculate Razorpay amount after coin deduction
+    const coinsUsed = order.coinsUsed || 0;
+    const razorpayAmount = order.total - coinsUsed;
+
+    // If fully paid with coins, skip Razorpay entirely
+    if (razorpayAmount <= 0) {
+      await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          paymentStatus: 'COMPLETED',
+          status: 'CONFIRMED',
+          statusHistory: [...(order.statusHistory as any[] || []), {
+            status: 'CONFIRMED',
+            note: 'Fully paid with wallet coins',
+            updatedAt: new Date().toISOString(),
+          }],
+        },
+      });
+
+      return {
+        fullCoinPayment: true,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        coinsUsed,
+        razorpayAmount: 0,
+      };
+    }
+
     let transfers: any[] = [];
     if (order.shop.razorpayAccountId) {
-      // Platform keeps platformFee, seller gets the rest
-      const sellerAmount = (order.total - order.platformFee) * 100;
+      // Seller gets (razorpayAmount - platformFee). Coins portion goes via ad wallet, not Razorpay.
+      const sellerAmount = (razorpayAmount - order.platformFee) * 100;
       transfers = [{
         account: order.shop.razorpayAccountId,
-        amount: Math.round(sellerAmount),
+        amount: Math.round(Math.max(0, sellerAmount)),
         currency: 'INR',
         notes: { orderId: order.id },
         linked_account_notes: ['orderId'],
@@ -29,7 +58,7 @@ export class PaymentService {
       }];
     }
 
-    const razorpayOrder = await createRazorpayOrder(order.total, order.orderNumber, undefined, transfers);
+    const razorpayOrder = await createRazorpayOrder(razorpayAmount, order.orderNumber, undefined, transfers);
 
     // Store razorpay order ID against our order
     await prisma.order.update({
@@ -41,8 +70,10 @@ export class PaymentService {
     });
 
     return {
+      fullCoinPayment: false,
       razorpayOrderId: razorpayOrder.id,
-      amount: order.total * 100,
+      amount: razorpayAmount * 100,
+      coinsUsed,
       currency: 'INR',
       orderNumber: order.orderNumber,
       prefill: {

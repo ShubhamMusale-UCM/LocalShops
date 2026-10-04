@@ -54,51 +54,77 @@ export class AdsService {
     const endDate = new Date(startDate.getTime() + duration * 24 * 60 * 60 * 1000);
     const budget = budgetPerDay * duration;
 
-    const existing = await prisma.promotedListing.findUnique({
-      where: { productId },
-    });
+    const campaign = await prisma.$transaction(async (tx) => {
+      const shop = await tx.shop.findUnique({ where: { id: shopId } });
+      if (!shop) throw new AppError('Shop not found', 404);
 
-    let campaign;
-    if (existing) {
-      campaign = await prisma.promotedListing.update({
-        where: { productId },
-        data: {
-          budget,
-          spent: 0,
-          bidPerClick,
-          startDate,
-          endDate,
-          targetGender,
-          isActive: true,
-          impressions: 0,
-          clicks: 0,
-        },
-        include: {
-          product: { select: { id: true, name: true, images: true, price: true } },
-          shop: { select: { id: true, name: true, logo: true, coverImage: true } },
-        },
+      if (shop.adWalletBalance < budget) {
+        throw new AppError(`Insufficient ad wallet balance. Need ₹${budget}, have ₹${shop.adWalletBalance}. Please top up your wallet.`, 402);
+      }
+
+      const newBalance = shop.adWalletBalance - budget;
+      
+      // Deduct budget upfront
+      await tx.shop.update({
+        where: { id: shopId },
+        data: { adWalletBalance: newBalance }
       });
-    } else {
-      campaign = await prisma.promotedListing.create({
+
+      await tx.sellerAdWalletTransaction.create({
         data: {
           shopId,
-          productId,
-          budget,
-          spent: 0,
-          bidPerClick,
-          impressions: 0,
-          clicks: 0,
-          startDate,
-          endDate,
-          targetGender,
-          isActive: true,
-        },
-        include: {
-          product: { select: { id: true, name: true, images: true, price: true } },
-          shop: { select: { id: true, name: true, logo: true, coverImage: true } },
-        },
+          type: 'AD_SPEND_DEBIT',
+          amount: budget,
+          direction: 'DEBIT',
+          balanceAfter: newBalance,
+          description: `Upfront budget deduction for ad campaign (Product: ${productId})`,
+          referenceType: 'AD_CAMPAIGN',
+        }
       });
-    }
+
+      const existing = await tx.promotedListing.findUnique({
+        where: { productId },
+      });
+
+      if (existing) {
+        return await tx.promotedListing.update({
+          where: { productId },
+          data: {
+            budget: existing.budget + budget, // Add to existing budget
+            spent: existing.spent,
+            bidPerClick,
+            startDate,
+            endDate,
+            targetGender,
+            isActive: true,
+          },
+          include: {
+            product: { select: { id: true, name: true, images: true, price: true } },
+            shop: { select: { id: true, name: true, logo: true, coverImage: true } },
+          },
+        });
+      } else {
+        return await tx.promotedListing.create({
+          data: {
+            shopId,
+            productId,
+            budget,
+            spent: 0,
+            bidPerClick,
+            impressions: 0,
+            clicks: 0,
+            startDate,
+            endDate,
+            targetGender,
+            isActive: true,
+          },
+          include: {
+            product: { select: { id: true, name: true, images: true, price: true } },
+            shop: { select: { id: true, name: true, logo: true, coverImage: true } },
+          },
+        });
+      }
+    });
 
     await cacheDelete(`shop:${shopId}:ads`);
     return campaign;
@@ -424,15 +450,6 @@ export class AdsService {
               })
             }
           }));
-
-          // DEDUCT FROM SHOP WALLET
-          // This is critical to prevent infinite free ads
-          if (clickCount > 0 && totalCost > 0 && campaign.shopId) {
-            ops.push(prisma.shop.update({
-              where: { id: campaign.shopId },
-              data: { adWalletBalance: { decrement: totalCost } }
-            }));
-          }
         }
 
         // Write daily rollup for trend data (upsert so it's idempotent)
@@ -661,19 +678,47 @@ export class AdsService {
       throw new AppError('Additional budget must be at least ₹100', 400);
     }
 
-    const ad = await prisma.promotedListing.findUnique({ where: { id: adId } });
-    if (!ad) throw new AppError('Ad not found', 404);
+    return prisma.$transaction(async (tx) => {
+      const ad = await tx.promotedListing.findUnique({ 
+        where: { id: adId },
+        include: { shop: true }
+      });
+      if (!ad) throw new AppError('Ad not found', 404);
 
-    const now = new Date();
-    const startDate = ad.endDate > now ? ad.endDate : now;
+      if (ad.shop.adWalletBalance < additionalBudget) {
+        throw new AppError(`Insufficient ad wallet balance. Need ₹${additionalBudget}, have ₹${ad.shop.adWalletBalance}. Please top up your wallet.`, 402);
+      }
 
-    return prisma.promotedListing.update({
-      where: { id: adId },
-      data: {
-        budget: { increment: additionalBudget },
-        isActive: true,
-        endDate: new Date(startDate.getTime() + durationDays * 24 * 60 * 60 * 1000),
-      },
+      const newBalance = ad.shop.adWalletBalance - additionalBudget;
+
+      await tx.shop.update({
+        where: { id: ad.shopId },
+        data: { adWalletBalance: newBalance }
+      });
+
+      await tx.sellerAdWalletTransaction.create({
+        data: {
+          shopId: ad.shopId,
+          type: 'AD_SPEND_DEBIT',
+          amount: additionalBudget,
+          direction: 'DEBIT',
+          balanceAfter: newBalance,
+          description: `Upfront budget renewal for ad campaign (Ad: ${ad.id})`,
+          referenceType: 'AD_CAMPAIGN',
+        }
+      });
+
+      const now = new Date();
+      const startDate = ad.endDate > now ? ad.endDate : now;
+
+      return tx.promotedListing.update({
+        where: { id: adId },
+        data: {
+          budget: { increment: additionalBudget },
+          isActive: true,
+          endDate: new Date(startDate.getTime() + durationDays * 24 * 60 * 60 * 1000),
+        },
+      });
     });
   }
 

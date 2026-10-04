@@ -288,6 +288,9 @@ export default function BuyerOrdersScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [orders, setOrders] = useState<BuyerOrder[]>([]);
   const [tab, setTab] = useState<'ALL' | 'ACTIVE' | 'HISTORY'>('ALL');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const { onScroll, onScrollEndDrag, onMomentumScrollEnd, scrollEventThrottle } =
     useHideTabBarOnScroll();
@@ -318,28 +321,49 @@ export default function BuyerOrdersScreen() {
     transform: [{ translateY: translateYAnim.value }],
   }));
 
-  const loadOrders = useCallback(async (isRefresh = false) => {
+  const loadOrders = useCallback(async (isRefresh = false, pageNum = 1) => {
     try {
-      isRefresh ? setRefreshing(true) : setLoading(true);
-      const res = await orderService.getMyOrders(1);
+      if (isRefresh) {
+        setRefreshing(true);
+      } else if (pageNum === 1) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+
+      const res = await orderService.getMyOrders(pageNum);
       const payload = res?.data || {};
       const list: BuyerOrder[] = Array.isArray(payload)
         ? payload
         : Array.isArray(payload.orders)
         ? payload.orders
         : [];
-      setOrders(list);
+      
+      if (pageNum === 1) {
+        setOrders(list);
+      } else {
+        setOrders(prev => {
+          const existingIds = new Set(prev.map(o => o.id));
+          const newOrders = list.filter(o => !existingIds.has(o.id));
+          return [...prev, ...newOrders];
+        });
+      }
+      
+      setHasMore(list.length > 0);
+      setPage(pageNum);
+
     } catch {
-      setOrders([]);
+      if (pageNum === 1) setOrders([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }
   }, []);
 
   useEffect(() => { 
     if (isAuthenticated) {
-      loadOrders(); 
+      loadOrders(false, 1); 
     }
   }, [loadOrders, isAuthenticated]);
 
@@ -485,11 +509,24 @@ export default function BuyerOrdersScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => loadOrders(true)}
+            onRefresh={() => loadOrders(true, 1)}
             colors={['#2563EB']}
             tintColor="#2563EB"
             progressBackgroundColor={card}
           />
+        }
+        onEndReached={() => {
+          if (hasMore && !loadingMore && !loading && !refreshing) {
+            loadOrders(false, page + 1);
+          }
+        }}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={
+          loadingMore ? (
+            <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color="#2563EB" />
+            </View>
+          ) : null
         }
         renderItem={({ item, index }) => (
           <OrderCard

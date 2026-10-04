@@ -85,7 +85,7 @@ export class NotificationService {
     title: string;
     body?: string;
     description?: string;
-    type: 'ORDER' | 'REVIEW' | 'PROMOTION' | 'DELIVERY' | 'SYSTEM' | 'FLASH_SALE' | 'NEW_PRODUCT';
+    type: 'ORDER' | 'REVIEW' | 'PROMOTION' | 'DELIVERY' | 'SYSTEM' | 'FLASH_SALE' | 'NEW_PRODUCT' | 'REFERRAL_REWARD' | 'WALLET_ALERT';
     relatedId?: string;
     icon?: string;
     image?: string;

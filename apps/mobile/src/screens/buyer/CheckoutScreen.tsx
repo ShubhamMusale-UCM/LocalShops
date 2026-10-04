@@ -34,6 +34,7 @@ import { useCartStore } from '../../store/cartStore';
 import paymentService from '../../services/paymentService';
 import api from '../../services/api';
 import telemetryService from '../../services/telemetryService';
+import { walletService } from '../../services/walletService';
 import { GlassPanel, GlassCard, GlassButton } from '../../components/ui/Glassmorphism';
 import AmbientOrbs from '../../components/ui/AmbientOrbs';
 import { BlurView } from 'expo-blur';
@@ -794,6 +795,18 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
   } | null>(null);
   const [promoFocused, setPromoFocused] = useState(false);
 
+  const [useCoins, setUseCoins] = useState(false);
+  const [maxCoinsUsable, setMaxCoinsUsable] = useState(0);
+  const [walletBalance, setWalletBalance] = useState(0);
+
+  useEffect(() => {
+    walletService.calculateUsage(total).then((res) => {
+      setMaxCoinsUsable(res.coinsUsed);
+      setWalletBalance(res.walletBalance);
+      if (res.coinsUsed === 0) setUseCoins(false);
+    }).catch(console.error);
+  }, [total]);
+
   const scrollRef = useRef<ScrollView>(null);
   const orderRequestInFlightRef = useRef(false);
 
@@ -891,7 +904,8 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
   ];
 
   const deliveryFee = 0; // Booking only
-  const finalTotal = (appliedPromo ? total - appliedPromo.discount : total) + deliveryFee;
+  const coinDiscount = useCoins ? maxCoinsUsable : 0;
+  const finalTotal = (appliedPromo ? total - appliedPromo.discount : total) + deliveryFee - coinDiscount;
   const itemCount = cartItems.reduce(
     (sum: number, item: CartItem) => sum + item.quantity,
     0
@@ -938,7 +952,8 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
           pincode: selectedPincode,
         },
         paymentMethod: (selectedPayment === 'cod' ? 'COD' : 'ONLINE') as 'COD' | 'ONLINE',
-        deliveryType: 'PICKUP', // Booking only
+        deliveryType: 'PICKUP' as const, // Booking only
+        coinsToUse: coinDiscount,
       };
 
       if (selectedPayment === 'razorpay') {
@@ -1083,6 +1098,33 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
   // ─── Payment Section ───────────
   const renderPaymentSection = () => (
     <SectionCard delay={200}>
+      {walletBalance > 0 && maxCoinsUsable > 0 && (
+        <View style={{ marginBottom: 20, paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={[styles.sectionIconBg, { backgroundColor: 'rgba(56, 189, 248, 0.1)', width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' }]}>
+                <Ionicons name="wallet" size={18} color="#38BDF8" />
+              </View>
+              <View style={{ marginLeft: 12 }}>
+                <Text style={[styles.sectionTitle, { fontSize: 16 }]}>Use City Coins</Text>
+                <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: 2 }}>Balance: ₹{walletBalance.toFixed(2)}</Text>
+              </View>
+            </View>
+            <TouchableOpacity 
+              onPress={() => setUseCoins(!useCoins)}
+              style={{ width: 44, height: 24, borderRadius: 12, backgroundColor: useCoins ? '#38BDF8' : 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: useCoins ? 'flex-end' : 'flex-start', paddingHorizontal: 2, borderWidth: 1, borderColor: useCoins ? '#38BDF8' : 'rgba(255,255,255,0.2)' }}
+            >
+              <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFF' }} />
+            </TouchableOpacity>
+          </View>
+          {useCoins && (
+            <Text style={{ color: '#10B981', fontSize: 13, marginTop: 8, marginLeft: 48, fontFamily: 'Outfit_500Medium' }}>
+              - ₹{maxCoinsUsable.toFixed(2)} applied to this order
+            </Text>
+          )}
+        </View>
+      )}
+
       <View style={styles.sectionHeaderLeft}>
         <View style={[styles.sectionIconBg, { backgroundColor: '#EFF6FF' }]}>
           <Ionicons name="card" size={18} color={colors.info} />

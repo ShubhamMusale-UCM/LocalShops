@@ -25,6 +25,7 @@ import AddServicesScreen from '../screens/seller/AddServicesScreen';
 import StoreSettingsScreen from '../screens/seller/StoreSettingsScreen';
 import ManageFlashSalesScreen from '../screens/seller/ManageFlashSalesScreen';
 import SellerAudienceScreen from '../screens/seller/SellerAudienceScreen';
+import SellerAdWalletScreen from '../screens/seller/SellerAdWalletScreen';
 import { orderService } from '../services/orderService';
 import { getPrimarySellerShop } from '../services/sellerShopContext';
 
@@ -176,6 +177,7 @@ export const SellerStackNavigator = () => (
       component={EarningsBreakdownScreen}
     />
     <SellerStack.Screen name="Subscription" component={SubscriptionScreen} />
+    <SellerStack.Screen name="SellerAdWallet" component={SellerAdWalletScreen} />
     <SellerStack.Screen name="SellerTermsConditions" component={SellerTermsConditionsScreen} />
     <SellerStack.Screen name="SellerPrivacyPolicy" component={SellerPrivacyPolicyScreen} />
     <SellerStack.Screen name="SellerHelpSupport" component={SellerHelpSupportScreen} />

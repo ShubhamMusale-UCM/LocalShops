@@ -35,6 +35,6 @@ export const orderQuerySchema = z.object({
     'PLACED', 'CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP',
     'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'REFUNDED',
   ]).optional(),
-  page: z.string().transform(Number).pipe(z.number().positive()).optional(),
-  limit: z.string().transform(Number).pipe(z.number().positive().max(50)).optional(),
+  page: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().positive().max(50).optional(),
 });

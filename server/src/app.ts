@@ -32,6 +32,7 @@ import adsRoutes from './modules/ads/ads.routes';
 import subscriptionRoutes from './modules/subscription/subscription.routes';
 import systemRoutes from './modules/system/system.routes';
 import flashSaleRoutes from './modules/flashsale/flashsale.routes';
+import walletRoutes from './modules/wallet/wallet.routes';
 
 const app = express();
 const httpServer = createServer(app);
@@ -43,7 +44,10 @@ app.set('trust proxy', 1);
 // ============= MIDDLEWARE =============
 
 // Security
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: false,
+  crossOriginEmbedderPolicy: false
+}));
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
   credentials: true,
@@ -104,6 +108,7 @@ app.use('/api/ads', adsRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/flash-sales', flashSaleRoutes);
+app.use('/api/wallet', walletRoutes);
 
 // Expose uploaded media for local/dev storage fallback.
 app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
@@ -119,6 +124,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import OrderUpdatesSocket from './websockets/orderUpdates.ws';
 
 import cronService from './services/cron.service';
+import { initializeBackgroundJobs } from './jobs/index';
 
 export let orderSocket: OrderUpdatesSocket;
 
@@ -132,6 +138,9 @@ const startServer = async () => {
     
     // Start Cron Jobs
     cronService.start();
+
+    // Start BullMQ background jobs (wallet expiry, analytics sync, etc)
+    await initializeBackgroundJobs();
 
     // Start HTTP server
     httpServer.listen(PORT, () => {

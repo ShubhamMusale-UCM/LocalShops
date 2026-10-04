@@ -54,7 +54,13 @@ export class ReviewService {
     if (data.productId) await this.updateProductRating(data.productId);
 
     await cacheDelete(`shop:${data.shopId}`);
-    if (data.productId) await cacheDelete(`product:${data.productId}`);
+    await cacheDeletePattern(`cache:*/api/products/shop/${data.shopId}*`);
+    await cacheDeletePattern(`cache:*/api/shops/${data.shopId}*`);
+    
+    if (data.productId) {
+      await cacheDelete(`product:${data.productId}`);
+      await cacheDeletePattern(`cache:*/api/products/${data.productId}*`);
+    }
 
     // Notify seller of the new review
     await notificationService.notifyNewReview(review.id);
