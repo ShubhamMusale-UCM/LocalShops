@@ -6,17 +6,13 @@ import {
   StyleSheet,
   ViewStyle,
   Easing,
+  Easing,
   Platform,
 } from 'react-native';
+import { useTheme } from '../../theme';
 
-// ─── Design Tokens ────────────────────────────────────────────────────────────
+// ─── Design Tokens (Radius & Shadow only, Colors moved to theme) ───
 const DESIGN = {
-  colors: {
-    base: '#EEF2F6',
-    highlight: '#F8FAFC',
-    card: '#FFFFFF',
-    cardBorder: '#F1F5F9',
-  },
   radius: {
     sm: 8,
     md: 12,
@@ -53,6 +49,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
   shimmer = true,
   animate = true,
 }) => {
+  const { colors, isDarkMode } = useTheme();
   const shimmerAnim = useRef(new Animated.Value(-1)).current;
   const pulseAnim = useRef(new Animated.Value(0.3)).current;
 
@@ -105,7 +102,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
             width: width as any,
             height,
             borderRadius,
-            backgroundColor: DESIGN.colors.base,
+            backgroundColor: colors.skeleton,
             opacity: pulseAnim,
           },
           style,
@@ -127,7 +124,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
           width: width as any,
           height,
           borderRadius,
-          backgroundColor: DESIGN.colors.base,
+          backgroundColor: colors.skeleton,
           overflow: 'hidden',
         },
         style,
@@ -138,7 +135,10 @@ export const Skeleton: React.FC<SkeletonProps> = ({
           style={[
             StyleSheet.absoluteFillObject,
             styles.shimmerOverlay,
-            { transform: [{ translateX }] },
+            { 
+              transform: [{ translateX }],
+              backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.55)'
+            },
           ]}
         />
       )}
@@ -165,19 +165,20 @@ export const SkeletonRow: React.FC<{
   </View>
 );
 
-// ─── Skeleton Card ────────────────────────────────────────────────────────────
 export const SkeletonCard: React.FC<{
   style?: ViewStyle;
   imageHeight?: number;
   lines?: number;
-}> = ({ style, imageHeight = 160, lines = 3 }) => (
-  <View style={[styles.card, style, DESIGN.shadow]}>
-    {/* Image placeholder */}
-    <Skeleton
-      width="100%"
-      height={imageHeight}
-      borderRadius={0}
-    />
+}> = ({ style, imageHeight = 160, lines = 3 }) => {
+  const { colors } = useTheme();
+  return (
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }, style, DESIGN.shadow]}>
+      {/* Image placeholder */}
+      <Skeleton
+        width="100%"
+        height={imageHeight}
+        borderRadius={0}
+      />
 
     {/* Content */}
     <View style={styles.cardBody}>
@@ -226,17 +227,20 @@ export const SkeletonCard: React.FC<{
           borderRadius={DESIGN.radius.full}
         />
       </View>
+      </View>
     </View>
-  </View>
-);
+  );
+};
 
 // ─── Skeleton List Item ────────────────────────────────────────────────────────
 export const SkeletonListItem: React.FC<{
   style?: ViewStyle;
   avatar?: boolean;
   lines?: number;
-}> = ({ style, avatar = true, lines = 2 }) => (
-  <View style={[styles.listItem, style]}>
+}> = ({ style, avatar = true, lines = 2 }) => {
+  const { colors } = useTheme();
+  return (
+    <View style={[styles.listItem, { backgroundColor: colors.card, borderColor: colors.border }, style]}>
     {/* Avatar */}
     {avatar && (
       <Skeleton
@@ -265,7 +269,8 @@ export const SkeletonListItem: React.FC<{
       <Skeleton width={28} height={20} borderRadius={DESIGN.radius.md} />
     </View>
   </View>
-);
+  );
+};
 
 // ─── Skeleton Grid ────────────────────────────────────────────────────────────
 export const SkeletonGrid: React.FC<{
@@ -326,15 +331,12 @@ export const SkeletonChips: React.FC<{
 const styles = StyleSheet.create({
   shimmerOverlay: {
     width: '60%',
-    backgroundColor: 'rgba(255,255,255,0.55)',
     // Diagonal shimmer
     transform: [{ skewX: '-20deg' }],
   },
   card: {
-    backgroundColor: DESIGN.colors.card,
     borderRadius: DESIGN.radius.lg,
     borderWidth: 1,
-    borderColor: DESIGN.colors.cardBorder,
     overflow: 'hidden',
     marginBottom: 12,
   },
@@ -346,10 +348,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: DESIGN.colors.card,
     borderRadius: DESIGN.radius.md,
     borderWidth: 1,
-    borderColor: DESIGN.colors.cardBorder,
     marginBottom: 8,
   },
   row: {

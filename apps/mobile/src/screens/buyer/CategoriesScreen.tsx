@@ -71,6 +71,9 @@ const SUB_PALETTES = [
   { bg: '#FEFCE8', text: '#CA8A04' },
 ];
 
+const GRID_SPACING = 16;
+const TILE_SIZE = (SCREEN_WIDTH - GRID_SPACING * 4) / 3;
+
 const PressableScale: React.FC<{
   onPress?: () => void;
   style?: any;
@@ -126,17 +129,13 @@ export default function CategoriesScreen() {
     transform: [{ translateY: translateYAnim.value }],
   }));
 
-  const handleSubCategorySelect = useCallback(
-    (categoryId: string, subCategory?: string) => {
+  const handleCategorySelect = useCallback(
+    (categoryId: string) => {
       setCategory(categoryId);
       navigation.navigate('Search');
     },
     [setCategory, navigation],
   );
-
-  const activeCategory = useMemo(() => {
-    return CATEGORIES.find(c => c.id === activeCategoryId) || CATEGORIES[0];
-  }, [activeCategoryId]);
 
   // Global search filtering
   const searchResults = useMemo(() => {
@@ -213,89 +212,34 @@ export default function CategoriesScreen() {
           )}
         />
       ) : (
-        /* ─── Split-Screen Layout ─── */
-        <View style={styles.splitScreenContainer}>
-          {/* LEFT SIDEBAR */}
-          <View style={[styles.sidebar, { backgroundColor: isDarkMode ? colors.surface : '#F8FAFC', borderRightColor: colors.border }]}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}>
-              {CATEGORIES.map((cat) => {
-                const isActive = activeCategoryId === cat.id;
-                const catImg = CATEGORY_IMAGES[cat.id] || CATEGORY_IMAGES.grocery;
-
-                return (
-                  <TouchableOpacity
-                    key={cat.id}
-                    style={[
-                      styles.sidebarItem,
-                      { borderBottomColor: colors.border },
-                      isActive && [styles.sidebarItemActive, { backgroundColor: colors.card }]
-                    ]}
-                    activeOpacity={0.8}
-                    onPress={() => setActiveCategoryId(cat.id)}
-                  >
-                    {isActive && <View style={styles.activeIndicator} />}
-                    <View style={[styles.sidebarIconBox, { backgroundColor: isActive ? (isDarkMode ? 'rgba(13,148,136,0.3)' : '#CCFBF1') : (isDarkMode ? colors.background : '#F1F5F9') }]}>
-                      <Image source={catImg} style={styles.sidebarCategoryImage} resizeMode="contain" />
+        /* ─── 3-Column Grid Layout ─── */
+        <FlatList
+          data={CATEGORIES}
+          keyExtractor={(item) => item.id}
+          numColumns={3}
+          contentContainerStyle={{ padding: GRID_SPACING, paddingBottom: insets.bottom + 100 }}
+          columnWrapperStyle={{ gap: GRID_SPACING, marginBottom: GRID_SPACING }}
+          showsVerticalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={scrollEventThrottle}
+          renderItem={({ item, index }) => {
+            const catImg = CATEGORY_IMAGES[item.id] || CATEGORY_IMAGES.grocery;
+            return (
+              <Animated.View entering={FadeInDown.delay(index * 20).springify()}>
+                <PressableScale onPress={() => handleCategorySelect(item.id)}>
+                  <View style={[styles.categoryTile, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                    <View style={[styles.categoryTileIconBox, { backgroundColor: colors.background }]}>
+                      <Image source={catImg} style={styles.categoryTileImage} resizeMode="contain" />
                     </View>
-                    <Text style={[styles.sidebarText, { color: isActive ? '#0D9488' : colors.textSecondary }, isActive && styles.sidebarTextActive]}>
-                      {cat.name.split(' ')[0]}
+                    <Text style={[styles.categoryTileText, { color: colors.text }]} numberOfLines={2}>
+                      {item.name}
                     </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-
-          {/* RIGHT CONTENT AREA */}
-          <View style={[styles.mainContent, { backgroundColor: colors.background }]}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}>
-              {/* Category Header Banner */}
-              <View style={styles.categoryHeaderCard}>
-                <LinearGradient
-                  colors={isDarkMode ? ['#0F766E', '#0D9488'] : ['#CCFBF1', '#F0FDFA']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.categoryHeaderGradient}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.categoryHeaderTitle, { color: isDarkMode ? '#FFFFFF' : '#0F172A' }]}>{activeCategory.name}</Text>
-                    <Text style={[styles.categoryHeaderSub, { color: isDarkMode ? '#CCFBF1' : '#0D9488' }]}>{activeCategory.subCategories?.length || 0} sub-categories</Text>
                   </View>
-                  <View style={styles.categoryHeaderIconBox}>
-                    <Image source={CATEGORY_IMAGES[activeCategory.id] || CATEGORY_IMAGES.grocery} style={{ width: 32, height: 32 }} resizeMode="contain" />
-                  </View>
-                </LinearGradient>
-              </View>
-
-              {/* Sub-categories Grid */}
-              <View style={styles.subGridContainer}>
-                {activeCategory.subCategories && activeCategory.subCategories.length > 0 ? (
-                  activeCategory.subCategories.map((sub, idx) => {
-                    const pal = SUB_PALETTES[idx % SUB_PALETTES.length];
-                    const firstLetter = sub.charAt(0).toUpperCase();
-                    return (
-                      <Animated.View key={`${activeCategory.id}-${sub}`} entering={FadeInRight.delay(idx * 30).springify()} style={styles.subCardWrapper}>
-                        <PressableScale onPress={() => handleSubCategorySelect(activeCategory.id, sub)}>
-                          <View style={[styles.subCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                            <View style={[styles.subCardIcon, { backgroundColor: isDarkMode ? 'rgba(13,148,136,0.2)' : pal.bg }]}>
-                              <Text style={[styles.subCardMonogram, { color: isDarkMode ? '#6EE7B7' : pal.text }]}>{firstLetter}</Text>
-                            </View>
-                            <Text style={[styles.subCardTitle, { color: colors.text }]} numberOfLines={2}>{sub}</Text>
-                          </View>
-                        </PressableScale>
-                      </Animated.View>
-                    );
-                  })
-                ) : (
-                  <View style={styles.emptySubContainer}>
-                    <Ionicons name="folder-open-outline" size={32} color={colors.textSecondary} />
-                    <Text style={[styles.emptySubText, { color: colors.textSecondary }]}>No sub-categories available</Text>
-                  </View>
-                )}
-              </View>
-            </ScrollView>
-          </View>
-        </View>
+                </PressableScale>
+              </Animated.View>
+            );
+          }}
+        />
       )}
       
       <CircularSearchOverlay 
@@ -342,146 +286,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  splitScreenContainer: {
-    flex: 1,
-    flexDirection: 'row',
-  },
-  sidebar: {
-    width: 86,
-    borderRightWidth: 1,
-  },
-  sidebarItem: {
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 4,
-    position: 'relative',
-    borderBottomWidth: 1,
-  },
-  sidebarItemActive: {},
-  activeIndicator: {
-    position: 'absolute',
-    left: 0,
-    top: 10,
-    bottom: 10,
-    width: 4,
-    backgroundColor: '#0D9488',
-    borderTopRightRadius: 4,
-    borderBottomRightRadius: 4,
-  },
-  sidebarIconBox: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-    padding: 6,
-  },
-  sidebarCategoryImage: {
-    width: '100%',
-    height: '100%',
-  },
-  sidebarText: {
-    fontSize: 10,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  sidebarTextActive: {
-    fontWeight: '800',
-  },
-  mainContent: {
-    flex: 1,
-  },
-  categoryHeaderCard: {
-    margin: 12,
+  categoryTile: {
+    width: TILE_SIZE,
+    height: TILE_SIZE * 1.15,
     borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  categoryHeaderGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    justifyContent: 'space-between',
-  },
-  categoryHeaderTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    marginBottom: 4,
-    letterSpacing: -0.3,
-  },
-  categoryHeaderSub: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  categoryHeaderIconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  subGridContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 12,
-    justifyContent: 'space-between',
-  },
-  subCardWrapper: {
-    width: '48%',
-    marginBottom: 12,
-  },
-  subCard: {
     borderWidth: 1,
-    borderRadius: 16,
     padding: 12,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
-    minHeight: 110,
     justifyContent: 'center',
   },
-  subCardIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  categoryTileIconBox: {
+    width: TILE_SIZE * 0.5,
+    height: TILE_SIZE * 0.5,
+    borderRadius: (TILE_SIZE * 0.5) / 2,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
   },
-  subCardMonogram: {
-    fontSize: 18,
-    fontWeight: '900',
+  categoryTileImage: {
+    width: '65%',
+    height: '65%',
+    tintColor: '#22D3EE',
   },
-  subCardTitle: {
-    fontSize: 11,
-    fontWeight: '700',
+  categoryTileText: {
+    fontSize: 12,
+    fontWeight: '600',
     textAlign: 'center',
-    lineHeight: 14,
-  },
-  emptySubContainer: {
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 40,
-  },
-  emptySubText: {
-    marginTop: 12,
-    fontSize: 13,
-    fontWeight: '500',
+    lineHeight: 16,
   },
   searchResultItem: {
     flexDirection: 'row',

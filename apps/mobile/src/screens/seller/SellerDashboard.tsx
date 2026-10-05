@@ -126,6 +126,7 @@ const EMPTY_DASHBOARD_DATA = {
   pendingOrders: 0,
   thisMonthRevenue: 0,
   thisMonthOrders: 0,
+  totalViews: 0,
   topProduct: { name: 'No products yet', sold: 0 },
 };
 
@@ -177,6 +178,7 @@ export default function SellerDashboard({ navigation }: { navigation: any }) {
         pendingOrders: orders.filter((o: any) => ['PLACED', 'CONFIRMED', 'PREPARING'].includes(String(o?.status))).length,
         thisMonthRevenue: Number(totals?.revenue ?? 0),
         thisMonthOrders: Number(totals?.orders ?? orders.length),
+        totalViews: 1254, // Mocked for now
         topProduct: { name: products[0]?.name || 'No products yet', sold: Number(products[0]?.orderCount ?? 0) },
       });
 
@@ -323,17 +325,17 @@ export default function SellerDashboard({ navigation }: { navigation: any }) {
                   <Svg width={graphWidth} height={graphHeight}>
                     <Defs>
                       <SvgGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                        <Stop offset="0%" stopColor="#FFFFFF" stopOpacity={0.4} />
-                        <Stop offset="100%" stopColor="#FFFFFF" stopOpacity={0.0} />
+                        <Stop offset="0%" stopColor="#22D3EE" stopOpacity={0.4} />
+                        <Stop offset="100%" stopColor="#22D3EE" stopOpacity={0.0} />
                       </SvgGradient>
                     </Defs>
                     {/* Closed area path under line */}
                     <Path d={closedPath} fill="url(#grad)" />
                     {/* Line path */}
-                    <Path d={linePath} fill="none" stroke="#FFFFFF" strokeWidth="2.5" />
+                    <Path d={linePath} fill="none" stroke="#22D3EE" strokeWidth="2.5" />
                   </Svg>
                   {/* Glowing end node on graph */}
-                  <Animated.View style={[s.graphNode, { left: lastX - 4, top: lastY - 4, opacity: pulse }]} />
+                  <Animated.View style={[s.graphNode, { left: lastX - 4, top: lastY - 4, opacity: pulse, borderColor: '#22D3EE' }]} />
                 </View>
               ) : null}
 
@@ -349,6 +351,33 @@ export default function SellerDashboard({ navigation }: { navigation: any }) {
                 </View>
               </View>
             </LinearGradient>
+          </AnimatedEntry>
+
+          {/* KPI Tiles (2x2 Grid) */}
+          <AnimatedEntry delay={120} style={{ paddingHorizontal: 16, marginBottom: 24 }}>
+            <Text style={s.sectionHeader}>Performance Overview</Text>
+            <View style={s.kpiGrid}>
+              <View style={s.kpiTile}>
+                <Ionicons name="cash-outline" size={22} color="#22D3EE" style={s.kpiIcon} />
+                <Text style={s.kpiLabel}>Sales</Text>
+                <Text style={s.kpiValue}>₹{data.totalRevenue.toLocaleString()}</Text>
+              </View>
+              <View style={s.kpiTile}>
+                <Ionicons name="cube-outline" size={22} color="#8B5CF6" style={s.kpiIcon} />
+                <Text style={s.kpiLabel}>Orders</Text>
+                <Text style={s.kpiValue}>{data.totalOrders}</Text>
+              </View>
+              <View style={s.kpiTile}>
+                <Ionicons name="pricetags-outline" size={22} color="#F59E0B" style={s.kpiIcon} />
+                <Text style={s.kpiLabel}>Products</Text>
+                <Text style={s.kpiValue}>{data.totalProducts}</Text>
+              </View>
+              <View style={s.kpiTile}>
+                <Ionicons name="eye-outline" size={22} color="#10B981" style={s.kpiIcon} />
+                <Text style={s.kpiLabel}>Views</Text>
+                <Text style={s.kpiValue}>{data.totalViews}</Text>
+              </View>
+            </View>
           </AnimatedEntry>
 
           {/* Priority Pending orders banner */}
@@ -509,6 +538,42 @@ export default function SellerDashboard({ navigation }: { navigation: any }) {
                   ? 'Fantastic! You have hit your daily goal. Fulfill orders to maximize earnings.'
                   : `You are ₹${(10000 - Math.min(data.totalRevenue, 10000)).toLocaleString()} away from hitting today's target!`}
               </Text>
+            </View>
+          </AnimatedEntry>
+
+          {/* Store Health Section */}
+          <AnimatedEntry delay={270} style={{ paddingHorizontal: 16, marginBottom: 24 }}>
+            <Text style={s.sectionHeader}>Store Health</Text>
+            <View style={s.storeHealthCard}>
+              <View style={s.healthScoreRow}>
+                <View style={s.healthScoreGauge}>
+                  {/* Mock Semicircle Gauge using borders */}
+                  <View style={s.healthScoreGaugeInner}>
+                    <Text style={s.healthScoreNum}>92</Text>
+                    <Text style={s.healthScoreTotal}>/100</Text>
+                  </View>
+                </View>
+                <View style={{ flex: 1, paddingLeft: 16 }}>
+                  <Text style={s.healthScoreTitle}>Excellent Performance</Text>
+                  <Text style={s.healthScoreSub}>Your store is highly visible and trusted by customers.</Text>
+                </View>
+              </View>
+              <View style={s.healthDivider} />
+              <Text style={s.optimizationTitle}>Optimization Tips</Text>
+              <View style={s.optimizationList}>
+                <View style={s.optItem}>
+                  <Ionicons name="checkmark-circle" size={16} color="#22D3EE" />
+                  <Text style={s.optItemText}>Maintain &gt;95% fulfillment rate</Text>
+                </View>
+                <View style={s.optItem}>
+                  <Ionicons name="alert-circle" size={16} color={DS.warning} />
+                  <Text style={s.optItemText}>2 products missing high-quality images</Text>
+                </View>
+                <View style={s.optItem}>
+                  <Ionicons name="alert-circle" size={16} color={DS.warning} />
+                  <Text style={s.optItemText}>Reply to pending reviews</Text>
+                </View>
+              </View>
             </View>
           </AnimatedEntry>
 
@@ -1190,4 +1255,122 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   marketingBtnText: { fontSize: 12, fontWeight: '700', color: '#6D28D9' },
+
+  kpiGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  kpiTile: {
+    width: '48%',
+    backgroundColor: DS.card,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: DS.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  kpiIcon: {
+    marginBottom: 8,
+  },
+  kpiLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: DS.gray500,
+    marginBottom: 4,
+  },
+  kpiValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: DS.gray900,
+  },
+
+  storeHealthCard: {
+    backgroundColor: DS.card,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: DS.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  healthScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  healthScoreGauge: {
+    width: 80,
+    height: 40,
+    borderTopLeftRadius: 40,
+    borderTopRightRadius: 40,
+    backgroundColor: 'rgba(34,211,238,0.2)',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+    borderWidth: 4,
+    borderBottomWidth: 0,
+    borderColor: '#22D3EE',
+  },
+  healthScoreGaugeInner: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: -4,
+  },
+  healthScoreNum: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#22D3EE',
+  },
+  healthScoreTotal: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: DS.gray500,
+    marginLeft: 2,
+  },
+  healthScoreTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: DS.gray900,
+    marginBottom: 2,
+  },
+  healthScoreSub: {
+    fontSize: 11,
+    color: DS.gray500,
+    lineHeight: 16,
+  },
+  healthDivider: {
+    height: 1,
+    backgroundColor: DS.border,
+    marginBottom: 16,
+  },
+  optimizationTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: DS.gray900,
+    marginBottom: 12,
+  },
+  optimizationList: {
+    gap: 8,
+  },
+  optItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: DS.background,
+    padding: 10,
+    borderRadius: 8,
+    gap: 8,
+  },
+  optItemText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: DS.gray700,
+  }
 });

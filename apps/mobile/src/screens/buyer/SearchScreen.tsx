@@ -19,9 +19,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { SkeletonCard } from '../../components/ui/Skeleton';
+import { ProductCard } from '../../components/ui/ProductCard';
 import { useSearchStore } from '../../store/searchStore';
 import { useLocationStore } from '../../store/locationStore';
 import { useWishlistStore } from '../../store/wishlistStore';
@@ -39,16 +39,22 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: '#050814',
+      backgroundColor: '#0A0F1A',
+    },
+    headerWrapper: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      zIndex: 50,
+      borderBottomWidth: 1,
+      borderBottomColor: 'rgba(255,255,255,0.08)',
     },
     searchBarWrapper: {
       flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: 16,
       paddingBottom: 10,
-      backgroundColor: 'transparent',
-      borderBottomWidth: 1,
-      borderBottomColor: 'rgba(255,255,255,0.05)',
       gap: 10,
     },
     backIconBtn: {
@@ -481,34 +487,34 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       width: 88,
       height: 88,
       borderRadius: 44,
-      backgroundColor: 'rgba(56, 189, 248, 0.1)',
+      backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.1)' : 'rgba(14, 165, 233, 0.1)',
       alignItems: 'center',
       justifyContent: 'center',
       marginBottom: 20,
       borderWidth: 1,
-      borderColor: 'rgba(56, 189, 248, 0.2)',
+      borderColor: isDarkMode ? 'rgba(56, 189, 248, 0.2)' : 'rgba(14, 165, 233, 0.2)',
     },
     emptyTitle: {
       fontSize: 20,
       fontFamily: 'Outfit_800ExtraBold',
-      color: '#FFFFFF',
+      color: colors.text,
       letterSpacing: -0.3,
       marginBottom: 8,
     },
     emptySubtitle: {
       fontSize: 14,
-      color: 'rgba(255,255,255,0.6)',
+      color: colors.textSecondary,
       textAlign: 'center',
       lineHeight: 20,
       marginBottom: 6,
     },
     emptyQuery: {
       fontFamily: 'Inter_700Bold',
-      color: '#FFFFFF',
+      color: colors.text,
     },
     emptyHint: {
       fontSize: 13,
-      color: 'rgba(255,255,255,0.4)',
+      color: colors.textTertiary,
       textAlign: 'center',
       lineHeight: 19,
       marginBottom: 24,
@@ -538,23 +544,23 @@ const getStyles = (colors: ReturnType<typeof useTheme>['colors'], radius: Return
       width: 72,
       height: 72,
       borderRadius: 36,
-      backgroundColor: 'rgba(56, 189, 248, 0.1)',
+      backgroundColor: isDarkMode ? 'rgba(56, 189, 248, 0.1)' : 'rgba(14, 165, 233, 0.1)',
       alignItems: 'center',
       justifyContent: 'center',
       marginBottom: 16,
       borderWidth: 1,
-      borderColor: 'rgba(56, 189, 248, 0.2)',
+      borderColor: isDarkMode ? 'rgba(56, 189, 248, 0.2)' : 'rgba(14, 165, 233, 0.2)',
     },
     initialTitle: {
       fontSize: 22,
       fontFamily: 'Outfit_800ExtraBold',
-      color: '#FFFFFF',
+      color: colors.text,
       letterSpacing: -0.4,
       marginBottom: 6,
     },
     initialSubtitle: {
       fontSize: 14,
-      color: 'rgba(255,255,255,0.6)',
+      color: colors.textSecondary,
       textAlign: 'center',
       lineHeight: 20,
       marginBottom: 28,
@@ -772,184 +778,7 @@ const RecentSearchItem: React.FC<{
   );
 };
 
-// ─── Product Card ─────────────────────────────────────────────────────────────
-const ProductCard: React.FC<{
-  item: any;
-  index: number;
-  onPress: () => void;
-  isWishlisted: boolean;
-  onToggleWishlist: () => void;
-}> = ({ item, index, onPress, isWishlisted, onToggleWishlist }) => {
-  const { colors, radius, shadows, isDarkMode } = useTheme();
-  const styles = getStyles(colors, radius, shadows, isDarkMode);
-  const entryAnim = useRef(new Animated.Value(0)).current;
-  const entryTranslate = useRef(new Animated.Value(24)).current;
-  const pressScale = useRef(new Animated.Value(1)).current;
-  const [imageError, setImageError] = useState(false);
-
-  const hasDiscount = item.discount > 0;
-  const hasDistance = item.shopDistance_km !== undefined;
-  const isSponsored = Boolean(item.isSponsored);
-  const imageUri = getProductImageUrl(item.images);
-  const showImage = imageUri && !imageError;
-
-  useEffect(() => {
-    setImageError(false);
-  }, [imageUri]);
-
-  useEffect(() => {
-    setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(entryAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.spring(entryTranslate, {
-          toValue: 0,
-          damping: 14,
-          stiffness: 140,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }, Math.min(index * 80, 400));
-  }, []);
-
-  const handlePressIn = () => {
-    Animated.spring(pressScale, {
-      toValue: 0.96,
-      damping: 14,
-      stiffness: 300,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(pressScale, {
-      toValue: 1,
-      damping: 12,
-      stiffness: 200,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const originalPrice = hasDiscount
-    ? Math.round(item.price / (1 - item.discount / 100))
-    : null;
-
-  return (
-    <Animated.View
-      style={{
-        opacity: entryAnim,
-        transform: [{ translateY: entryTranslate }, { scale: pressScale }],
-        width: CARD_WIDTH,
-        marginBottom: 12,
-      }}
-    >
-      <Pressable
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        style={styles.productCard}
-        accessibilityRole="button"
-        accessibilityLabel={`${item.name}, ${formatPrice(item.price)}`}
-      >
-        {/* Image area */}
-        <View style={styles.productImageBox}>
-          {showImage ? (
-            <Image
-              source={{ uri: imageUri }}
-              style={styles.productPhoto}
-              resizeMode="contain"
-              onError={() => setImageError(true)}
-            />
-          ) : (
-            <View style={styles.productImageFallback}>
-              <Ionicons name="cube-outline" size={32} color={colors.primary} />
-            </View>
-          )}
-
-          {/* Gradient overlay at bottom of image */}
-          <View style={styles.imageGradient} />
-
-          {/* Discount badge */}
-          {hasDiscount && (
-            <View style={styles.discountBadge}>
-              <Text style={styles.discountText}>{item.discount}% OFF</Text>
-            </View>
-          )}
-
-          {isSponsored && (
-            <View style={styles.sponsoredBadge}>
-              <Ionicons name="megaphone" size={10} color="#FFFFFF" />
-              <Text style={styles.sponsoredText}>Sponsored</Text>
-            </View>
-          )}
-
-          {/* Wishlist button */}
-          <TouchableOpacity
-            onPress={(event: any) => {
-              event?.stopPropagation?.();
-              onToggleWishlist();
-            }}
-            style={styles.wishlistBtn}
-            hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-          >
-            <Ionicons name={isWishlisted ? 'heart' : 'heart-outline'} size={14} color={isWishlisted ? colors.error : colors.textSecondary} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Info area */}
-        <View style={styles.productInfo}>
-          {/* Shop name */}
-          {item.shop?.name ? (
-            <View style={styles.shopRow}>
-              <Ionicons name="storefront-outline" size={11} color={colors.textSecondary} />
-              <Text style={styles.productShop} numberOfLines={1}>
-                {item.shop.name}
-              </Text>
-            </View>
-          ) : null}
-
-          {/* Product name */}
-          <Text style={styles.productName} numberOfLines={2}>
-            {item.name}
-          </Text>
-
-          {/* Price row */}
-          <View style={styles.priceRow}>
-            <Text style={styles.productPrice}>{formatPrice(item.price)}</Text>
-            {originalPrice ? (
-              <Text style={styles.originalPrice}>
-                {formatPrice(originalPrice)}
-              </Text>
-            ) : null}
-          </View>
-
-          {/* Distance + rating row */}
-          <View style={styles.metaRow}>
-            {item.averageRating ? (
-              <View style={styles.ratingPill}>
-                <Ionicons name="star" size={9} color={colors.warning || '#F59E0B'} />
-                <Text style={styles.ratingText}>
-                  {item.averageRating.toFixed(1)}
-                </Text>
-              </View>
-            ) : null}
-            {hasDistance ? (
-              <View style={styles.distancePill}>
-                <Ionicons name="location-outline" size={9} color={colors.primary} />
-                <Text style={styles.distanceText}>
-                  {formatDistance(item.shopDistance_km)}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-        </View>
-      </Pressable>
-    </Animated.View>
-  );
-};
+// ─── Removed inline ProductCard ───
 
 // ─── Empty State ──────────────────────────────────────────────────────────────
 const EmptyState: React.FC<{
@@ -1358,79 +1187,86 @@ const SearchScreen = () => {
     [toggleWishlistItem],
   );
 
-  // ── Render: Search bar ──
-  const renderSearchBar = () => (
+  // ── Render: Header & Sticky Filter Bar ──
+  const categoryObj = CATEGORIES.find(c => c.id === selectedCategory);
+  const headerTitle = categoryObj ? categoryObj.name : 'Search Products';
+
+  const renderHeader = () => (
     <Animated.View
       style={[
         styles.searchBarWrapper,
         {
-          opacity: headerOpacity,
-          transform: [{ scale: searchBarScale }],
           paddingTop: insets.top + (Platform.OS === 'android' ? 8 : 0),
+          backgroundColor: colors.card,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          gap: 0,
+          paddingHorizontal: 0,
         },
       ]}
     >
-      {/* Back button */}
-      <Pressable
-        onPress={() => navigation.goBack()}
-        style={styles.backIconBtn}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        accessibilityLabel="Go back"
-      >
-        <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
-      </Pressable>
+      {/* Top Header Row: Back + Title */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 12, height: 48 }}>
+        <Pressable
+          onPress={() => navigation.goBack()}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
+        </Pressable>
+        <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text, marginLeft: 16 }}>
+          {headerTitle}
+        </Text>
+      </View>
 
-      {/* Search input container */}
-      <Animated.View style={[styles.searchBar, isFocused && styles.searchBarFocused]}>
-        <Ionicons
-          name="search-outline"
-          size={18}
-          color={isFocused ? colors.primary : colors.textSecondary}
-        />
-        <TextInput
-          ref={inputRef}
-          style={styles.searchInput}
-          placeholder="Search products, shops..."
-          placeholderTextColor={colors.textSecondary}
-          autoFocus={false}
-          showSoftInputOnFocus
-          value={query}
-          onChangeText={handleSearch}
-          onFocus={() => {
-            setIsFocused(true);
-            handleFocusAnim(true);
-          }}
-          onBlur={() => {
-            setIsFocused(false);
-            handleFocusAnim(false);
-          }}
-          returnKeyType="search"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        {query.length > 0 && (
-          <Pressable
-            onPress={handleClearSearch}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            style={styles.clearBtn}
-          >
-            <View style={styles.clearCircle}>
-              <Ionicons name="close" size={10} color="#FFFFFF" />
-            </View>
-          </Pressable>
-        )}
-      </Animated.View>
+      {/* Sticky Top Bar: Search & Filter */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 12, gap: 10 }}>
+        {/* Search Input */}
+        <View style={[styles.searchBar, isFocused && styles.searchBarFocused, { flex: 1 }]}>
+          <Ionicons
+            name="search-outline"
+            size={18}
+            color={isFocused ? colors.primary : colors.textSecondary}
+          />
+          <TextInput
+            ref={inputRef}
+            style={[styles.searchInput, { color: colors.text }]}
+            placeholder={`Search in ${headerTitle}...`}
+            placeholderTextColor={colors.textSecondary}
+            value={query}
+            onChangeText={handleSearch}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            returnKeyType="search"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {query.length > 0 && (
+            <Pressable
+              onPress={handleClearSearch}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              style={styles.clearBtn}
+            >
+              <View style={styles.clearCircle}>
+                <Ionicons name="close" size={10} color="#FFFFFF" />
+              </View>
+            </Pressable>
+          )}
+        </View>
 
-      {/* Filter button */}
-      <Pressable
-        style={styles.filterBtn}
-        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-      >
-        <Ionicons name="options-outline" size={20} color={colors.textPrimary} />
-        {(filters.minPrice || filters.maxPrice) && (
-          <View style={styles.filterDot} />
-        )}
-      </Pressable>
+        {/* Filter button */}
+        <Pressable
+          style={[styles.filterBtn, { backgroundColor: isDarkMode ? colors.surface : '#F1F5F9', borderColor: colors.border, borderWidth: 1 }]}
+          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+        >
+          <Ionicons name="options-outline" size={20} color={colors.text} />
+          {(filters.minPrice || filters.maxPrice) && (
+            <View style={styles.filterDot} />
+          )}
+        </Pressable>
+      </View>
     </Animated.View>
   );
 
@@ -1570,10 +1406,8 @@ const SearchScreen = () => {
         renderItem={({ item, index }) => (
           <ProductCard
             item={item}
-            index={index}
+            width={CARD_WIDTH}
             onPress={() => navigateToProductDetail(item.id, item.sponsoredListingId)}
-            isWishlisted={wishlistItems.some((entry) => entry.productId === item.id)}
-            onToggleWishlist={() => handleToggleWishlist(item)}
           />
         )}
         contentContainerStyle={[
@@ -1591,7 +1425,7 @@ const SearchScreen = () => {
       <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} backgroundColor="transparent" translucent />
 
       {/* ── Search Header ── */}
-      {renderSearchBar()}
+      {renderHeader()}
 
       {/* ── Category Chips ── */}
       {renderCategoryChips()}

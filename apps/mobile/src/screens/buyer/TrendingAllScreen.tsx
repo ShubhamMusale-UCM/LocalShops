@@ -23,6 +23,7 @@ import { Spacing } from '../../theme/spacing';
 import { getCategoryIcon } from '../../theme/iconography';
 import { Card } from '../../components/ui/Card';
 import { SkeletonCard } from '../../components/ui/Skeleton';
+import { ProductCard } from '../../components/ui/ProductCard';
 import { useCartStore } from '../../store/cartStore';
 import { useTheme } from '../../theme';
 import { formatPrice, formatDistance } from '../../utils/formatters';
@@ -154,113 +155,7 @@ const QuantityStepper: React.FC<{
   );
 };
 
-// ─── Product Card (Vertical Grid) ───────────────────────
-const ProductCard: React.FC<{
-  item: Product;
-  onPress: () => void;
-}> = ({ item, onPress }) => {
-  const { colors, radius, shadows, isDarkMode } = useTheme();
-  const styles = getStyles(colors, radius, shadows, isDarkMode);
-  const [imageError, setImageError] = useState(false);
-  const discount = typeof item.discount === 'number'
-    ? Math.max(0, Math.round(item.discount))
-    : (item.mrp && item.mrp > item.price
-      ? Math.round(((item.mrp - item.price) / item.mrp) * 100)
-      : 0);
-  const imageUri = Array.isArray(item.images) && item.images.length > 0
-    ? getProductImageUrl(item.images)
-    : getSingleImageUrl(item.image);
-  const isSponsored = Boolean(item.isSponsored);
-  const showImage = Boolean(imageUri) && !imageError;
-
-  useEffect(() => {
-    setImageError(false);
-  }, [imageUri]);
-
-  return (
-    <Animated.View
-      entering={FadeInDown}
-      layout={Layout}
-      style={{ width: CARD_WIDTH }}
-    >
-      <Card
-        onPress={onPress}
-        style={styles.productCard}
-        padding={Spacing.sm}
-        shadow="md"
-      >
-        {/* Image */}
-        <View style={styles.imageWrapper}>
-          {showImage ? (
-            <Image
-              source={{ uri: imageUri }}
-              style={styles.productPhoto}
-              resizeMode="contain"
-              onError={() => setImageError(true)}
-            />
-          ) : (
-            <View style={styles.productImageEmpty}>
-              <Ionicons name="cube-outline" size={30} color={colors.primary} />
-            </View>
-          )}
-
-          {discount > 0 && (
-            <View style={styles.discountBadge}>
-              <Text style={styles.discountText}>{discount}% OFF</Text>
-            </View>
-          )}
-
-          {isSponsored && (
-            <View style={styles.sponsoredBadge}>
-              <Ionicons name="megaphone" size={9} color={colors.textInverse} />
-              <Text style={styles.sponsoredText}>Sponsored</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Info */}
-        <View style={styles.productInfo}>
-          <Text style={styles.productName} numberOfLines={2}>
-            {item.name}
-          </Text>
-
-          <View style={styles.priceRow}>
-            <Text style={styles.price}>₹{formatPrice(item.price)}</Text>
-            {item.mrp && item.mrp > item.price && (
-              <Text style={styles.mrp}>₹{formatPrice(item.mrp)}</Text>
-            )}
-          </View>
-
-          {item.shop && (
-            <Text style={styles.shopName} numberOfLines={1}>
-              {item.shop.name}
-            </Text>
-          )}
-
-          {item.shopDistance_km !== undefined && (
-            <Text style={styles.distance}>
-              {formatDistance(item.shopDistance_km)}
-            </Text>
-          )}
-        </View>
-
-        {/* Stepper */}
-        <View style={styles.stepperWrapper}>
-          <QuantityStepper
-            productId={item.id}
-            shopId={item.shop?.id || ''}
-            shopName={item.shop?.name || ''}
-            name={item.name}
-            price={item.price}
-            mrp={item.mrp}
-            image={imageUri}
-            unit={item.unit || ''}
-          />
-        </View>
-      </Card>
-    </Animated.View>
-  );
-};
+// ─── Removed inline ProductCard ───
 
 // ─── Main Screen ────────────────────────────────────────
 const TrendingAllScreen: React.FC<any> = ({ navigation, route }) => {
@@ -420,6 +315,7 @@ const TrendingAllScreen: React.FC<any> = ({ navigation, route }) => {
     ({ item }: { item: Product }) => (
       <ProductCard
         item={item}
+        width={CARD_WIDTH}
         onPress={() => navigateToProductDetail(item.id, item.sponsoredListingId)}
       />
     ),

@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { SkeletonCard, Skeleton, SkeletonHeader } from '../../components/ui/Skeleton';
+import { ProductCard } from '../../components/ui/ProductCard';
 import {
   formatPrice,
   formatRating,
@@ -813,100 +814,7 @@ const StatPill: React.FC<{
     );
   };
 
-// ─── Product Mini Card ────────────────────────────────────────────────────────
-const ProductMiniCard: React.FC<{
-  item: any;
-  index: number;
-  onPress: () => void;
-}> = ({ item, index, onPress }) => {
-  const { colors, radius, shadows, isDarkMode } = useTheme();
-  const styles = getStyles(colors, radius, shadows, isDarkMode);
-  const entryAnim = useRef(new Animated.Value(0)).current;
-  const entryTranslate = useRef(new Animated.Value(20)).current;
-  const [imageError, setImageError] = useState(false);
-
-  useEffect(() => {
-    setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(entryAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.spring(entryTranslate, {
-          toValue: 0,
-          damping: 14,
-          stiffness: 140,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }, 600 + index * 80);
-  }, []);
-
-  const imageUri = getProductImageUrl(item.images);
-  const showImage = imageUri && !imageError;
-
-  useEffect(() => {
-    setImageError(false);
-  }, [imageUri]);
-
-  return (
-    <Animated.View
-      style={{
-        opacity: entryAnim,
-        transform: [{ translateX: entryTranslate }],
-      }}
-    >
-      <TouchSpring
-        onPress={onPress}
-        style={styles.productMiniCard}
-        accessibilityRole="button"
-        accessibilityLabel={`${item.name}, ${formatPrice(item.price)}`}
-      >
-        {/* Image */}
-        <View style={styles.productMiniImage}>
-          {showImage ? (
-            <Image
-              source={{ uri: imageUri }}
-              style={styles.productMiniPhoto}
-              resizeMode="cover"
-              onError={() => setImageError(true)}
-            />
-          ) : (
-            <View style={styles.productMiniPlaceholder}>
-              <Ionicons name="cube-outline" size={28} color={colors.primary} />
-            </View>
-          )}
-          {item.discount > 0 && (
-            <View style={styles.miniDiscountBadge}>
-              <Text style={styles.miniDiscountText}>{item.discount}%</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Info */}
-        <View style={styles.productMiniInfo}>
-          <Text style={styles.productMiniName} numberOfLines={2}>
-            {item.name}
-          </Text>
-          <View style={styles.productMiniPriceRow}>
-            <Text style={styles.productMiniPrice}>
-              {formatPrice(item.price)}
-            </Text>
-          </View>
-          {item.averageRating ? (
-            <View style={styles.productMiniRating}>
-              <Ionicons name="star" size={10} color={colors.warning} />
-              <Text style={styles.productMiniRatingText}>
-                {item.averageRating.toFixed(1)}
-              </Text>
-            </View>
-          ) : null}
-        </View>
-      </TouchSpring>
-    </Animated.View>
-  );
-};
+// ─── Removed inline ProductMiniCard ───
 
 // ─── Shop Header Cover ────────────────────────────────────────────────────────
 const ShopCover: React.FC<{
@@ -1496,10 +1404,10 @@ const ShopProfileScreen: React.FC<Props> = ({ navigation, route }) => {
                 data={shop.products}
                 keyExtractor={(item) => item.id}
                 contentContainerStyle={styles.productsListPadding}
-                renderItem={({ item, index }) => (
-                  <ProductMiniCard
+                renderItem={({ item }) => (
+                  <ProductCard
                     item={item}
-                    index={index}
+                    width={160}
                     onPress={() =>
                       navigation.push('ProductDetail', {
                         productId: item.id,

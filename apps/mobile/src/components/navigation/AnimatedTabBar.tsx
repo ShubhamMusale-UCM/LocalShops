@@ -80,7 +80,7 @@ const TabBadge: React.FC<{ count: number; colors: any }> = ({ count, colors }) =
     <Animated.View
       style={[styles.badge, { backgroundColor: colors.error, transform: [{ scale: scaleAnim }], minWidth: count > 9 ? 20 : 18 }]}
     >
-      <Text style={styles.badgeText}>{count > 99 ? '99+' : count}</Text>
+      <Text style={styles.badgeText}>{count > 9 ? '9+' : count}</Text>
     </Animated.View>
   );
 };
@@ -149,13 +149,16 @@ const TabItem: React.FC<{
               <Ionicons
                 name={iconName as any}
                 size={22}
-                color={isFocused ? colors.textInverse : colors.textTertiary}
+                color={isFocused ? colors.accent : colors.textTertiary}
               />
             </Animated.View>
             <View style={styles.badgeWrapper}>
               <TabBadge count={badgeCount} colors={colors} />
             </View>
           </View>
+          <Text style={[styles.tabLabel, { color: isFocused ? colors.accent : colors.textTertiary }]}>
+            {config.label}
+          </Text>
         </Animated.View>
       </Pressable>
     </Animated.View>
@@ -220,15 +223,8 @@ const AnimatedTabBar: React.FC<AnimatedTabBarProps> = ({
           { opacity: containerOpacity, transform: [{ translateY: containerEntry }] },
         ]}
       >
-        <BlurView intensity={20} tint={isDarkMode ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
-        <View style={StyleSheet.absoluteFillObject}>
-            <View style={{ flex: 1, backgroundColor: colors.surfaceElevated }} />
-        </View>
-
-        {/* Sliding Pill Indicator */}
-        <Reanimated.View style={[styles.indicatorWrapper, indicatorStyle]}>
-           <View style={[styles.indicatorPill, { backgroundColor: colors.primary }]} />
-        </Reanimated.View>
+        <BlurView intensity={50} tint={isDarkMode ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.85)' : 'rgba(255, 255, 255, 0.85)' }]} />
 
         <View style={styles.tabsRow}>
           {state.routes.map((route, index) => {
@@ -354,6 +350,11 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     lineHeight: 13,
     letterSpacing: -0.3,
+  },
+  tabLabel: {
+    fontSize: 11,
+    marginTop: 2,
+    fontWeight: '500',
   },
 });
 

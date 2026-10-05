@@ -43,6 +43,7 @@ import { useWishlistStore } from '../../store/wishlistStore';
 import { useSearchStore } from '../../store/searchStore';
 
 import { SkeletonCard } from '../../components/ui/Skeleton';
+import { ProductCard } from '../../components/ui/ProductCard';
 
 // Service imports
 import productService from '../../services/productService';
@@ -163,7 +164,7 @@ export default function HomeScreen() {
 
   const user = useAuthStore((s) => s.user);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const { latitude, longitude, address, setLocation } = useLocationStore();
+  const { latitude, longitude, address, city, setLocation } = useLocationStore();
   const setCategoryStore = useSearchStore((s) => s.setCategory);
 
   const cartItems = useCartStore((state) => state.items);
@@ -179,6 +180,7 @@ export default function HomeScreen() {
   const [bannerIndex, setBannerIndex] = useState(0);
 
   const [showAddressModal, setShowAddressModal] = useState(false);
+  const [showRadiusModal, setShowRadiusModal] = useState(false);
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [showQuickOrderModal, setShowQuickOrderModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -408,29 +410,23 @@ export default function HomeScreen() {
       {/* ─── Floating Dual-Capsule Navbar ─── */}
       <View style={[styles.floatingHeader, { top: insets.top + 10 }]}>
         <TactileView onPress={() => setShowAddressModal(true)} style={styles.leftPod}>
-          <BlurView intensity={isDarkMode ? 40 : 80} tint={isDarkMode ? 'dark' : 'light'} style={styles.podBlur}>
+          <BlurView intensity={isDarkMode ? 80 : 80} tint={isDarkMode ? 'dark' : 'light'} style={styles.podBlur}>
             <View style={styles.avatarWrapper}>
               <Image source={IMAGES.avatar} style={styles.avatarImage} />
-              <View style={styles.liveIndicatorRing}>
-                <View style={styles.liveIndicatorDot} />
-              </View>
             </View>
-            <View style={{ marginLeft: 8, paddingRight: 8, justifyContent: 'center' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Text style={[styles.podSubtitle, { color: theme.textMuted }]}>Delivering to</Text>
-                <ChevronDown size={10} color={theme.accent} />
-              </View>
+            <View style={{ marginLeft: 8, paddingRight: 8, justifyContent: 'center', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Text style={[styles.podTitle, { color: theme.text }]} numberOfLines={1}>
-                {address ? (address.length > 15 ? `${address.substring(0, 15)}...` : address) : 'Select Location'}
+                {city || 'Select City'}
               </Text>
+              <ChevronDown size={14} color={theme.textMuted} />
             </View>
           </BlurView>
         </TactileView>
 
         <View style={styles.rightPod}>
-          <BlurView intensity={isDarkMode ? 40 : 80} tint={isDarkMode ? 'dark' : 'light'} style={styles.podBlurRow}>
-            <TactileView onPress={() => navigation.navigate('Search', { autoFocusSearch: false })} style={styles.podIconBtn}>
-              <SlidersHorizontal size={18} color={theme.textMuted} />
+          <BlurView intensity={isDarkMode ? 80 : 80} tint={isDarkMode ? 'dark' : 'light'} style={styles.podBlurRow}>
+            <TactileView onPress={() => navigation.navigate('Wishlist')} style={styles.podIconBtn}>
+              <Heart size={18} color={theme.textMuted} />
             </TactileView>
             <View style={[styles.podDivider, { backgroundColor: theme.border }]} />
             
@@ -447,7 +443,7 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         onScroll={onScroll}
         scrollEventThrottle={scrollEventThrottle}
-        contentContainerStyle={{ paddingTop: insets.top + 80, paddingBottom: 120 }}
+        contentContainerStyle={{ paddingTop: insets.top + 80, paddingBottom: insets.bottom + 80 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.accent} />}
       >
         <View style={styles.greetingSection}>
@@ -457,41 +453,28 @@ export default function HomeScreen() {
 
         {/* Search Glass Bar */}
         <TactileView onPress={() => navigation.navigate('Search')} style={{ marginHorizontal: 16, marginBottom: 16 }}>
-          <GlassCard isDark={isDarkMode} intensity={isDarkMode ? 30 : 80} style={{ padding: 12, flexDirection: 'row', alignItems: 'center' }}>
+          <GlassCard isDark={isDarkMode} intensity={isDarkMode ? 30 : 80} style={{ paddingHorizontal: 12, height: 48, flexDirection: 'row', alignItems: 'center' }}>
             <Search size={20} color={theme.textMuted} style={{ marginRight: 12 }} />
-            <Text style={[styles.searchPlaceholder, { color: theme.textMuted }]}>{SEARCH_PLACEHOLDERS[placeholderIndex]}</Text>
+            <Text style={[styles.searchPlaceholder, { color: theme.textMuted, flex: 1 }]} numberOfLines={1}>Search products, brands, sellers</Text>
             <View style={[styles.micBtn, { backgroundColor: theme.input }]}>
               <Mic size={16} color={theme.accent} />
+            </View>
+            <View style={[styles.micBtn, { backgroundColor: theme.input, marginLeft: 8 }]}>
+              <SlidersHorizontal size={16} color={theme.accent} />
             </View>
           </GlassCard>
         </TactileView>
 
-        {/* Radius Filter Glass */}
-        <GlassCard isDark={isDarkMode} intensity={isDarkMode ? 20 : 60} style={styles.radiusFilterCard}>
-          <View style={styles.radiusHeaderRow}>
+        {/* Distance filter */}
+        <TactileView onPress={() => setShowRadiusModal(true)} style={{ marginHorizontal: 16, marginBottom: 24 }}>
+          <GlassCard isDark={isDarkMode} intensity={isDarkMode ? 20 : 60} style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <MapPin size={14} color={theme.accent} />
-              <Text style={[styles.radiusTitleText, { color: theme.text }]}>Store Radius</Text>
+              <MapPin size={16} color={theme.accent} />
+              <Text style={[styles.radiusTitleText, { color: theme.text }]}>Showing within {radiusRange === 500 ? 'Nationwide' : `${radiusRange} km`}</Text>
             </View>
-            <View style={[styles.radiusPillBadge, { backgroundColor: isDarkMode ? 'rgba(6,182,212,0.2)' : '#E0F2FE' }]}>
-              <Text style={[styles.radiusPillText, { color: theme.accent }]}>{tempRadius} km</Text>
-            </View>
-          </View>
-          <View style={styles.sliderContainerRow}>
-            <Text style={styles.sliderBoundaryText}>1km</Text>
-            <Slider
-              style={styles.radiusSlider}
-              minimumValue={1} maximumValue={500} step={5}
-              value={tempRadius}
-              onValueChange={(val) => setTempRadius(Math.round(val))}
-              onSlidingComplete={(val) => setRadiusRange(Math.round(val))}
-              minimumTrackTintColor={theme.accent}
-              maximumTrackTintColor={theme.border}
-              thumbTintColor={theme.accent}
-            />
-            <Text style={styles.sliderBoundaryText}>500km</Text>
-          </View>
-        </GlassCard>
+            <Text style={{ color: theme.accent, fontSize: 12, fontWeight: '600' }}>Change</Text>
+          </GlassCard>
+        </TactileView>
 
         {/* Promo Banners */}
         <View style={styles.bannerWrapper}>
@@ -699,45 +682,21 @@ export default function HomeScreen() {
         ) : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12, marginBottom: 24 }}>
             {displayProducts.map(prod => {
-              const qty = cartQtyMap[prod.id] || 0;
-              const hasImg = prod.images && prod.images.length > 0;
               return (
-                <TactileView key={prod.id} onPress={() => {
-                  if (prod.campaignId) {
-                    telemetryService.trackClick(prod.campaignId, prod.id);
-                  }
-                  navigation.navigate('ProductDetail', { 
-                    productId: prod.id,
-                    campaignId: prod.campaignId || undefined
-                  });
-                }}>
-                  <GlassCard isDark={isDarkMode} intensity={20} style={styles.productCardItem}>
-                    <View style={[styles.productImageFrame, { backgroundColor: isDarkMode ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.4)' }]}>
-                      <Image source={hasImg ? { uri: prod.images[0] } : IMAGES.prodMilk} style={styles.productGraphicImage} resizeMode="contain" />
-                      <TactileView style={[styles.productHeartIconBtn, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                        <Heart size={12} color={theme.textMuted} />
-                      </TactileView>
-                    </View>
-                    <View style={styles.productInfoWrapper}>
-                      <Text style={[styles.productTitleText, { color: theme.text }]} numberOfLines={2}>{prod.name || 'Product'}</Text>
-                      <Text style={[styles.productUnitText, { color: theme.textMuted }]}>{prod.unit || '1 unit'}</Text>
-                    </View>
-                    <View style={styles.productFooterRow}>
-                      <Text style={[styles.productPriceText, { color: theme.text }]}>{formatPrice(prod.price || 0)}</Text>
-                      {qty > 0 ? (
-                        <View style={[styles.quantityStepperContainer, { backgroundColor: theme.accent }]}>
-                          <TactileView onPress={() => updateQuantity(prod.id, qty - 1)} style={{ padding: 4 }}><Minus size={12} color="#FFF" /></TactileView>
-                          <Text style={styles.stepperCountText}>{qty}</Text>
-                          <TactileView onPress={() => updateQuantity(prod.id, qty + 1)} style={{ padding: 4 }}><Plus size={12} color="#FFF" /></TactileView>
-                        </View>
-                      ) : (
-                        <TactileView onPress={() => handleAddProductToCart(prod)} style={[styles.addToCartButton, { borderColor: theme.accent }]}>
-                          <Text style={[styles.addToCartButtonText, { color: theme.accent }]}>ADD</Text>
-                        </TactileView>
-                      )}
-                    </View>
-                  </GlassCard>
-                </TactileView>
+                <ProductCard
+                  key={prod.id}
+                  item={prod}
+                  onPress={() => {
+                    if (prod.campaignId) {
+                      telemetryService.trackClick(prod.campaignId, prod.id);
+                    }
+                    navigation.navigate('ProductDetail', { 
+                      productId: prod.id,
+                      campaignId: prod.campaignId || undefined
+                    });
+                  }}
+                  onAdd={() => handleAddProductToCart(prod)}
+                />
               );
             })}
           </ScrollView>
@@ -775,23 +734,39 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      <Modal visible={showQuickOrderModal} transparent animationType="slide">
+      <Modal visible={showRadiusModal} transparent animationType="slide">
         <View style={styles.modalBackdropOverlay}>
           <BlurView intensity={isDarkMode ? 30 : 60} tint="dark" style={StyleSheet.absoluteFill} />
           <GlassCard isDark={isDarkMode} style={[styles.modalBottomSheetContainer, { backgroundColor: theme.bg }]}>
             <View style={[styles.bottomSheetDragHandle, { backgroundColor: theme.border }]} />
             <View style={styles.bottomSheetHeaderRow}>
-              <Text style={[styles.bottomSheetHeaderTitle, { color: theme.text }]}>Instant Combo Bundles</Text>
-              <TactileView onPress={() => setShowQuickOrderModal(false)} style={styles.closeIconButton}>
+              <Text style={[styles.bottomSheetHeaderTitle, { color: theme.text }]}>Adjust Radius</Text>
+              <TactileView onPress={() => setShowRadiusModal(false)} style={styles.closeIconButton}>
                 <X size={22} color={theme.text} />
               </TactileView>
             </View>
-            <TactileView onPress={() => { setShowQuickOrderModal(false); Alert.alert('Added', 'Breakfast Combo added!'); }} style={[styles.presetLocationRow, { borderBottomColor: theme.border }]}>
-              <Text style={[styles.presetLocationText, { color: theme.text }]}>🍳 Breakfast Combo (Milk + Bread) • ₹90</Text>
-            </TactileView>
-            <TactileView onPress={() => { setShowQuickOrderModal(false); Alert.alert('Added', 'Fruit Basket added!'); }} style={[styles.presetLocationRow, { borderBottomColor: theme.border }]}>
-              <Text style={[styles.presetLocationText, { color: theme.text }]}>🥗 Fruit Basket Combo (Apples + Bananas) • ₹220</Text>
-            </TactileView>
+            <View style={{ paddingVertical: 16 }}>
+              <Text style={[styles.radiusTitleText, { color: theme.text, marginBottom: 16, textAlign: 'center' }]}>Showing within {tempRadius === 500 ? 'Nationwide' : `${tempRadius} km`}</Text>
+              <Slider
+                style={{ width: '100%', height: 40 }}
+                minimumValue={5} maximumValue={500} step={5}
+                value={tempRadius}
+                onValueChange={(val) => setTempRadius(Math.round(val))}
+                minimumTrackTintColor={theme.accent}
+                maximumTrackTintColor={theme.border}
+                thumbTintColor={theme.accent}
+              />
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 10, marginTop: 8 }}>
+                <Text style={styles.sliderBoundaryText}>5km</Text>
+                <Text style={styles.sliderBoundaryText}>Nationwide</Text>
+              </View>
+              <TactileView 
+                onPress={() => { setRadiusRange(tempRadius); setShowRadiusModal(false); }} 
+                style={{ backgroundColor: theme.accent, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 24 }}
+              >
+                <Text style={{ color: '#000', fontWeight: '800', fontSize: 14 }}>Apply</Text>
+              </TactileView>
+            </View>
           </GlassCard>
         </View>
       </Modal>
@@ -857,9 +832,9 @@ const styles = StyleSheet.create({
   quickActionIconBox: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
   quickActionTitleText: { fontSize: 12, fontWeight: '800' },
   quickActionSubtext: { fontSize: 9, color: '#94a3b8', marginTop: 2 },
-  sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 12 },
+  sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 20 },
   sectionHeaderTitleText: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3 },
-  sectionSeeAllText: { fontSize: 12, fontWeight: '700' },
+  sectionSeeAllText: { fontSize: 12, fontWeight: '700', color: '#22D3EE' },
   categoriesHorizontalScroll: { paddingLeft: 16, paddingRight: 8, marginBottom: 22, gap: 12 },
   glassChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 99, borderWidth: 1, gap: 8 },
   chipIconBox: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },

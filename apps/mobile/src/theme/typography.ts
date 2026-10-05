@@ -7,62 +7,59 @@ const fontFamily = Platform.select({
   default: 'System',
 });
 
-const headingLineHeight = (size: number) => Math.round(size * 1.2);
-const bodyLineHeight = (size: number) => Math.round(size * 1.4);
-
-const text = (size: number, weight: TextStyle['fontWeight'], isHeading = false): TextStyle => ({
+const text = (size: number, weight: TextStyle['fontWeight'], lineHeightValue?: number): TextStyle => ({
   fontFamily,
   fontSize: fp(size),
-  lineHeight: isHeading ? headingLineHeight(fp(size)) : bodyLineHeight(fp(size)),
+  lineHeight: fp(lineHeightValue || Math.round(size * 1.4)),
   fontWeight: weight,
 });
 
 export const Typography = {
-  displayLarge: { ...text(32, '700', true), letterSpacing: -0.4 } as TextStyle,
-  display: { ...text(28, '700', true), letterSpacing: -0.2 } as TextStyle,
+  displayLarge: { ...text(34, '700', 40), letterSpacing: -0.4 } as TextStyle,
+  display: { ...text(28, '700', 34), letterSpacing: -0.2 } as TextStyle,
 
-  h1: text(32, '700', true) as TextStyle,
-  h2: text(28, '700', true) as TextStyle,
-  h3: text(24, '600', true) as TextStyle,
-  h4: text(20, '600', true) as TextStyle,
-  h5: text(18, '600', true) as TextStyle,
-  h6: text(16, '600', true) as TextStyle,
+  h1: text(24, '700', 30) as TextStyle,
+  h2: text(20, '700', 26) as TextStyle,
+  h3: text(18, '600', 24) as TextStyle,
+  h4: text(16, '600', 22) as TextStyle, // title
+  h5: text(14, '600', 20) as TextStyle,
+  h6: text(14, '600', 20) as TextStyle,
 
-  bodyLarge: text(16, '400') as TextStyle,
-  body: text(14, '400') as TextStyle,
-  bodySmall: text(13, '400') as TextStyle,
-  bodyTiny: text(12, '400') as TextStyle,
+  bodyLarge: text(16, '400', 24) as TextStyle,
+  body: text(14, '400', 20) as TextStyle,
+  bodySmall: text(12, '400', 16) as TextStyle,
+  bodyTiny: text(11, '400', 14) as TextStyle, // No text under 11px
 
-  bodyLargeMedium: text(16, '500') as TextStyle,
-  bodyMedium: text(14, '500') as TextStyle,
-  bodySmallMedium: text(13, '500') as TextStyle,
+  bodyLargeMedium: text(16, '500', 24) as TextStyle,
+  bodyMedium: text(14, '500', 20) as TextStyle,
+  bodySmallMedium: text(12, '500', 16) as TextStyle,
 
-  bodyLargeBold: text(16, '700') as TextStyle,
-  bodyBold: text(14, '700') as TextStyle,
-  bodySmallBold: text(13, '700') as TextStyle,
+  bodyLargeBold: text(16, '700', 24) as TextStyle,
+  bodyBold: text(14, '700', 20) as TextStyle,
+  bodySmallBold: text(12, '700', 16) as TextStyle,
 
-  priceXXL: text(32, '700', true) as TextStyle,
-  priceXL: text(28, '700', true) as TextStyle,
-  priceLarge: text(24, '700', true) as TextStyle,
-  price: text(20, '700', true) as TextStyle,
-  priceSmall: text(16, '700', true) as TextStyle,
-  priceTiny: text(12, '700') as TextStyle,
+  priceXXL: text(28, '700', 34) as TextStyle,
+  priceXL: text(24, '700', 30) as TextStyle,
+  priceLarge: text(20, '700', 26) as TextStyle,
+  price: text(16, '700', 22) as TextStyle,
+  priceSmall: text(14, '700', 20) as TextStyle,
+  priceTiny: text(12, '700', 16) as TextStyle,
 
-  label: text(14, '500') as TextStyle,
-  labelLarge: text(16, '500') as TextStyle,
-  labelSmall: text(12, '500') as TextStyle,
+  label: text(14, '500', 20) as TextStyle,
+  labelLarge: text(16, '500', 22) as TextStyle,
+  labelSmall: text(12, '500', 16) as TextStyle,
 
-  caption: text(12, '400') as TextStyle,
-  captionMedium: text(12, '500') as TextStyle,
-  captionBold: text(12, '600') as TextStyle,
+  caption: text(12, '400', 16) as TextStyle,
+  captionMedium: text(12, '500', 16) as TextStyle,
+  captionBold: text(12, '600', 16) as TextStyle,
 
   badge: {
-    ...text(10, '600'),
+    ...text(11, '600', 14),
     textTransform: 'uppercase',
     letterSpacing: 0.4,
   } as TextStyle,
   badgeLarge: {
-    ...text(11, '600'),
+    ...text(12, '600', 16),
     textTransform: 'uppercase',
     letterSpacing: 0.4,
   } as TextStyle,
@@ -81,9 +78,9 @@ export const Typography = {
   } as TextStyle,
 
   overline: {
-    ...text(10, '600'),
+    ...text(11, '600', 14),
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    letterSpacing: fp(11) * 0.06,
   } as TextStyle,
 } as const;
 
