@@ -75,6 +75,11 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: true,
           isGuest: false,
         });
+        
+        // Sync wishlist
+        import('./wishlistStore').then(({ useWishlistStore }) => {
+          useWishlistStore.getState().syncWithBackend();
+        }).catch(() => {});
       },
 
       logout: () => {
@@ -87,6 +92,11 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: false,
           isGuest: false,
         });
+        
+        // Clear local wishlist
+        import('./wishlistStore').then(({ useWishlistStore }) => {
+          useWishlistStore.getState().clearWishlist();
+        }).catch(() => {});
       },
 
       continueAsGuest: () => {
@@ -130,6 +140,13 @@ export const useAuthStore = create<AuthState>()(
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
         setAuthToken(state?.accessToken || null);
+        
+        // Sync wishlist on app load if authenticated
+        if (state?.isAuthenticated) {
+          import('./wishlistStore').then(({ useWishlistStore }) => {
+            useWishlistStore.getState().syncWithBackend();
+          }).catch(() => {});
+        }
       },
     }
   )

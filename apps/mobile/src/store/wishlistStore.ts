@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { MMKV } from 'react-native-mmkv';
+import api from '../services/api';
 
 const storage = new MMKV({ id: 'wishlist-store' });
 const mmkvStorage = {
@@ -24,6 +25,7 @@ interface WishlistState {
   removeItem: (productId: string) => void;
   isWishlisted: (productId: string) => boolean;
   clearWishlist: () => void;
+  syncWithBackend: () => Promise<void>;
 }
 
 export const useWishlistStore = create<WishlistState>()(
@@ -46,12 +48,36 @@ export const useWishlistStore = create<WishlistState>()(
             ...get().items,
           ],
         });
+        // Sync with backend
+        api.post('/wishlist/toggle', { productId: item.productId }).catch(() => {});
       },
       removeItem: (productId) => {
         set({ items: get().items.filter((entry) => entry.productId !== productId) });
+        api.post('/wishlist/toggle', { productId }).catch(() => {});
       },
       isWishlisted: (productId) => get().items.some((entry) => entry.productId === productId),
-      clearWishlist: () => set({ items: [] }),
+      clearWishlist: () => {
+        set({ items: [] });
+      },
+      syncWithBackend: async () => {
+        try {
+          const res = await api.get('/wishlist');
+          if (res.data?.data) {
+            set({
+              items: res.data.data.map((w: any) => ({
+                productId: w.productId,
+                name: w.name,
+                price: w.price,
+                image: w.image,
+                shopName: w.shopName,
+                addedAt: w.addedAt
+              }))
+            });
+          }
+        } catch (e) {
+          console.log('Failed to sync wishlist with backend', e);
+        }
+      },
     }),
     {
       name: 'citylocalshop-wishlist',
