@@ -347,12 +347,12 @@ export class ShopService {
 
     // Real total clicks from daily rollups by date range
     const adMetrics = await prisma.adDailyMetricRollup.aggregate({
-      where: { campaign: { shopId }, date: { gte: since } },
+      where: { promotedListing: { shopId }, date: { gte: since } },
       _sum: { clicks: true, impressions: true, spend: true },
     });
-    const realTotalAdClicks = adMetrics._sum.clicks ?? 0;
-    const realTotalAdImpressions = adMetrics._sum.impressions ?? 0;
-    const realAdSpent = adMetrics._sum.spend ?? 0;
+    const realTotalAdClicks = adMetrics._sum?.clicks ?? 0;
+    const realTotalAdImpressions = adMetrics._sum?.impressions ?? 0;
+    const realAdSpent = adMetrics._sum?.spend ?? 0;
 
     // Real orderItems count for funnel
     const cartCount = await prisma.orderItem.count({

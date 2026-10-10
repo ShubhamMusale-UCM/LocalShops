@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import adsService from './ads.service';
+import walletService from '../wallet/wallet.service';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import { AppError } from '../../middleware/errorHandler.middleware';
 import prisma from '../../config/database';
@@ -19,7 +20,7 @@ export const AdsController = {
         budgetPerDay: z.number().positive().min(50), // Min 50 rupees per day
         bidPerClick: z.number().positive().min(1).max(100), // Between 1 and 100
         duration: z.number().int().positive().min(1).max(365), // Max 1 year
-        targetGender: z.enum(['ALL', 'MALE', 'FEMALE', 'OTHER']).default('ALL'),
+        targetGender: z.enum(['ALL', 'MALE', 'FEMALE']).default('ALL'),
         razorpay_order_id: z.string().optional(),
         razorpay_payment_id: z.string().optional(),
         razorpay_signature: z.string().optional(),
@@ -44,7 +45,6 @@ export const AdsController = {
       const totalBudget = Number(budgetPerDay) * Number(duration);
 
       // --- SPLIT PAYMENT LOGIC ---
-      const { default: walletService } = await import('../wallet/wallet.service');
       const split = await walletService.calculateAdPaymentSplit(shopId, totalBudget);
 
       if (!split.isFullWalletPayment) {
@@ -300,14 +300,14 @@ export const AdsController = {
           lng: parsedLng
         });
       } else {
-        const prisma = (await import('../../config/database')).default;
+        
         const recentSearches = await prisma.userSearchHistory.findMany({
           where: { userId: user.id },
           orderBy: { createdAt: 'desc' },
           take: 20,
           select: { keyword: true }
         });
-        const keywords = recentSearches.map(s => s.keyword);
+        const keywords = recentSearches.map((s: any) => s.keyword);
 
         products = await adsService.serveAds({
           limit: parsedLimit,
@@ -524,7 +524,7 @@ export const AdsController = {
         if (!isValid) throw new AppError('Invalid payment signature', 400);
       }
 
-      const { default: walletService } = await import('../wallet/wallet.service');
+      
       const { shop: updatedShop } = await walletService.creditSellerAdWallet(
         shopId,
         amount,
@@ -536,7 +536,7 @@ export const AdsController = {
       res.status(200).json({
         success: true,
         message: 'Wallet topped up successfully',
-        newBalance: updatedShop.adWalletBalance,
+        newBalance: updatedShop?.adWalletBalance,
       });
     } catch (error) {
       next(error);
@@ -554,7 +554,7 @@ export const AdsController = {
       const shop = await prisma.shop.findUnique({ where: { id: shopId } });
       if (shop?.ownerId !== req.user!.id) throw new AppError('Unauthorized', 403);
 
-      const { default: walletService } = await import('../wallet/wallet.service');
+      
       const budget = Number(budgetPerDay) * Number(duration);
       const split = await walletService.calculateAdPaymentSplit(shopId, budget);
       

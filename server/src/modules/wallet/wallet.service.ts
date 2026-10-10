@@ -555,7 +555,7 @@ export class WalletService {
         referralId: pendingReferral.id,
         referrerId: pendingReferral.referrerId,
         amountCredited: pendingReferral.amount,
-        walletBalance: result.wallet.balance,
+        walletBalance: result.wallet?.balance ?? null,
       };
     } catch {
       // If wallet credit fails (e.g., max balance), still mark referral as activated

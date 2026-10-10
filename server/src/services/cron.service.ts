@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import prisma from '../config/database';
+import notificationService from '../modules/notification/notification.service';
 
 class CronService {
   public start() {
@@ -8,23 +9,10 @@ class CronService {
       console.log('--- Running Nightly CRON: Ad Quality Score Decay & Ad Settlements ---');
       await this.decayAdQualityScores();
       await this.settleEndedAdBudgets();
-      await this.deleteOldAdImpressionLogs();
     });
   }
 
-  private async deleteOldAdImpressionLogs() {
-    try {
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      
-      const { count } = await prisma.adImpressionLog.deleteMany({
-        where: { timestamp: { lt: sevenDaysAgo } }
-      });
-      console.log(`Deleted ${count} old AdImpressionLogs.`);
-    } catch (err) {
-      console.error('Failed to run deleteOldAdImpressionLogs cron job:', err);
-    }
-  }
+
 
   private async decayAdQualityScores() {
     try {
@@ -63,7 +51,7 @@ class CronService {
 
   private async settleEndedAdBudgets() {
     try {
-      const { default: walletService } = await import('../modules/wallet/wallet.service');
+      const { default: walletService } = await import('../modules/wallet/wallet.service.js');
 
       // 1. Deactivate ads that are exhausted (spent >= budget) or expired but still marked active
       const now = new Date();
@@ -105,7 +93,7 @@ class CronService {
                 });
 
                 // Lock the shop to safely refund the wallet
-                const [lockedShop] = await tx.$queryRaw<any[]>`SELECT "adWalletBalance" FROM "Shop" WHERE id = ${ad.shopId} FOR UPDATE`;
+                const [lockedShop] = await tx.$queryRaw<any[]>`SELECT "adWalletBalance", "ownerId" FROM "Shop" WHERE id = ${ad.shopId} FOR UPDATE`;
                 const newBalance = lockedShop.adWalletBalance + unspent;
 
                 await tx.shop.update({
@@ -125,6 +113,19 @@ class CronService {
                     referenceId: `${ad.id}_refund`,
                   }
                 });
+                
+                if (lockedShop.ownerId) {
+                  try {
+                    await notificationService.sendPushNotification(lockedShop.ownerId, {
+                      title: 'Ad Campaign Ended',
+                      body: `Your ad campaign has ended. ₹${unspent} unspent budget has been refunded to your wallet.`,
+                      data: { type: 'AD_REFUND' }
+                    });
+                  } catch (e) {
+                    console.error('Failed to send ad refund notification:', e);
+                  }
+                }
+                
                 settledCount++;
               }
             });

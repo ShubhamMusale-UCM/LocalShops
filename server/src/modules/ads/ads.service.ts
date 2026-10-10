@@ -83,48 +83,37 @@ export class AdsService {
         }
       });
 
-      const existing = await tx.promotedListing.findUnique({
-        where: { productId },
+      const existing = await tx.promotedListing.findFirst({
+        where: { 
+          productId,
+          isActive: true,
+          endDate: { gt: new Date() }
+        },
       });
 
       if (existing) {
-        return await tx.promotedListing.update({
-          where: { productId },
-          data: {
-            budget: existing.budget + budget, // Add to existing budget
-            spent: existing.spent,
-            bidPerClick,
-            startDate,
-            endDate,
-            targetGender,
-            isActive: true,
-          },
-          include: {
-            product: { select: { id: true, name: true, images: true, price: true } },
-            shop: { select: { id: true, name: true, logo: true, coverImage: true } },
-          },
-        });
-      } else {
-        return await tx.promotedListing.create({
-          data: {
-            shopId,
-            productId,
-            budget,
-            spent: 0,
-            bidPerClick,
-            impressions: 0,
-            clicks: 0,
-            startDate,
-            endDate,
-            targetGender,
-            isActive: true,
-          },
-          include: {
-            product: { select: { id: true, name: true, images: true, price: true } },
-            shop: { select: { id: true, name: true, logo: true, coverImage: true } },
-          },
-        });
+        throw new AppError('An active ad campaign already exists for this product. Pause or wait for it to expire before creating a new one.', 400);
       }
+
+      return await tx.promotedListing.create({
+        data: {
+          shopId,
+          productId,
+          budget,
+          spent: 0,
+          bidPerClick,
+          impressions: 0,
+          clicks: 0,
+          startDate,
+          endDate,
+          targetGender,
+          isActive: true,
+        },
+        include: {
+          product: { select: { id: true, name: true, images: true, price: true } },
+          shop: { select: { id: true, name: true, logo: true, coverImage: true } },
+        },
+      });
     });
 
     await cacheDelete(`shop:${shopId}:ads`);
@@ -284,6 +273,7 @@ export class AdsService {
     
     // Map of CampaignId_Keyword -> { impressions, clicks }
     const keywordStatsMap = new Map<string, { impressions: number; clicks: number }>();
+    const newImpressionLogs: { promotedListingId: string; deviceId: string }[] = [];
 
     // FRAUD PROTECTION: Cross-request click deduplication using Redis
     // A legitimate user can only generate 1 meaningful click per campaign per 1-hour window.
