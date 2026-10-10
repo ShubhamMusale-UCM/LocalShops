@@ -18,6 +18,7 @@ import { generalLimiter } from './middleware/rateLimiter.middleware';
 // Import routes
 import authRoutes from './modules/auth/auth.routes';
 import userRoutes from './modules/user/user.routes';
+import wishlistRoutes from './modules/wishlist/wishlist.routes';
 import shopRoutes from './modules/shop/shop.routes';
 import productRoutes from './modules/product/product.routes';
 import adminRoutes from './modules/admin/admin.routes';
@@ -93,6 +94,7 @@ app.get('/api/health', (_req, res) => {
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/shops', shopRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/admin', adminRoutes);
