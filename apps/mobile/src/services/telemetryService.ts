@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Crypto from 'expo-crypto';
 import apiClient from './api';
 
 export interface TelemetryEvent {
@@ -23,19 +24,45 @@ class TelemetryService {
 
   constructor() {
     this.initDeviceId();
+    this.loadPersistedQueue();
     this.startBatching();
+  }
+
+
+  private async loadPersistedQueue() {
+    try {
+      const stored = await AsyncStorage.getItem('@telemetry_queue');
+      if (stored) {
+        this.queue = JSON.parse(stored);
+      }
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  private async persistQueue() {
+    try {
+      await AsyncStorage.setItem('@telemetry_queue', JSON.stringify(this.queue.slice(0, 1000)));
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  private enqueue(event: TelemetryEvent) {
+    this.enqueue(event);
+    this.persistQueue();
   }
 
   private async initDeviceId() {
     try {
       let id = await AsyncStorage.getItem('@device_id');
       if (!id) {
-        id = `dev_${Math.random().toString(36).substring(2, 15)}_${Date.now()}`;
+        id = `dev_${Crypto.randomUUID()}`;
         await AsyncStorage.setItem('@device_id', id);
       }
       this.deviceId = id;
     } catch (e) {
-      this.deviceId = `dev_fallback_${Date.now()}`;
+      this.deviceId = `dev_fallback_${Crypto.randomUUID()}`;
     }
   }
 
@@ -75,7 +102,7 @@ class TelemetryService {
     }
     this.trackedImpressions.set(key, now);
 
-    this.queue.push({
+    this.enqueue({
       campaignId,
       productId,
       type: 'impression',
@@ -96,7 +123,7 @@ class TelemetryService {
     }
     this.trackedClicks.set(key, now);
 
-    this.queue.push({
+    this.enqueue({
       campaignId,
       productId,
       type: 'click',
@@ -107,7 +134,7 @@ class TelemetryService {
   }
 
   trackView(campaignId: string, productId: string) {
-    this.queue.push({
+    this.enqueue({
       campaignId,
       productId,
       type: 'view',
@@ -117,7 +144,7 @@ class TelemetryService {
   }
 
   trackCartAdd(campaignId: string, productId: string, keyword?: string) {
-    this.queue.push({
+    this.enqueue({
       campaignId,
       productId,
       type: 'cart_add',
@@ -137,14 +164,14 @@ class TelemetryService {
     this.isProcessing = true;
     const batch = [...this.queue];
     this.queue = [];
+    this.persistQueue();
 
     try {
       await apiClient.post('/ads/telemetry/batch', { events: batch });
     } catch (error) {
-      console.warn('Failed to send telemetry batch, requeuing...', error);
-      // Put back in queue if failed (avoid growing too large though)
       if (this.queue.length < 1000) {
         this.queue = [...batch, ...this.queue];
+        this.persistQueue();
       }
     } finally {
       this.isProcessing = false;
