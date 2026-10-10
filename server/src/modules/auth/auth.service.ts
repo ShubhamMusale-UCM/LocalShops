@@ -1,3 +1,4 @@
+import redis from '../../config/redis';
 import prisma from '../../config/database';
 import { generateTokenPair, verifyRefreshToken } from './jwt.service';
 import otpHandler from './otp.handler';
@@ -82,6 +83,7 @@ export class AuthService {
     referralCode?: string;
     city?: string;
     idToken?: string; // Optional for backward compatibility with tempToken
+    deviceId?: string;
   }) {
     const normalizedPhone = normalizeIndianPhone(data.phone);
     const normalizedRole = String(data.role || 'BUYER').toUpperCase();
@@ -101,14 +103,32 @@ export class AuthService {
     // Generate unique referral code
     const referralCode = `CLS${nanoid(6).toUpperCase()}`;
 
-    // Handle referral
+    // Handle referral (with device abuse protection)
     let referredBy: string | null = null;
     if (data.referralCode) {
       const referrer = await prisma.user.findUnique({
         where: { referralCode: data.referralCode },
       });
+      
       if (referrer) {
-        referredBy = referrer.id;
+        let isAbuse = false;
+        const deviceId = data.deviceId || 'unknown';
+        
+        if (deviceId !== 'unknown') {
+          const deviceKey = `referral_device_count:${deviceId}`;
+          const count = await redis.incr(deviceKey);
+          if (count === 1) {
+            await redis.expire(deviceKey, 60 * 60 * 24 * 30); // 30 days
+          }
+          if (count > 2) {
+            isAbuse = true;
+            console.warn(`[Anti-Fraud] Blocked referral reward for device ${deviceId}. Too many signups.`);
+          }
+        }
+        
+        if (!isAbuse) {
+          referredBy = referrer.id;
+        }
       }
     }
 

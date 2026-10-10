@@ -90,34 +90,64 @@ export class WalletService {
   ) {
     if (amount <= 0) throw new AppError('Credit amount must be positive.', 400);
 
-    const wallet = await this.getOrCreateBuyerWallet(userId);
+    return await prisma.$transaction(async (tx) => {
+      // Ensure wallet exists
+      let wallet = await tx.buyerWallet.findUnique({ where: { userId } });
+      if (!wallet) {
+        wallet = await tx.buyerWallet.create({
+          data: { userId, balance: 0, lifetime: 0, spent: 0, expired: 0 },
+        });
+      }
 
-    // Check max balance cap
-    if (wallet.balance + amount > WALLET_CONFIG.MAX_BUYER_BALANCE) {
-      throw new AppError(
-        `Wallet balance cannot exceed ₹${WALLET_CONFIG.MAX_BUYER_BALANCE}. Current balance: ₹${wallet.balance}.`,
-        400,
+      // Idempotency check
+      if (referenceId) {
+        const existingTx = await tx.walletTransaction.findFirst({
+          where: { walletId: wallet.id, referenceId, type },
+        });
+        if (existingTx) return { wallet, transaction: existingTx };
+      }
+
+      // Lock the row
+      const [lockedWallet] = await tx.$queryRaw<any[]>`SELECT balance, id FROM "BuyerWallet" WHERE "userId" = ${userId} FOR UPDATE`;
+      if (!lockedWallet) throw new AppError('Wallet lock failed.', 500);
+
+      // Idempotency check
+      if (referenceId) {
+        const existingTx = await tx.walletTransaction.findFirst({
+          where: { walletId: lockedWallet.id, referenceId, type },
+        });
+        if (existingTx) {
+          const walletState = await tx.buyerWallet.findUnique({ where: { userId } });
+          return { wallet: walletState, transaction: existingTx };
+        }
+      }
+
+      const currentBalance = lockedWallet.balance;
+      if (currentBalance + amount > WALLET_CONFIG.MAX_BUYER_BALANCE) {
+        throw new AppError(
+          `Wallet balance cannot exceed ₹${WALLET_CONFIG.MAX_BUYER_BALANCE}. Current balance: ₹${currentBalance}.`,
+          400,
+        );
+      }
+
+      const expiresAt = new Date();
+      expiresAt.setDate(
+        expiresAt.getDate() + (expiryDays ?? WALLET_CONFIG.BUYER_COIN_EXPIRY_DAYS),
       );
-    }
 
-    const expiresAt = new Date();
-    expiresAt.setDate(
-      expiresAt.getDate() + (expiryDays ?? WALLET_CONFIG.BUYER_COIN_EXPIRY_DAYS),
-    );
+      const newBalance = currentBalance + amount;
 
-    const newBalance = wallet.balance + amount;
-
-    const [updatedWallet, transaction] = await prisma.$transaction([
-      prisma.buyerWallet.update({
+      const updatedWallet = await tx.buyerWallet.update({
         where: { userId },
         data: {
           balance: { increment: amount },
           lifetime: { increment: amount },
         },
-      }),
-      prisma.walletTransaction.create({
+      });
+
+      const transaction = await tx.walletTransaction.create({
         data: {
-          walletId: wallet.id,
+          walletId: lockedWallet.id,
           type,
           amount,
           direction: 'CREDIT',
@@ -128,10 +158,10 @@ export class WalletService {
           expiresAt,
           isExpired: false,
         },
-      }),
-    ]);
+      });
 
-    return { wallet: updatedWallet, transaction };
+      return { wallet: updatedWallet, transaction };
+    });
   }
 
   /**
@@ -148,19 +178,39 @@ export class WalletService {
   ) {
     if (amount <= 0) throw new AppError('Debit amount must be positive.', 400);
 
-    const wallet = await this.getOrCreateBuyerWallet(userId);
+    return await prisma.$transaction(async (tx) => {
+      let wallet = await tx.buyerWallet.findUnique({ where: { userId } });
+      if (!wallet) {
+        wallet = await tx.buyerWallet.create({
+          data: { userId, balance: 0, lifetime: 0, spent: 0, expired: 0 },
+        });
+      }
 
-    if (wallet.balance < amount) {
-      throw new AppError(
-        `Insufficient wallet balance. Available: ₹${wallet.balance}, Required: ₹${amount}.`,
-        400,
-      );
-    }
+      const [lockedWallet] = await tx.$queryRaw<any[]>`SELECT balance, id FROM "BuyerWallet" WHERE "userId" = ${userId} FOR UPDATE`;
+      if (!lockedWallet) throw new AppError('Wallet lock failed.', 500);
 
-    const newBalance = wallet.balance - amount;
+      // Idempotency check
+      if (referenceId) {
+        const existingTx = await tx.walletTransaction.findFirst({
+          where: { walletId: lockedWallet.id, referenceId, type },
+        });
+        if (existingTx) {
+          const walletState = await tx.buyerWallet.findUnique({ where: { userId } });
+          return { wallet: walletState, transaction: existingTx };
+        }
+      }
 
-    const [updatedWallet, transaction] = await prisma.$transaction([
-      prisma.buyerWallet.update({
+      const currentBalance = lockedWallet.balance;
+      if (currentBalance < amount) {
+        throw new AppError(
+          `Insufficient wallet balance. Available: ₹${currentBalance}, Required: ₹${amount}.`,
+          400,
+        );
+      }
+
+      const newBalance = currentBalance - amount;
+
+      const updatedWallet = await tx.buyerWallet.update({
         where: { userId },
         data: {
           balance: { decrement: amount },
@@ -168,10 +218,11 @@ export class WalletService {
             ? { expired: { increment: amount } }
             : { spent: { increment: amount } }),
         },
-      }),
-      prisma.walletTransaction.create({
+      });
+
+      const transaction = await tx.walletTransaction.create({
         data: {
-          walletId: wallet.id,
+          walletId: lockedWallet.id,
           type,
           amount,
           direction: 'DEBIT',
@@ -180,10 +231,10 @@ export class WalletService {
           referenceId,
           referenceType,
         },
-      }),
-    ]);
+      });
 
-    return { wallet: updatedWallet, transaction };
+      return { wallet: updatedWallet, transaction };
+    });
   }
 
   /**
@@ -266,38 +317,47 @@ export class WalletService {
   ) {
     if (amount <= 0) throw new AppError('Credit amount must be positive.', 400);
 
-    const shop = await prisma.shop.findUnique({
-      where: { id: shopId },
-      select: { id: true, adWalletBalance: true },
-    });
-    if (!shop) throw new AppError('Shop not found.', 404);
+    return await prisma.$transaction(async (tx) => {
+      const [lockedShop] = await tx.$queryRaw<any[]>`SELECT "adWalletBalance", id FROM "Shop" WHERE id = ${shopId} FOR UPDATE`;
+      if (!lockedShop) throw new AppError('Shop not found or lock failed.', 404);
 
-    // Check max cap
-    if (shop.adWalletBalance + amount > WALLET_CONFIG.MAX_SELLER_AD_WALLET) {
-      // Silently cap instead of throwing — seller shouldn't lose credit
-      const cappedAmount =
-        WALLET_CONFIG.MAX_SELLER_AD_WALLET - shop.adWalletBalance;
-      if (cappedAmount <= 0) return { shop, transaction: null };
-      amount = cappedAmount;
-    }
+      // Idempotency check
+      if (referenceId) {
+        const existingTx = await tx.sellerAdWalletTransaction.findFirst({
+          where: { shopId: lockedShop.id, referenceId, type: 'SELLER_AD_CREDIT' },
+        });
+        if (existingTx) {
+          const shopState = await tx.shop.findUnique({ where: { id: shopId } });
+          return { shop: shopState, transaction: existingTx };
+        }
+      }
 
-    const expiresAt = new Date();
-    expiresAt.setDate(
-      expiresAt.getDate() + WALLET_CONFIG.SELLER_CREDIT_EXPIRY_DAYS,
-    );
+      let currentBalance = lockedShop.adWalletBalance;
+      let actualAmount = amount;
 
-    const newBalance = shop.adWalletBalance + amount;
+      if (currentBalance + amount > WALLET_CONFIG.MAX_SELLER_AD_WALLET) {
+        const cappedAmount = WALLET_CONFIG.MAX_SELLER_AD_WALLET - currentBalance;
+        if (cappedAmount <= 0) return { shop: await tx.shop.findUnique({ where: { id: shopId } }), transaction: null };
+        actualAmount = cappedAmount;
+      }
 
-    const [updatedShop, transaction] = await prisma.$transaction([
-      prisma.shop.update({
+      const expiresAt = new Date();
+      expiresAt.setDate(
+        expiresAt.getDate() + WALLET_CONFIG.SELLER_CREDIT_EXPIRY_DAYS,
+      );
+
+      const newBalance = currentBalance + actualAmount;
+
+      const updatedShop = await tx.shop.update({
         where: { id: shopId },
-        data: { adWalletBalance: { increment: amount } },
-      }),
-      prisma.sellerAdWalletTransaction.create({
+        data: { adWalletBalance: { increment: actualAmount } },
+      });
+
+      const transaction = await tx.sellerAdWalletTransaction.create({
         data: {
           shopId,
           type: 'SELLER_AD_CREDIT',
-          amount,
+          amount: actualAmount,
           direction: 'CREDIT',
           balanceAfter: newBalance,
           description,
@@ -305,10 +365,10 @@ export class WalletService {
           referenceType,
           expiresAt,
         },
-      }),
-    ]);
+      });
 
-    return { shop: updatedShop, transaction };
+      return { shop: updatedShop, transaction };
+    });
   }
 
   /**
@@ -323,27 +383,38 @@ export class WalletService {
   ) {
     if (amount <= 0) throw new AppError('Debit amount must be positive.', 400);
 
-    const shop = await prisma.shop.findUnique({
-      where: { id: shopId },
-      select: { id: true, adWalletBalance: true },
-    });
-    if (!shop) throw new AppError('Shop not found.', 404);
+    return await prisma.$transaction(async (tx) => {
+      const [lockedShop] = await tx.$queryRaw<any[]>`SELECT "adWalletBalance", id FROM "Shop" WHERE id = ${shopId} FOR UPDATE`;
+      if (!lockedShop) throw new AppError('Shop not found or lock failed.', 404);
 
-    if (shop.adWalletBalance < amount) {
-      throw new AppError(
-        `Insufficient ad wallet balance. Available: ₹${shop.adWalletBalance}.`,
-        400,
-      );
-    }
+      // Idempotency check
+      if (referenceId) {
+        const existingTx = await tx.sellerAdWalletTransaction.findFirst({
+          where: { shopId: lockedShop.id, referenceId, type: 'AD_SPEND_DEBIT' },
+        });
+        if (existingTx) {
+          const shopState = await tx.shop.findUnique({ where: { id: shopId } });
+          return { shop: shopState, transaction: existingTx };
+        }
+      }
 
-    const newBalance = shop.adWalletBalance - amount;
+      const currentBalance = lockedShop.adWalletBalance;
 
-    const [updatedShop, transaction] = await prisma.$transaction([
-      prisma.shop.update({
+      if (currentBalance < amount) {
+        throw new AppError(
+          `Insufficient ad wallet balance. Available: ₹${currentBalance}.`,
+          400,
+        );
+      }
+
+      const newBalance = currentBalance - amount;
+
+      const updatedShop = await tx.shop.update({
         where: { id: shopId },
         data: { adWalletBalance: { decrement: amount } },
-      }),
-      prisma.sellerAdWalletTransaction.create({
+      });
+
+      const transaction = await tx.sellerAdWalletTransaction.create({
         data: {
           shopId,
           type: 'AD_SPEND_DEBIT',
@@ -354,10 +425,10 @@ export class WalletService {
           referenceId,
           referenceType,
         },
-      }),
-    ]);
+      });
 
-    return { shop: updatedShop, transaction };
+      return { shop: updatedShop, transaction };
+    });
   }
 
   /**
@@ -454,15 +525,20 @@ export class WalletService {
       return null; // Silently skip — rate limited
     }
 
-    // Activate the referral
-    await prisma.referralEarning.update({
-      where: { id: pendingReferral.id },
+    // Activate the referral atomically
+    const updateResult = await prisma.referralEarning.updateMany({
+      where: { id: pendingReferral.id, status: 'PENDING', isPaid: false },
       data: {
         isPaid: true,
         status: 'ACTIVATED',
         activatedAt: new Date(),
       },
     });
+
+    if (updateResult.count === 0) {
+      // Already activated concurrently
+      return null;
+    }
 
     // Credit the referrer's wallet
     try {
@@ -506,7 +582,6 @@ export class WalletService {
   async processExpiredCoins(): Promise<{ processed: number; totalExpired: number }> {
     const now = new Date();
 
-    // Find all unexpired credit transactions that have passed their expiry date
     const expiredCredits = await prisma.walletTransaction.findMany({
       where: {
         direction: 'CREDIT',
@@ -524,37 +599,53 @@ export class WalletService {
     let totalExpired = 0;
 
     for (const credit of expiredCredits) {
-      // Mark as expired regardless — prevents re-processing
-      await prisma.walletTransaction.update({
-        where: { id: credit.id },
-        data: { isExpired: true },
-      });
-
-      // Calculate how much of this credit is still "unspent" in the wallet
-      // Simplified: we debit the full credit amount from wallet, capped by current balance
-      const debitAmount = Math.min(credit.amount, credit.wallet.balance);
-      if (debitAmount <= 0) {
-        processed++;
-        continue;
-      }
-
       try {
-        await this.debitBuyerWallet(
-          credit.wallet.userId,
-          debitAmount,
-          'EXPIRY_DEBIT',
-          `Coins expired (₹${debitAmount} from referral credit)`,
-          credit.id,
-          'SYSTEM',
-        );
-        totalExpired += debitAmount;
-      } catch {
-        // Balance might have changed between check and debit — skip
+        await prisma.$transaction(async (tx) => {
+          const currentCredit = await tx.walletTransaction.findUnique({ where: { id: credit.id } });
+          if (!currentCredit || currentCredit.isExpired) return;
+
+          await tx.walletTransaction.update({
+            where: { id: credit.id },
+            data: { isExpired: true },
+          });
+
+          const [lockedWallet] = await tx.$queryRaw<any[]>`SELECT balance, id FROM "BuyerWallet" WHERE "userId" = ${credit.wallet.userId} FOR UPDATE`;
+          if (!lockedWallet) return;
+
+          const currentBalance = lockedWallet.balance;
+          const debitAmount = Math.min(credit.amount, currentBalance);
+          if (debitAmount <= 0) return;
+
+          const newBalance = currentBalance - debitAmount;
+          await tx.buyerWallet.update({
+            where: { userId: credit.wallet.userId },
+            data: {
+              balance: { decrement: debitAmount },
+              expired: { increment: debitAmount },
+            },
+          });
+
+          await tx.walletTransaction.create({
+            data: {
+              walletId: lockedWallet.id,
+              type: 'EXPIRY_DEBIT',
+              amount: debitAmount,
+              direction: 'DEBIT',
+              balanceAfter: newBalance,
+              description: `Coins expired (₹${debitAmount} from referral credit)`,
+              referenceId: credit.id,
+              referenceType: 'SYSTEM',
+            },
+          });
+
+          totalExpired += debitAmount;
+        });
+      } catch (err) {
+        // Skip on error
       }
       processed++;
     }
 
-    // Also process seller ad wallet expired credits
     const expiredSellerCredits = await prisma.sellerAdWalletTransaction.findMany({
       where: {
         direction: 'CREDIT',
@@ -567,24 +658,45 @@ export class WalletService {
     });
 
     for (const credit of expiredSellerCredits) {
-      await prisma.sellerAdWalletTransaction.update({
-        where: { id: credit.id },
-        data: { isExpired: true },
-      });
-
-      const debitAmount = Math.min(credit.amount, credit.shop.adWalletBalance);
-      if (debitAmount <= 0) continue;
-
       try {
-        await this.debitSellerAdWallet(
-          credit.shop.id,
-          debitAmount,
-          `Ad wallet credits expired (₹${debitAmount})`,
-          credit.id,
-          'SYSTEM',
-        );
-        totalExpired += debitAmount;
-      } catch {
+        await prisma.$transaction(async (tx) => {
+          const currentCredit = await tx.sellerAdWalletTransaction.findUnique({ where: { id: credit.id } });
+          if (!currentCredit || currentCredit.isExpired) return;
+
+          await tx.sellerAdWalletTransaction.update({
+            where: { id: credit.id },
+            data: { isExpired: true },
+          });
+
+          const [lockedShop] = await tx.$queryRaw<any[]>`SELECT "adWalletBalance", id FROM "Shop" WHERE id = ${credit.shop.id} FOR UPDATE`;
+          if (!lockedShop) return;
+
+          const currentBalance = lockedShop.adWalletBalance;
+          const debitAmount = Math.min(credit.amount, currentBalance);
+          if (debitAmount <= 0) return;
+
+          const newBalance = currentBalance - debitAmount;
+          await tx.shop.update({
+            where: { id: credit.shop.id },
+            data: { adWalletBalance: { decrement: debitAmount } },
+          });
+
+          await tx.sellerAdWalletTransaction.create({
+            data: {
+              shopId: lockedShop.id,
+              type: 'EXPIRY_DEBIT',
+              amount: debitAmount,
+              direction: 'DEBIT',
+              balanceAfter: newBalance,
+              description: `Ad wallet credits expired (₹${debitAmount})`,
+              referenceId: credit.id,
+              referenceType: 'SYSTEM',
+            },
+          });
+
+          totalExpired += debitAmount;
+        });
+      } catch (err) {
         // Skip on error
       }
     }
@@ -594,9 +706,6 @@ export class WalletService {
 
   // ============= REFERRAL STATUS =============
 
-  /**
-   * Get all referrals for a user with their activation status.
-   */
   async getReferralStatus(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -609,6 +718,13 @@ export class WalletService {
       orderBy: { createdAt: 'desc' },
     });
 
+    const userIds = earnings.map(e => e.referredUserId);
+    const referredUsers = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, name: true, avatar: true }
+    });
+    const userMap = new Map(referredUsers.map(u => [u.id, u]));
+
     const wallet = await this.getOrCreateBuyerWallet(userId);
 
     const pending = earnings.filter((e) => e.status === 'PENDING');
@@ -618,21 +734,26 @@ export class WalletService {
       referralCode: user.referralCode,
       walletBalance: wallet.balance,
       totalReferrals: earnings.length,
-      pendingReferrals: pending.length,
-      activatedReferrals: activated.length,
       totalEarned: activated.reduce((sum, e) => sum + e.amount, 0),
       pendingAmount: pending.reduce((sum, e) => sum + e.amount, 0),
       rewardPerReferral: WALLET_CONFIG.REFERRAL_AMOUNT,
-      earnings: earnings.map((e) => ({
+      pendingReferrals: pending.map((e) => ({
         id: e.id,
-        amount: e.amount,
         status: e.status,
-        isPaid: e.isPaid,
-        activatedAt: e.activatedAt,
-        createdAt: e.createdAt,
+        referredUser: userMap.get(e.referredUserId) || { name: 'Unknown User', avatar: null }
       })),
+      completedReferrals: activated.map((e) => ({
+        id: e.id,
+        amountCredited: e.amount,
+        referredUser: userMap.get(e.referredUserId) || { name: 'Unknown User', avatar: null }
+      }))
     };
   }
+
+  /**
+   * Calculate how much of an ad budget can be covered by the seller's ad wallet,
+   * and how much needs to be paid via Razorpay.
+   */
 }
 
 export default new WalletService();

@@ -77,12 +77,7 @@ const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
       // BYPASS: Skip Razorpay verification and directly mark as successful
       // In production, call handlePaymentSuccess with Razorpay data instead
       
-      // Track conversions for promoted items
-      cartItems.forEach((item: any) => {
-        if (item.campaignId) {
-          telemetryService.trackConversion(item.campaignId, item.productId, undefined, item.price);
-        }
-      });
+      // Conversions are securely tracked on the server during order creation to prevent double-counting.
 
       setPaymentStatus('success');
       clearCart();
@@ -114,12 +109,7 @@ const PaymentScreen: React.FC<Props> = ({ navigation, route }) => {
         orderId: localOrderId,
       });
 
-      // Track conversions for promoted items
-      cartItems.forEach((item: any) => {
-        if (item.campaignId) {
-          telemetryService.trackConversion(item.campaignId, item.productId, undefined, item.price);
-        }
-      });
+      // Conversions are securely tracked on the server during order creation to prevent double-counting.
 
       setPaymentStatus('success');
       clearCart();

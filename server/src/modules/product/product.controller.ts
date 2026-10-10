@@ -170,6 +170,23 @@ export class ProductController {
     }
   }
 
+  async getSellerShopProducts(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { shopId } = req.params;
+      const { category, sort, page, limit } = req.query;
+      const result = await productService.getShopProducts(shopId, {
+        category: category as string,
+        sort: sort as string,
+        page: page ? parseInt(page as string) : undefined,
+        limit: limit ? parseInt(limit as string) : undefined,
+        includeInactive: true,
+      });
+      res.json(result);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
   async getTrending(req: Request, res: Response): Promise<void> {
     try {
       const lat = parseFloat(req.query.lat as string);

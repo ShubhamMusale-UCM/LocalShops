@@ -53,6 +53,7 @@ export class OrderController {
       const order = await orderService.updateOrderStatus(req.params.id, req.user!.id, status, note);
       res.json(order);
     } catch (error: any) {
+      console.error('updateStatus error:', error);
       res.status(error.statusCode || 400).json({ error: error.message });
     }
   }

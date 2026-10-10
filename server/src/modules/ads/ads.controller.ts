@@ -5,6 +5,7 @@ import { AppError } from '../../middleware/errorHandler.middleware';
 import prisma from '../../config/database';
 import { createRazorpayOrder, verifyPaymentSignature } from '../../config/razorpay';
 import { nanoid } from 'nanoid';
+import { z } from 'zod';
 
 export const AdsController = {
   /**
@@ -12,10 +13,23 @@ export const AdsController = {
    */
   createAd: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const { productId, shopId, budgetPerDay, bidPerClick, duration, targetGender = 'ALL', razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+      const schema = z.object({
+        productId: z.string().min(1),
+        shopId: z.string().min(1),
+        budgetPerDay: z.number().positive().min(50), // Min 50 rupees per day
+        bidPerClick: z.number().positive().min(1).max(100), // Between 1 and 100
+        duration: z.number().int().positive().min(1).max(365), // Max 1 year
+        targetGender: z.enum(['ALL', 'MALE', 'FEMALE', 'OTHER']).default('ALL'),
+        razorpay_order_id: z.string().optional(),
+        razorpay_payment_id: z.string().optional(),
+        razorpay_signature: z.string().optional(),
+      });
 
-      if (!productId || !shopId || !budgetPerDay || !bidPerClick || !duration) {
-        throw new AppError('Missing required fields', 400);
+      const validated = schema.parse(req.body);
+      const { productId, shopId, budgetPerDay, bidPerClick, duration, targetGender, razorpay_order_id, razorpay_payment_id, razorpay_signature } = validated;
+
+      if (bidPerClick > budgetPerDay) {
+        throw new AppError('Bid per click cannot be greater than budget per day', 400);
       }
 
       // Verify shop ownership
@@ -45,22 +59,14 @@ export const AdsController = {
         }
 
         // Auto-top-up the wallet with the Razorpay amount so the creation can succeed
-        await prisma.shop.update({
-          where: { id: shopId },
-          data: { adWalletBalance: { increment: split.razorpayAmount } }
-        });
-        
-        await prisma.sellerAdWalletTransaction.create({
-          data: {
-            shopId,
-            type: 'SELLER_AD_CREDIT',
-            amount: split.razorpayAmount,
-            direction: 'CREDIT',
-            balanceAfter: split.walletBalance + split.razorpayAmount,
-            description: `Ad payment split top-up (Razorpay ID: ${razorpay_payment_id})`,
-            referenceType: 'AD_CAMPAIGN',
-          }
-        });
+        // Using walletService provides idempotency (replay protection) via razorpay_payment_id
+        await walletService.creditSellerAdWallet(
+          shopId,
+          split.razorpayAmount,
+          `Ad payment split top-up (Razorpay ID: ${razorpay_payment_id})`,
+          razorpay_payment_id,
+          'AD_CAMPAIGN'
+        );
       }
       // ---------------------------
 
@@ -142,7 +148,8 @@ export const AdsController = {
   getShopDailyMetrics: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { shopId } = req.params;
-      const days = parseInt((req.query.days as string) || '14');
+      const daysStr = req.query.days as string;
+      const days = daysStr ? z.number().int().positive().max(90).parse(parseInt(daysStr)) : 14;
 
       const shop = await prisma.shop.findUnique({ where: { id: shopId } });
       if (shop?.ownerId !== req.user!.id) {
@@ -245,11 +252,11 @@ export const AdsController = {
   renewBudget: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { adId } = req.params;
-      const { additionalBudget, durationDays } = req.body;
-
-      if (!additionalBudget) {
-        throw new AppError('Additional budget required', 400);
-      }
+      const schema = z.object({
+        additionalBudget: z.number().positive().min(100),
+        durationDays: z.number().int().positive().min(1).max(365).default(30)
+      });
+      const { additionalBudget, durationDays } = schema.parse(req.body);
 
       const existing = await prisma.promotedListing.findUnique({
         where: { id: adId },
@@ -287,13 +294,28 @@ export const AdsController = {
 
       let products;
       if (!user) {
-        products = await adsService.getTrendingProducts(
-          parsedLimit, undefined, undefined, parsedLat, parsedLng
-        );
+        products = await adsService.serveAds({
+          limit: parsedLimit,
+          lat: parsedLat,
+          lng: parsedLng
+        });
       } else {
-        products = await adsService.getPersonalizedAds(
-          user.id, parsedLimit, parsedLat, parsedLng, user?.gender
-        );
+        const prisma = (await import('../../config/database')).default;
+        const recentSearches = await prisma.userSearchHistory.findMany({
+          where: { userId: user.id },
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+          select: { keyword: true }
+        });
+        const keywords = recentSearches.map(s => s.keyword);
+
+        products = await adsService.serveAds({
+          limit: parsedLimit,
+          keywords: keywords,
+          lat: parsedLat,
+          lng: parsedLng,
+          userGender: user?.gender
+        });
       }
 
       res.json({
@@ -316,14 +338,13 @@ export const AdsController = {
     try {
       const { limit = 10, q, category, lat, lng } = req.query;
 
-      const products = await adsService.getTrendingProducts(
-        parseInt(limit as string), 
-        q as string, 
-        category as string,
-        lat ? parseFloat(lat as string) : undefined,
-        lng ? parseFloat(lng as string) : undefined,
-        req.user?.gender
-      );
+      const products = await adsService.serveAds({
+        limit: parseInt(limit as string), 
+        query: q as string, 
+        category: category as string,
+        lat: lat ? parseFloat(lat as string) : undefined,
+        lng: lng ? parseFloat(lng as string) : undefined,
+      });
 
       res.json({
         status: 'success',
@@ -503,10 +524,14 @@ export const AdsController = {
         if (!isValid) throw new AppError('Invalid payment signature', 400);
       }
 
-      const updatedShop = await prisma.shop.update({
-        where: { id: shopId },
-        data: { adWalletBalance: { increment: amount } }
-      });
+      const { default: walletService } = await import('../wallet/wallet.service');
+      const { shop: updatedShop } = await walletService.creditSellerAdWallet(
+        shopId,
+        amount,
+        `Wallet top-up (Razorpay ID: ${razorpay_payment_id})`,
+        razorpay_payment_id,
+        'TOPUP'
+      );
 
       res.status(200).json({
         success: true,

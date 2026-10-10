@@ -47,12 +47,8 @@ const trackProductImpressions = (products: any[]) => {
     }).catch(() => {}); // Silently ignore DB errors
   }
 
-  if (campaignIds.length > 0) {
-    prisma.promotedListing.updateMany({
-      where: { id: { in: campaignIds } },
-      data: { impressions: { increment: 1 } },
-    }).catch(() => {}); // Silently ignore DB errors
-  }
+  // Ad impressions are tracked securely via client-side telemetry when the ad becomes viewable,
+  // so we do not increment promotedListing.impressions here to prevent double counting.
 };
 
 export const SearchController = {
@@ -61,7 +57,7 @@ export const SearchController = {
    */
   searchProducts: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const { q, category, minPrice, maxPrice, minRating, shopId, limit = 20, offset = 0 } = req.query;
+      const { q, category, minPrice, maxPrice, minRating, shopId, limit = 20, offset = 0, lat, lng } = req.query;
 
       const queryStr = (q as string) || '';
 
@@ -75,7 +71,10 @@ export const SearchController = {
           shopId: shopId as string,
         },
         parseInt(limit as string),
-        parseInt(offset as string)
+        parseInt(offset as string),
+        lat ? parseFloat(lat as string) : undefined,
+        lng ? parseFloat(lng as string) : undefined,
+        (req.user as any)?.gender
       );
 
       // Track keyword stats (non-blocking fire-and-forget)

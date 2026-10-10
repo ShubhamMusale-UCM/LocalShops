@@ -10,12 +10,12 @@ import {
   Platform,
   StatusBar,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
 import { useHideTabBarOnScroll } from '../../hooks/useHideTabBarOnScroll';
 import shopService from '../../services/shopService';
 import { orderService } from '../../services/orderService';
@@ -24,51 +24,40 @@ import { getPrimarySellerShop } from '../../services/sellerShopContext';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const DS = {
-  primary: '#0D9488',
-  primaryDark: '#0F766E',
-  primaryLight: '#CCFBF1',
-  primaryFaded: 'rgba(13, 148, 136, 0.08)',
-  success: '#10B981',
-  successFaded: 'rgba(16, 185, 129, 0.08)',
-  error: '#EF4444',
-  errorFaded: 'rgba(239, 68, 68, 0.08)',
-  warning: '#F59E0B',
-  warningFaded: 'rgba(245, 158, 11, 0.08)',
-  info: '#3B82F6',
-  infoFaded: 'rgba(59, 130, 246, 0.08)',
-  purple: '#8B5CF6',
-  purpleFaded: 'rgba(139, 92, 246, 0.08)',
-  gray900: '#1F2937',
-  gray700: '#4B5563',
-  gray600: '#6B7280',
-  gray500: '#9CA3AF',
-  gray400: '#D1D5DB',
-  gray300: '#E5E7EB',
-  gray200: '#EEF2F6',
-  gray100: '#F3F4F6',
-  gray50: '#F9FAFB',
-  background: '#F8FAFC',
-  card: '#FFFFFF',
-  border: '#F1F5F9',
-  radius: { sm: 8, md: 12, lg: 16, xl: 24, full: 999 },
+  primary: '#006859',
+  primaryContainer: '#008471',
+  onPrimary: '#ffffff',
+  primaryFixed: '#8ef5de',
+  onPrimaryFixed: '#00201a',
+  secondary: '#9a460d',
+  secondaryContainer: '#fe9256',
+  onSecondary: '#ffffff',
+  secondaryFixed: '#ffdbcb',
+  onSecondaryFixed: '#341100',
+  tertiary: '#4b41e1',
+  tertiaryContainer: '#645efb',
+  onTertiary: '#ffffff',
+  tertiaryFixed: '#e2dfff',
+  surface: '#f9f9ff',
+  surfaceContainerLowest: '#ffffff',
+  surfaceContainerLow: '#f1f3ff',
+  surfaceContainer: '#e9edff',
+  surfaceContainerHigh: '#e1e8fd',
+  surfaceVariant: '#dce2f7',
+  onSurface: '#141b2b',
+  onSurfaceVariant: '#3d4946',
+  error: '#ba1a1a',
+  errorContainer: '#ffdad6',
+  radius: { sm: 4, md: 8, lg: 12, xl: 16, full: 9999 },
 };
 
-const SPRING_SOFT = { damping: 15, stiffness: 180, useNativeDriver: true as true };
-const SPRING_SNAP = { damping: 12, stiffness: 220, useNativeDriver: true as true };
-
-const AnimatedPressable: React.FC<{
-  onPress?: () => void;
-  style?: any;
-  containerStyle?: any;
-  activeOpacity?: number;
-  children: React.ReactNode;
-}> = ({ onPress, style, containerStyle, activeOpacity = 0.9, children }) => {
+const AnimatedPressable = ({ onPress, style, containerStyle, activeOpacity = 0.9, children }) => {
   const scale = useRef(new Animated.Value(1)).current;
   const onPressIn = () => {
-    Animated.spring(scale, { toValue: 0.96, ...SPRING_SNAP }).start();
+    Animated.spring(scale, { toValue: 0.96, damping: 12, stiffness: 220, useNativeDriver: true }).start();
   };
   const onPressOut = () => {
-    Animated.spring(scale, { toValue: 1, ...SPRING_SOFT }).start();
+    Animated.spring(scale, { toValue: 1, damping: 15, stiffness: 180, useNativeDriver: true }).start();
   };
   return (
     <Animated.View style={[{ transform: [{ scale }] }, containerStyle]}>
@@ -85,29 +74,14 @@ const AnimatedPressable: React.FC<{
   );
 };
 
-const AnimatedEntry: React.FC<{
-  delay: number;
-  children: React.ReactNode;
-  style?: any;
-}> = ({ delay, children, style }) => {
+const AnimatedEntry = ({ delay, children, style }) => {
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(16)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(opacity, {
-        toValue: 1,
-        duration: 300,
-        delay,
-        useNativeDriver: true,
-      }),
-      Animated.spring(translateY, {
-        toValue: 0,
-        damping: 14,
-        stiffness: 140,
-        delay,
-        useNativeDriver: true,
-      }),
+      Animated.timing(opacity, { toValue: 1, duration: 300, delay, useNativeDriver: true }),
+      Animated.spring(translateY, { toValue: 0, damping: 14, stiffness: 140, delay, useNativeDriver: true }),
     ]).start();
   }, [delay]);
 
@@ -126,23 +100,20 @@ const EMPTY_DASHBOARD_DATA = {
   pendingOrders: 0,
   thisMonthRevenue: 0,
   thisMonthOrders: 0,
-  totalViews: 0,
   topProduct: { name: 'No products yet', sold: 0 },
 };
 
-const MOCK_REVENUE_TREND = [2400, 3100, 2900, 4200, 3800, 5100, 4800, 6200];
-
-export default function SellerDashboard({ navigation }: { navigation: any }) {
+export default function SellerDashboard({ navigation }) {
   const [data, setData] = useState(EMPTY_DASHBOARD_DATA);
-  const [recentOrders, setRecentOrders] = useState<any[]>([]);
-  const [shopName, setShopName] = useState('Your Shop');
+  const [shopName, setShopName] = useState('Urban Living - FC Road');
   const [isLoading, setIsLoading] = useState(true);
   const { onScroll: _onScroll, scrollEventThrottle } = useHideTabBarOnScroll();
+  const [isOnline, setIsOnline] = useState(true);
 
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerOpacity = scrollY.interpolate({ inputRange: [0, 40], outputRange: [0, 1], extrapolate: 'clamp' });
+  const headerShadow = scrollY.interpolate({ inputRange: [0, 40], outputRange: [0, 0.06], extrapolate: 'clamp' });
 
-  // Pulsing dot for Live Badge & Sparkline
   const pulse = useRef(new Animated.Value(0.4)).current;
   useEffect(() => {
     Animated.loop(
@@ -157,32 +128,26 @@ export default function SellerDashboard({ navigation }: { navigation: any }) {
     try {
       if (force) setIsLoading(true);
       const primaryShop = await getPrimarySellerShop(force);
-      if (!primaryShop?.id) return setData(EMPTY_DASHBOARD_DATA);
-
-      setShopName(primaryShop.name || 'Your Shop');
-      const [ordersRes, productsRes, analyticsRes] = await Promise.all([
-        orderService.getShopOrders(primaryShop.id, 1),
-        shopService.getProducts(primaryShop.id, { page: 1, sort: 'popularity' }),
-        shopService.getAnalytics(primaryShop.id, 30).catch(() => null),
-      ]);
-
-      const orders = Array.isArray(ordersRes?.data) ? ordersRes.data : ordersRes?.data?.orders || [];
-      const products = Array.isArray(productsRes?.data) ? productsRes.data : productsRes?.data?.products || [];
-      const totals = analyticsRes?.data?.totals;
-
-      setData({
-        totalOrders: Number(ordersRes?.data?.pagination?.total ?? orders.length),
-        totalRevenue: Number(totals?.revenue ?? orders.reduce((s: any, o: any) => s + Number(o?.total || 0), 0)),
-        totalProducts: Number(productsRes?.data?.pagination?.total ?? products.length),
-        averageRating: Number(primaryShop.averageRating ?? primaryShop.rating ?? 0),
-        pendingOrders: orders.filter((o: any) => ['PLACED', 'CONFIRMED', 'PREPARING'].includes(String(o?.status))).length,
-        thisMonthRevenue: Number(totals?.revenue ?? 0),
-        thisMonthOrders: Number(totals?.orders ?? orders.length),
-        totalViews: 1254, // Mocked for now
-        topProduct: { name: products[0]?.name || 'No products yet', sold: Number(products[0]?.orderCount ?? 0) },
-      });
-
-      setRecentOrders(orders.slice(0, 3));
+      if (primaryShop?.id) {
+        setShopName(primaryShop.name || 'Urban Living - FC Road');
+        const [ordersRes, productsRes] = await Promise.all([
+          orderService.getShopOrders(primaryShop.id, 1).catch(() => null),
+          shopService.getProducts(primaryShop.id, { page: 1 }).catch(() => null),
+        ]);
+        const orders = Array.isArray(ordersRes?.data) ? ordersRes.data : ordersRes?.data?.orders || [];
+        const products = Array.isArray(productsRes?.data) ? productsRes.data : productsRes?.data?.products || [];
+        
+        setData({
+          totalOrders: Number(ordersRes?.data?.pagination?.total ?? orders.length),
+          totalRevenue: orders.reduce((s, o) => s + Number(o?.total || 0), 0),
+          totalProducts: Number(productsRes?.data?.pagination?.total ?? products.length),
+          averageRating: Number(primaryShop.averageRating ?? primaryShop.rating ?? 4.8),
+          pendingOrders: orders.filter(o => ['PLACED', 'CONFIRMED', 'PREPARING'].includes(String(o?.status))).length,
+          thisMonthRevenue: 48650,
+          thisMonthOrders: 14,
+          topProduct: { name: products[0]?.name || 'Nordic Armchair', sold: Number(products[0]?.orderCount ?? 3) },
+        });
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -198,506 +163,380 @@ export default function SellerDashboard({ navigation }: { navigation: any }) {
     }, [loadData])
   );
 
-  const getGreeting = () => {
-    const h = new Date().getHours();
-    return h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening';
-  };
-
   const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
     useNativeDriver: false,
-    listener: (e: any) => _onScroll(e),
+    listener: (e) => _onScroll(e),
   });
-
-  const generateSparkline = (dataPoints: number[], width: number, height: number) => {
-    if (dataPoints.length < 2) return '';
-    const max = Math.max(...dataPoints, 1);
-    const min = Math.min(...dataPoints, 0);
-    const range = max - min;
-    const xStep = width / (dataPoints.length - 1);
-    return dataPoints
-      .map((val, index) => {
-        const x = index * xStep;
-        const y = height - ((val - min) / range) * (height - 8) - 4;
-        return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
-      })
-      .join(' ');
-  };
-
-  const generateClosedSparkline = (dataPoints: number[], width: number, height: number) => {
-    const linePath = generateSparkline(dataPoints, width, height);
-    if (!linePath) return '';
-    return `${linePath} L ${width} ${height} L 0 ${height} Z`;
-  };
-
-  const graphWidth = SCREEN_WIDTH - 64;
-  const graphHeight = 46;
-  const linePath = generateSparkline(MOCK_REVENUE_TREND, graphWidth, graphHeight);
-  const closedPath = generateClosedSparkline(MOCK_REVENUE_TREND, graphWidth, graphHeight);
-
-  // Generate coordinates for last point of sparkline
-  const lastVal = MOCK_REVENUE_TREND[MOCK_REVENUE_TREND.length - 1];
-  const maxVal = Math.max(...MOCK_REVENUE_TREND, 1);
-  const minVal = Math.min(...MOCK_REVENUE_TREND, 0);
-  const lastX = graphWidth;
-  const lastY = graphHeight - ((lastVal - minVal) / (maxVal - minVal)) * (graphHeight - 8) - 4;
-
-  const getStatusColor = (status: string) => {
-    const s = String(status).toUpperCase();
-    if (['DELIVERED', 'COMPLETED'].includes(s)) return DS.success;
-    if (['PLACED', 'CONFIRMED', 'PREPARING'].includes(s)) return DS.info;
-    if (['CANCELLED', 'FAILED'].includes(s)) return DS.error;
-    return DS.warning;
-  };
 
   return (
     <View style={s.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
-      {/* Premium Frosted Header */}
+      {/* Header */}
       <View style={s.headerWrap}>
         <Animated.View style={[StyleSheet.absoluteFill, { opacity: headerOpacity }]}>
           {Platform.OS === 'ios' ? (
             <BlurView intensity={90} tint="light" style={StyleSheet.absoluteFill} />
           ) : (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(248, 250, 252, 0.98)', borderBottomWidth: 1, borderBottomColor: DS.border }]} />
+            <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(249, 249, 255, 0.85)' }]} />
           )}
         </Animated.View>
         <View style={s.headerInner}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-            <Animated.View style={[s.liveBadge, { opacity: headerOpacity }]}>
-              <Animated.View style={[s.liveDot, { opacity: pulse }]} />
-              <Text style={s.liveText}>Live</Text>
-            </Animated.View>
-            <Animated.Text numberOfLines={1} style={[s.headerTitleSmall, { opacity: headerOpacity }]}>
-              {shopName}
-            </Animated.Text>
+          <View style={{ flex: 1, justifyContent: 'center' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text numberOfLines={1} style={s.headerTitle}>{shopName}</Text>
+              <MaterialIcons name="expand-more" size={20} color={DS.onSurfaceVariant} />
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+              <Animated.View style={[s.headerLiveDot, { opacity: pulse }]} />
+              <Text style={s.headerLiveText}>ACCEPTING ORDERS • PUNE</Text>
+            </View>
           </View>
-          <TouchableOpacity onPress={() => navigation.navigate('SellerProfile')} style={s.avatarBtn} activeOpacity={0.8}>
-            <LinearGradient colors={['#0D9488', '#0F766E']} style={s.avatarGradient}>
-              <Ionicons name="person" size={16} color="#FFF" />
-            </LinearGradient>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <TouchableOpacity style={s.iconBtn}>
+              <Ionicons name="notifications-outline" size={24} color={DS.onSurfaceVariant} />
+              <View style={s.notificationBadge} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('SellerProfile')} style={s.avatarBtn}>
+              <MaterialIcons name="person" size={20} color={DS.onPrimary} />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
-      {isLoading ? (
-        <View style={s.loader}>
-          <ActivityIndicator size="large" color={DS.primary} />
-        </View>
-      ) : (
-        <Animated.ScrollView
-          showsVerticalScrollIndicator={false}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-          contentContainerStyle={s.scrollContent}
-        >
-          {/* Transforming Greeting Hero with Live indicator */}
-          <View style={s.heroRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.greeting}>{getGreeting()},</Text>
-              <Text style={s.heroShopName} numberOfLines={1}>
-                {shopName}
-              </Text>
+      <Animated.ScrollView
+        showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        contentContainerStyle={s.scrollContent}
+      >
+        {/* Top Store Quick Status */}
+        <AnimatedEntry delay={100} style={s.section}>
+          <View style={s.statusCard}>
+            <View style={s.statusHeaderRow}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={s.statusCardTitle} numberOfLines={1}>Urban Living FC Road Hub</Text>
+                  <View style={s.hqBadge}>
+                    <Text style={s.hqBadgeText}>HQ</Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <Animated.View style={[s.liveDotRed, { opacity: pulse }]} />
+                  <Text style={s.statusActiveText}>Showroom Desk: Active</Text>
+                  <Text style={s.statusSubText}>• Instant Pickup Ready</Text>
+                </View>
+              </View>
+              <AnimatedPressable onPress={() => setIsOnline(!isOnline)}>
+                <View style={[s.toggleBtn, isOnline ? s.toggleOnline : s.toggleOffline]}>
+                  <MaterialIcons name="bolt" size={16} color={isOnline ? DS.onPrimary : DS.onSurfaceVariant} />
+                  <Text style={[s.toggleText, isOnline ? { color: DS.onPrimary } : { color: DS.onSurfaceVariant }]}>
+                    {isOnline ? 'Online' : 'Paused'}
+                  </Text>
+                </View>
+              </AnimatedPressable>
             </View>
-            <View style={s.heroLiveBadge}>
-              <Animated.View style={[s.heroLiveDot, { opacity: pulse }]} />
-              <Text style={s.heroLiveText}>Store Online</Text>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.metricsRibbon}>
+              <View style={[s.ribbonItem, { backgroundColor: DS.surfaceContainerLow }]}>
+                <MaterialIcons name="payments" size={18} color={DS.primary} />
+                <Text style={s.ribbonItemText}>₹48,650</Text>
+                <Text style={s.ribbonItemHighlight}>(+18.4%)</Text>
+              </View>
+              <View style={[s.ribbonItem, { backgroundColor: DS.surfaceContainerLow }]}>
+                <MaterialIcons name="task-alt" size={18} color={DS.tertiary} />
+                <Text style={s.ribbonItemText}>14 Fulfilled</Text>
+              </View>
+              <View style={[s.ribbonItem, { backgroundColor: DS.secondaryFixed }]}>
+                <MaterialIcons name="local-shipping" size={18} color={DS.onSecondaryFixed} />
+                <Text style={[s.ribbonItemText, { color: DS.onSecondaryFixed }]}>3 In Transit</Text>
+              </View>
+              <View style={[s.ribbonItem, { backgroundColor: DS.surfaceContainerLow }]}>
+                <MaterialIcons name="schedule" size={18} color={DS.onSurfaceVariant} />
+                <Text style={s.ribbonItemText}>Avg 18m Prep</Text>
+              </View>
+              <View style={{ width: 16 }} />
+            </ScrollView>
+          </View>
+        </AnimatedEntry>
+
+        {/* Hyperlocal Performance */}
+        <AnimatedEntry delay={150} style={s.section}>
+          <View style={s.sectionTitleRow}>
+            <Text style={s.sectionTitle}>Hyperlocal Performance</Text>
+            <Text style={s.sectionLiveText}>Realtime Live</Text>
+          </View>
+          <View style={s.grid2x2}>
+            {/* Card 1 */}
+            <View style={[s.gridCard, { backgroundColor: 'rgba(142, 245, 222, 0.3)' }]}>
+              <View style={s.gridCardHeader}>
+                <View style={[s.iconBox, { color: DS.primary }]}>
+                  <MaterialIcons name="currency-rupee" size={20} color={DS.primary} />
+                </View>
+                <View style={[s.cardBadge, { backgroundColor: DS.primaryContainer }]}>
+                  <Text style={[s.cardBadgeText, { color: DS.onPrimary }]}>↑ 22%</Text>
+                </View>
+              </View>
+              <View style={s.gridCardBody}>
+                <Text style={s.gridCardValue}>₹48,650</Text>
+                <Text style={s.gridCardLabel}>Gross Sales Today</Text>
+                <Text style={[s.gridCardSub, { color: DS.primary }]}>+₹8.2k vs avg</Text>
+              </View>
+            </View>
+
+            {/* Card 2 */}
+            <View style={[s.gridCard, { backgroundColor: DS.surfaceContainerHigh }]}>
+              <View style={s.gridCardHeader}>
+                <View style={[s.iconBox, { color: DS.onSurface }]}>
+                  <MaterialIcons name="storefront" size={20} color={DS.onSurface} />
+                </View>
+                <View style={[s.cardBadge, { backgroundColor: DS.surfaceVariant }]}>
+                  <Text style={[s.cardBadgeText, { color: DS.onSurfaceVariant }]}>Goodluck</Text>
+                </View>
+              </View>
+              <View style={s.gridCardBody}>
+                <Text style={s.gridCardValue}>142 Visits</Text>
+                <Text style={s.gridCardLabel}>Footfall & Showroom</Text>
+                <Text style={[s.gridCardSub, { color: DS.onSurfaceVariant, fontWeight: '400' }]}>86 FC Road Walk-ins</Text>
+              </View>
+            </View>
+
+            {/* Card 3 */}
+            <View style={[s.gridCard, { backgroundColor: 'rgba(255, 219, 203, 0.5)' }]}>
+              <View style={s.gridCardHeader}>
+                <View style={[s.iconBox, { color: DS.secondary }]}>
+                  <MaterialIcons name="video-chat" size={20} color={DS.secondary} />
+                </View>
+                <View style={[s.cardBadge, { backgroundColor: DS.secondaryContainer }]}>
+                  <Text style={[s.cardBadgeText, { color: DS.onSecondary }]}>75% Win</Text>
+                </View>
+              </View>
+              <View style={s.gridCardBody}>
+                <Text style={s.gridCardValue}>8 Inquiries</Text>
+                <Text style={s.gridCardLabel}>Live Consultations</Text>
+                <Text style={[s.gridCardSub, { color: DS.secondary }]}>6 Converted Instantly</Text>
+              </View>
+            </View>
+
+            {/* Card 4 */}
+            <View style={[s.gridCard, { backgroundColor: 'rgba(226, 223, 255, 0.4)' }]}>
+              <View style={s.gridCardHeader}>
+                <View style={[s.iconBox, { color: DS.tertiary }]}>
+                  <MaterialIcons name="radar" size={20} color={DS.tertiary} />
+                </View>
+                <View style={[s.cardBadge, { backgroundColor: DS.tertiary }]}>
+                  <Text style={[s.cardBadgeText, { color: DS.onTertiary }]}>Fast Grid</Text>
+                </View>
+              </View>
+              <View style={s.gridCardBody}>
+                <Text style={s.gridCardValue}>4.8 km</Text>
+                <Text style={s.gridCardLabel}>Broadcast Radius</Text>
+                <Text style={[s.gridCardSub, { color: DS.tertiary }]}>Shivajinagar & Deccan</Text>
+              </View>
             </View>
           </View>
+        </AnimatedEntry>
 
-          {/* Dynamic Sparkline Hero Revenue Insights Card */}
-          <AnimatedEntry delay={100} style={{ paddingHorizontal: 16, marginBottom: 20 }}>
-            <LinearGradient colors={['#0D9488', '#0F766E']} style={s.revenueCard} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-              <View style={s.revenueHeaderRow}>
+        {/* Quick Merchant Desk */}
+        <AnimatedEntry delay={200} style={s.section}>
+          <View style={s.sectionTitleRow}>
+            <Text style={s.sectionTitle}>Quick Merchant Desk</Text>
+            <Text style={s.sectionSubText}>Tap to trigger</Text>
+          </View>
+          <View style={s.grid2x2}>
+            <AnimatedPressable onPress={() => navigation.navigate('PromoteProduct')} style={s.actionCard}>
+              <View style={s.actionHeader}>
+                <View style={[s.actionIconBox, { backgroundColor: DS.primaryFixed }]}>
+                  <MaterialIcons name="campaign" size={18} color={DS.primary} />
+                </View>
+                <Animated.View style={[s.actionDotPulse, { opacity: pulse }]} />
+              </View>
+              <Text style={s.actionTitle}>Boost Visibility</Text>
+              <Text style={[s.actionSub, { color: DS.primary }]}>2.4x Local Boost Active</Text>
+            </AnimatedPressable>
+
+            <AnimatedPressable style={s.actionCard}>
+              <View style={s.actionHeader}>
+                <View style={[s.actionIconBox, { backgroundColor: DS.secondaryFixed }]}>
+                  <MaterialIcons name="two-wheeler" size={18} color={DS.secondary} />
+                </View>
+                <View style={s.actionSmallBadge}>
+                  <Text style={s.actionSmallBadgeText}>Nearby</Text>
+                </View>
+              </View>
+              <Text style={s.actionTitle}>Request Rider</Text>
+              <Text style={[s.actionSub, { color: DS.secondary }]}>3 Riders Available</Text>
+            </AnimatedPressable>
+
+            <AnimatedPressable onPress={() => navigation.navigate('SellerAdWallet')} style={s.actionCard}>
+              <View style={s.actionHeader}>
+                <View style={[s.actionIconBox, { backgroundColor: DS.surfaceVariant }]}>
+                  <MaterialIcons name="account-balance-wallet" size={18} color={DS.onSurface} />
+                </View>
+                <MaterialIcons name="arrow-forward" size={18} color={DS.primary} />
+              </View>
+              <Text style={s.actionTitle}>Instant Payout</Text>
+              <Text style={[s.actionSub, { color: DS.onSurfaceVariant, fontWeight: '400' }]}>₹34,200 ready to transfer</Text>
+            </AnimatedPressable>
+
+            <AnimatedPressable onPress={() => navigation.navigate('Products')} style={s.actionCard}>
+              <View style={s.actionHeader}>
+                <View style={[s.actionIconBox, { backgroundColor: DS.errorContainer }]}>
+                  <MaterialIcons name="warning" size={18} color={DS.error} />
+                </View>
+                <View style={s.actionDotRed} />
+              </View>
+              <Text style={s.actionTitle}>Stock Inventory</Text>
+              <Text style={[s.actionSub, { color: DS.error }]}>2 items running low</Text>
+            </AnimatedPressable>
+          </View>
+        </AnimatedEntry>
+
+        {/* Weekly Chart Card */}
+        <AnimatedEntry delay={250} style={s.section}>
+          <View style={s.chartCard}>
+            <View style={s.chartHeaderRow}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={s.sectionTitle}>Weekly Revenue & Footfall</Text>
+                  <View style={[s.cardBadge, { backgroundColor: DS.primaryFixed }]}>
+                    <Text style={[s.cardBadgeText, { color: DS.primary }]}>Pune Central</Text>
+                  </View>
+                </View>
+                <Text style={s.chartSubText}>Showing daily store orders vs physical showroom walk-ins</Text>
+              </View>
+            </View>
+
+            {/* Chart Graphic Mock */}
+            <View style={s.chartContainer}>
+              {[
+                { d: 'M', v1: '45%', v2: '60%' },
+                { d: 'T', v1: '60%', v2: '70%' },
+                { d: 'W', v1: '52%', v2: '65%' },
+                { d: 'T', v1: '75%', v2: '80%' },
+                { d: 'F', v1: '85%', v2: '85%' },
+                { d: 'S', v1: '98%', v2: '90%', active: true },
+                { d: 'Today', v1: '88%', v2: '75%', secondary: true },
+              ].map((item, index) => (
+                <View key={index} style={s.chartBarCol}>
+                  <View style={s.chartBarWrapper}>
+                    <View style={[s.chartBarBg, { height: item.v1 }, item.active && { backgroundColor: DS.primaryFixed, elevation: 1 }, item.secondary && { backgroundColor: DS.secondaryFixed }]}>
+                      <View style={[s.chartBarFill, { height: item.v2 }, item.secondary && { backgroundColor: DS.secondaryContainer }]} />
+                    </View>
+                  </View>
+                  <Text style={[s.chartDayLabel, item.active && { color: DS.primary, fontWeight: '800' }, item.secondary && { color: DS.secondary, fontWeight: '800' }]}>{item.d}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={s.chartFooterBox}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <MaterialIcons name="local-fire-department" size={18} color={DS.secondary} />
+                <Text style={s.chartFooterText}>5 PM - 8 PM Peak Rush</Text>
+              </View>
+              <Text style={s.chartFooterSub}>42% of sales</Text>
+            </View>
+          </View>
+        </AnimatedEntry>
+
+        {/* Live Shivajinagar Trends */}
+        <AnimatedEntry delay={300} style={s.section}>
+          <View style={s.sectionTitleRow}>
+            <View>
+              <Text style={s.sectionTitle}>Live Shivajinagar Trends</Text>
+              <Text style={s.sectionSubText}>Local shoppers searching near you</Text>
+            </View>
+            <MaterialIcons name="trending-up" size={24} color={DS.primary} />
+          </View>
+
+          <View style={s.trendsList}>
+            <View style={s.trendItem}>
+              <View style={s.trendLeft}>
+                <Image source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDji8_I6DAXqgJfY2I4mg5Zv6Bm04Z-nwWe0rSemNXxFXjIykrFDWCzl382xVoy2qTVhkWFdwISAnhbvnaGiLFD57PG7HVVuUw1nLo0BloFRoY5LfhA5Kqm9NRBTzGYg_LE7EEbWn6qdYy3cNtgqslMyyFTMY-3d7a6rTZ53ciQxAodoBLhjMkKb1PNw-8kLQgIEY01BVOBgmyOo9CV-qLcMmccGnz6snFb4zwQdpgpNO_WDU4y8lzH' }} style={s.trendImg} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.trendTitle} numberOfLines={1}>Nordic Armchair</Text>
+                  <Text style={s.trendSubBold}>3 in stock • Ranked #1</Text>
+                </View>
+              </View>
+              <View style={s.trendRight}>
+                <Text style={s.trendCount}>64 searches</Text>
+                <View style={[s.trendBadge, { backgroundColor: 'rgba(142, 245, 222, 0.5)' }]}>
+                  <Text style={[s.trendBadgeText, { color: DS.primaryContainer }]}>High Intent</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={s.trendItem}>
+              <View style={s.trendLeft}>
+                <Image source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCFWoYyzea_w19JhLgK9b1DDRhFvi-5LhvCYbxHxPcRurifGr4gVRPtm9jjHNRxzMPmP0qI2z2cZ-jLNTVCFYUZTmlumAK3v9D1wLVHD1MMMor9OHh8Vbx2M_iDRQEWSnAiVEeFsb_W0ZyyRoWaWQHwDQQpq9ZpRuBzqWfSoNBTgnSIbOafSsCKQ66eSszodMfKe0n14iBzl9WJS4NZ0W50EB8uUo6smSvPNeIIJpNm2wsfiQileDfS' }} style={s.trendImg} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.trendTitle} numberOfLines={1}>Teak Study Desks</Text>
+                  <Text style={s.trendSubReg}>High demand in Model Colony</Text>
+                </View>
+              </View>
+              <View style={s.trendRight}>
+                <Text style={s.trendCount}>42 searches</Text>
+                <View style={[s.trendBadge, { backgroundColor: DS.secondaryFixed }]}>
+                  <Text style={[s.trendBadgeText, { color: DS.secondary }]}>Trending</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={s.trendItem}>
+              <View style={s.trendLeft}>
+                <Image source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuD26JZeJhjtBeI2mAYErcpyCtvRsn9Q7qSAssepGZEVfrIRfORx4R9Kogw7AnCCEBYn7R4fi0bC8bn2a7EU1t8GAgY4fyGHRHTvoVrlDkFXAPHSaARkdycYYFFiBvg4MSp8arZn9ir39CseqVJbe7nHtVrWS79UpVR8ZV7OE7u7DBZimepbD7sr0OPuczVv8ntTpg4Q67UrA0IKvGlCy9Os34XWvcOAvWefR6Xx7xwD2kKC7z6nrpcf' }} style={s.trendImg} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.trendTitle} numberOfLines={1}>Sofa Waterproofing</Text>
+                  <Text style={s.trendSubReg}>Hyperlocal service booking</Text>
+                </View>
+              </View>
+              <View style={s.trendRight}>
+                <Text style={s.trendCount}>28 inquiries</Text>
+                <View style={[s.trendBadge, { backgroundColor: DS.tertiaryFixed }]}>
+                  <Text style={[s.trendBadgeText, { color: DS.tertiary }]}>Services</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </AnimatedEntry>
+
+        {/* Customer Reviews */}
+        <AnimatedEntry delay={350} style={[s.section, { marginBottom: 32 }]}>
+          <View style={s.reviewsCard}>
+            <View style={s.reviewsHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={s.reviewsIconBox}>
+                  <MaterialIcons name="verified" size={24} color={DS.primary} />
+                </View>
                 <View>
-                  <Text style={s.revenueCardLabel}>Total Sales & Revenue</Text>
-                  <Text style={s.revenueCardVal}>₹{data.totalRevenue.toLocaleString()}</Text>
-                </View>
-                <View style={s.revenueGrowthBadge}>
-                  <Ionicons name="trending-up" size={14} color={DS.primary} />
-                  <Text style={s.revenueGrowthTxt}>+14.8%</Text>
+                  <Text style={s.reviewsTitle}>Seller Trust Score</Text>
+                  <Text style={s.reviewsSub}>FC Road Collective Verified</Text>
                 </View>
               </View>
-
-              {/* Sparkline Graph */}
-              {linePath ? (
-                <View style={s.graphContainer}>
-                  <Svg width={graphWidth} height={graphHeight}>
-                    <Defs>
-                      <SvgGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                        <Stop offset="0%" stopColor="#22D3EE" stopOpacity={0.4} />
-                        <Stop offset="100%" stopColor="#22D3EE" stopOpacity={0.0} />
-                      </SvgGradient>
-                    </Defs>
-                    {/* Closed area path under line */}
-                    <Path d={closedPath} fill="url(#grad)" />
-                    {/* Line path */}
-                    <Path d={linePath} fill="none" stroke="#22D3EE" strokeWidth="2.5" />
-                  </Svg>
-                  {/* Glowing end node on graph */}
-                  <Animated.View style={[s.graphNode, { left: lastX - 4, top: lastY - 4, opacity: pulse, borderColor: '#22D3EE' }]} />
-                </View>
-              ) : null}
-
-              <View style={s.revenueFooterRow}>
-                <View style={s.revFooterCol}>
-                  <Text style={s.revFooterLabel}>This Month</Text>
-                  <Text style={s.revFooterVal}>₹{data.thisMonthRevenue.toLocaleString()}</Text>
-                </View>
-                <View style={s.revFooterDivider} />
-                <View style={s.revFooterCol}>
-                  <Text style={s.revFooterLabel}>Monthly Orders</Text>
-                  <Text style={s.revFooterVal}>{data.thisMonthOrders} orders</Text>
-                </View>
-              </View>
-            </LinearGradient>
-          </AnimatedEntry>
-
-          {/* KPI Tiles (2x2 Grid) */}
-          <AnimatedEntry delay={120} style={{ paddingHorizontal: 16, marginBottom: 24 }}>
-            <Text style={s.sectionHeader}>Performance Overview</Text>
-            <View style={s.kpiGrid}>
-              <View style={s.kpiTile}>
-                <Ionicons name="cash-outline" size={22} color="#22D3EE" style={s.kpiIcon} />
-                <Text style={s.kpiLabel}>Sales</Text>
-                <Text style={s.kpiValue}>₹{data.totalRevenue.toLocaleString()}</Text>
-              </View>
-              <View style={s.kpiTile}>
-                <Ionicons name="cube-outline" size={22} color="#8B5CF6" style={s.kpiIcon} />
-                <Text style={s.kpiLabel}>Orders</Text>
-                <Text style={s.kpiValue}>{data.totalOrders}</Text>
-              </View>
-              <View style={s.kpiTile}>
-                <Ionicons name="pricetags-outline" size={22} color="#F59E0B" style={s.kpiIcon} />
-                <Text style={s.kpiLabel}>Products</Text>
-                <Text style={s.kpiValue}>{data.totalProducts}</Text>
-              </View>
-              <View style={s.kpiTile}>
-                <Ionicons name="eye-outline" size={22} color="#10B981" style={s.kpiIcon} />
-                <Text style={s.kpiLabel}>Views</Text>
-                <Text style={s.kpiValue}>{data.totalViews}</Text>
-              </View>
+              <Text style={s.reviewsScoreText}>98%</Text>
             </View>
-          </AnimatedEntry>
 
-          {/* Priority Pending orders banner */}
-          {data.pendingOrders > 0 && (
-            <AnimatedEntry delay={150}>
-              <AnimatedPressable onPress={() => navigation.navigate('Orders')} style={s.priorityBanner}>
-                <View style={s.bannerIconRing}>
-                  <Ionicons name="notifications" size={20} color={DS.error} />
-                  <View style={s.pulseDot} />
-                </View>
-                <View style={s.bannerTextCol}>
-                  <Text style={s.bannerTitle}>{data.pendingOrders} Orders Pending</Text>
-                  <Text style={s.bannerSub}>Tap to manage and fulfill now</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={DS.error} />
-              </AnimatedPressable>
-            </AnimatedEntry>
-          )}
-
-          {/* Sleek Operations Console Grid */}
-          <AnimatedEntry delay={200} style={{ paddingHorizontal: 16, marginBottom: 24 }}>
-            <Text style={s.sectionHeader}>Operations Console</Text>
-            <View style={s.operationsGrid}>
-              <View style={s.opsRow}>
-                <AnimatedPressable
-                  onPress={() => navigation.navigate('AddProduct')}
-                  style={[s.opsCard, { borderLeftColor: DS.purple, borderLeftWidth: 4 }]}
-                  containerStyle={{ flex: 1 }}
-                >
-                  <View style={[s.opsIconWrap, { backgroundColor: DS.purple + '15' }]}>
-                    <Ionicons name="add-circle" size={24} color={DS.purple} />
-                  </View>
-                  <Text style={s.opsCardTitle}>Add Item</Text>
-                  <Text style={s.opsCardDesc}>Create product listing</Text>
-                </AnimatedPressable>
-
-                <AnimatedPressable
-                  onPress={() => navigation.navigate('Products')}
-                  style={[s.opsCard, { borderLeftColor: DS.primary, borderLeftWidth: 4 }]}
-                  containerStyle={{ flex: 1 }}
-                >
-                  <View style={[s.opsIconWrap, { backgroundColor: DS.primary + '15' }]}>
-                    <Ionicons name="cube" size={24} color={DS.primary} />
-                  </View>
-                  <Text style={s.opsCardTitle}>Inventory</Text>
-                  <Text style={s.opsCardDesc}>{data.totalProducts} active items</Text>
-                </AnimatedPressable>
+            <View style={s.reviewsStarsBox}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <MaterialIcons name="star" size={20} color={DS.secondary} />
+                <Text style={s.reviewsStarsVal}>4.8</Text>
               </View>
-
-              <View style={s.opsRow}>
-                <AnimatedPressable
-                  onPress={() => navigation.navigate('Orders')}
-                  style={[s.opsCard, { borderLeftColor: DS.info, borderLeftWidth: 4 }]}
-                  containerStyle={{ flex: 1 }}
-                >
-                  <View style={[s.opsIconWrap, { backgroundColor: DS.info + '15' }]}>
-                    <Ionicons name="receipt" size={24} color={DS.info} />
-                  </View>
-                  <Text style={s.opsCardTitle}>Orders Feed</Text>
-                  <Text style={s.opsCardDesc}>{data.totalOrders} total completed</Text>
-                </AnimatedPressable>
-
-                <AnimatedPressable
-                  onPress={() => navigation.navigate('ManageFlashSales')}
-                  style={[s.opsCard, { borderLeftColor: DS.warning, borderLeftWidth: 4 }]}
-                  containerStyle={{ flex: 1 }}
-                >
-                  <View style={[s.opsIconWrap, { backgroundColor: DS.warning + '15' }]}>
-                    <Ionicons name="flash" size={24} color={DS.warning} />
-                  </View>
-                  <Text style={s.opsCardTitle}>Flash Sales</Text>
-                  <Text style={s.opsCardDesc}>Manage discounts</Text>
-                </AnimatedPressable>
-              </View>
-
-              <View style={s.opsRow}>
-                <AnimatedPressable
-                  onPress={() => navigation.navigate('StoreSettings')}
-                  style={[s.opsCard, { borderLeftColor: DS.gray600, borderLeftWidth: 4 }]}
-                  containerStyle={{ flex: 1 }}
-                >
-                  <View style={[s.opsIconWrap, { backgroundColor: DS.gray600 + '15' }]}>
-                    <Ionicons name="settings" size={24} color={DS.gray600} />
-                  </View>
-                  <Text style={s.opsCardTitle}>Store Settings</Text>
-                  <Text style={s.opsCardDesc}>Hours & Status</Text>
-                </AnimatedPressable>
-
-                <AnimatedPressable
-                  onPress={() => navigation.navigate('PromoteProduct')}
-                  style={[s.opsCard, { borderLeftColor: DS.success, borderLeftWidth: 4 }]}
-                  containerStyle={{ flex: 1 }}
-                >
-                  <View style={[s.opsIconWrap, { backgroundColor: DS.success + '15' }]}>
-                    <Ionicons name="megaphone" size={24} color={DS.success} />
-                  </View>
-                  <Text style={s.opsCardTitle}>Promote</Text>
-                  <Text style={s.opsCardDesc}>Boost ranking & sales</Text>
-                </AnimatedPressable>
-              </View>
-
-              <View style={s.opsRow}>
-                <AnimatedPressable
-                  onPress={() => navigation.navigate('SellerAudience')}
-                  style={[s.opsCard, { borderLeftColor: DS.primary, borderLeftWidth: 4 }]}
-                  containerStyle={{ flex: 1 }}
-                >
-                  <View style={[s.opsIconWrap, { backgroundColor: DS.primary + '15' }]}>
-                    <Ionicons name="people" size={24} color={DS.primary} />
-                  </View>
-                  <Text style={s.opsCardTitle}>Audience</Text>
-                  <Text style={s.opsCardDesc}>Broadcast & Followers</Text>
-                </AnimatedPressable>
-                
-                <AnimatedPressable
-                  onPress={() => navigation.navigate('SellerAdWallet')}
-                  style={[s.opsCard, { borderLeftColor: DS.warning, borderLeftWidth: 4 }]}
-                  containerStyle={{ flex: 1 }}
-                >
-                  <View style={[s.opsIconWrap, { backgroundColor: DS.warning + '15' }]}>
-                    <Ionicons name="wallet" size={24} color={DS.warning} />
-                  </View>
-                  <Text style={s.opsCardTitle}>Ad Wallet</Text>
-                  <Text style={s.opsCardDesc}>Manage ad balance</Text>
-                </AnimatedPressable>
-              </View>
+              <Text style={s.reviewsStarsSub}>• 320 Verified Local Reviews</Text>
             </View>
-          </AnimatedEntry>
 
-          {/* Daily Goal / Motivation Segment */}
-          <AnimatedEntry delay={250} style={{ paddingHorizontal: 16, marginBottom: 24 }}>
-            <View style={s.dailyGoalCard}>
-              <View style={s.dailyGoalHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="flag-outline" size={16} color={DS.primary} />
-                  <Text style={s.dailyGoalTitle}>Daily Goal</Text>
-                </View>
-                <Text style={s.dailyGoalProgressText}>
-                  ₹{Math.min(data.totalRevenue, 10000).toLocaleString()} / ₹10,000
-                </Text>
+            <View style={s.reviewsFooter}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialIcons name="verified-user" size={18} color={DS.primary} />
+                <Text style={s.reviewsFooterText}>Fast Dispatch Badge Active</Text>
               </View>
-
-              {/* Goal Progress bar */}
-              <View style={s.goalProgressTrack}>
-                <View
-                  style={[
-                    s.goalProgressFill,
-                    {
-                      width: `${Math.min(100, (data.totalRevenue / 10000) * 100)}%`,
-                      backgroundColor: DS.primary,
-                    },
-                  ]}
-                />
-              </View>
-
-              <Text style={s.goalMotivationText}>
-                {data.totalRevenue >= 10000
-                  ? 'Fantastic! You have hit your daily goal. Fulfill orders to maximize earnings.'
-                  : `You are ₹${(10000 - Math.min(data.totalRevenue, 10000)).toLocaleString()} away from hitting today's target!`}
-              </Text>
-            </View>
-          </AnimatedEntry>
-
-          {/* Store Health Section */}
-          <AnimatedEntry delay={270} style={{ paddingHorizontal: 16, marginBottom: 24 }}>
-            <Text style={s.sectionHeader}>Store Health</Text>
-            <View style={s.storeHealthCard}>
-              <View style={s.healthScoreRow}>
-                <View style={s.healthScoreGauge}>
-                  {/* Mock Semicircle Gauge using borders */}
-                  <View style={s.healthScoreGaugeInner}>
-                    <Text style={s.healthScoreNum}>92</Text>
-                    <Text style={s.healthScoreTotal}>/100</Text>
-                  </View>
-                </View>
-                <View style={{ flex: 1, paddingLeft: 16 }}>
-                  <Text style={s.healthScoreTitle}>Excellent Performance</Text>
-                  <Text style={s.healthScoreSub}>Your store is highly visible and trusted by customers.</Text>
-                </View>
-              </View>
-              <View style={s.healthDivider} />
-              <Text style={s.optimizationTitle}>Optimization Tips</Text>
-              <View style={s.optimizationList}>
-                <View style={s.optItem}>
-                  <Ionicons name="checkmark-circle" size={16} color="#22D3EE" />
-                  <Text style={s.optItemText}>Maintain &gt;95% fulfillment rate</Text>
-                </View>
-                <View style={s.optItem}>
-                  <Ionicons name="alert-circle" size={16} color={DS.warning} />
-                  <Text style={s.optItemText}>2 products missing high-quality images</Text>
-                </View>
-                <View style={s.optItem}>
-                  <Ionicons name="alert-circle" size={16} color={DS.warning} />
-                  <Text style={s.optItemText}>Reply to pending reviews</Text>
-                </View>
-              </View>
-            </View>
-          </AnimatedEntry>
-
-          {/* Live Recent Orders Activity Stream */}
-          <AnimatedEntry delay={300} style={{ paddingHorizontal: 16, marginBottom: 24 }}>
-            <View style={s.sectionHeaderRow}>
-              <Text style={s.sectionHeader}>Live Order Activity</Text>
-              <TouchableOpacity onPress={() => navigation.navigate('Orders')}>
-                <Text style={s.sectionHeaderLink}>See All</Text>
+              <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={s.reviewsFooterLink}>View Badges</Text>
+                <MaterialIcons name="chevron-right" size={16} color={DS.onSurface} />
               </TouchableOpacity>
             </View>
-
-            {recentOrders.length > 0 ? (
-              <View style={s.ordersFeedCard}>
-                {recentOrders.map((order, idx) => {
-                  const itemsSummary = Array.isArray(order.items)
-                    ? order.items.map((it: any) => `${it.quantity}x ${it.productName || it.name}`).join(', ')
-                    : 'Order items';
-
-                  return (
-                    <View key={order.id || idx}>
-                      <TouchableOpacity
-                        onPress={() => navigation.navigate('Orders')}
-                        style={s.orderFeedItem}
-                        activeOpacity={0.7}
-                      >
-                        <View style={s.orderIconCircle}>
-                          <Ionicons name="cart-outline" size={18} color={DS.gray700} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Text style={s.orderIdText} numberOfLines={1}>
-                              Order #{String(order.id || '').substring(0, 8).toUpperCase()}
-                            </Text>
-                            <View style={[s.orderStatusBadge, { backgroundColor: getStatusColor(order.status) + '15' }]}>
-                              <Text style={[s.orderStatusBadgeText, { color: getStatusColor(order.status) }]}>
-                                {order.status}
-                              </Text>
-                            </View>
-                          </View>
-                          <Text style={s.orderItemsText} numberOfLines={1}>
-                            {itemsSummary}
-                          </Text>
-                        </View>
-                        <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
-                          <Text style={s.orderPriceText}>₹{order.total}</Text>
-                          <Ionicons name="chevron-forward" size={14} color={DS.gray400} style={{ marginTop: 4 }} />
-                        </View>
-                      </TouchableOpacity>
-                      {idx < recentOrders.length - 1 && <View style={s.orderDivider} />}
-                    </View>
-                  );
-                })}
-              </View>
-            ) : (
-              <View style={s.emptyOrdersCard}>
-                <Ionicons name="chatbox-ellipses-outline" size={32} color={DS.gray400} style={{ marginBottom: 8 }} />
-                <Text style={s.emptyStateText}>No recent orders received yet.</Text>
-                <Text style={s.emptyStateSub}>Once customer orders are received, they will stream here.</Text>
-              </View>
-            )}
-          </AnimatedEntry>
-
-          {/* Top Performer Card & Marketing */}
-          <AnimatedEntry delay={350} style={{ paddingHorizontal: 16, marginBottom: 40 }}>
-            <Text style={s.sectionHeader}>Performance & Growth</Text>
-
-            {/* Top Performer Row */}
-            <AnimatedPressable onPress={() => navigation.navigate('Products')} style={s.performerCard}>
-              <View style={s.performerIcon}>
-                <Ionicons name="flame" size={22} color={DS.warning} />
-              </View>
-              <View style={s.performerInfo}>
-                <Text style={s.performerName} numberOfLines={1}>
-                  {data.topProduct.name}
-                </Text>
-                <Text style={s.performerSold}>{data.topProduct.sold} units sold</Text>
-              </View>
-              <View style={s.performerBadge}>
-                <Text style={s.performerBadgeTxt}>#1 Seller</Text>
-              </View>
-            </AnimatedPressable>
-
-            {/* Average Rating Banner */}
-            <View style={s.ratingBanner}>
-              <View style={s.ratingIconCircle}>
-                <Ionicons name="star" size={20} color={DS.warning} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={s.ratingTitle}>Store Reputation</Text>
-                <Text style={s.ratingSub}>
-                  Your average rating is {data.averageRating.toFixed(1)} stars. Keep up the high service!
-                </Text>
-              </View>
-              <View style={s.ratingStarsRow}>
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <Ionicons
-                    key={i}
-                    name={i < Math.round(data.averageRating) ? 'star' : 'star-outline'}
-                    size={14}
-                    color={DS.warning}
-                  />
-                ))}
-              </View>
-            </View>
-
-            {/* Marketing card */}
-            <AnimatedPressable onPress={() => navigation.navigate('PromoteProduct')} style={s.marketingCard}>
-              <LinearGradient colors={['#8B5CF6', '#6D28D9']} style={s.marketingGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-                <View style={s.marketingIconRing}>
-                  <Ionicons name="megaphone" size={22} color="#FFF" />
-                </View>
-                <View style={s.marketingInfo}>
-                  <Text style={s.marketingTitle}>Boost Your Local Sales</Text>
-                  <Text style={s.marketingSub}>Create an ad campaign to reach 3x more customers in your area.</Text>
-                </View>
-                <View style={s.marketingBtn}>
-                  <Text style={s.marketingBtnText}>Promote</Text>
-                </View>
-              </LinearGradient>
-            </AnimatedPressable>
-          </AnimatedEntry>
-        </Animated.ScrollView>
-      )}
+          </View>
+        </AnimatedEntry>
+      </Animated.ScrollView>
     </View>
   );
 }
@@ -705,672 +544,286 @@ export default function SellerDashboard({ navigation }: { navigation: any }) {
 const paddingTop = Platform.OS === 'ios' ? 50 : (StatusBar.currentHeight || 0) + 10;
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: DS.background },
-  loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-
+  container: { flex: 1, backgroundColor: DS.surface },
+  
   headerWrap: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
+    top: 0, left: 0, right: 0,
     zIndex: 100,
-    height: paddingTop + 54,
+    height: paddingTop + 64,
   },
   headerInner: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: paddingTop,
-    paddingHorizontal: 16,
+    paddingTop: paddingTop + 10,
+    paddingHorizontal: 20,
     paddingBottom: 10,
   },
-  liveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: DS.successFaded,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    gap: 4,
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: DS.success,
-  },
-  liveText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: DS.success,
-    textTransform: 'uppercase',
-  },
-  headerTitleSmall: {
+  headerTitle: {
     fontSize: 16,
-    fontWeight: '800',
-    color: DS.gray900,
-    letterSpacing: -0.2,
+    fontWeight: '700',
+    color: DS.onSurface,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+  },
+  headerLiveDot: {
+    width: 8, height: 8,
+    borderRadius: 4,
+    backgroundColor: DS.primaryContainer,
+  },
+  headerLiveText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: DS.primary,
+    letterSpacing: 0.5,
+  },
+  iconBtn: {
+    width: 44, height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: 10, right: 10,
+    width: 8, height: 8,
+    borderRadius: 4,
+    backgroundColor: DS.secondaryContainer,
   },
   avatarBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: DS.card,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    width: 32, height: 32,
+    borderRadius: 16,
+    backgroundColor: DS.primary,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  avatarGradient: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 3, elevation: 2,
+    marginLeft: 8,
   },
 
   scrollContent: {
-    paddingTop: paddingTop + 54 + 4,
+    paddingTop: paddingTop + 64,
     paddingBottom: 100,
   },
+  section: {
+    paddingHorizontal: 20,
+    marginBottom: 24,
+  },
 
-  heroRow: {
+  statusCard: {
+    backgroundColor: DS.surfaceContainerLowest,
+    borderRadius: DS.radius.xl,
+    paddingVertical: 20,
+    shadowColor: DS.onSurface,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    elevation: 3,
+  },
+  statusHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     marginBottom: 16,
-    marginTop: 8,
   },
-  greeting: {
-    fontSize: 12,
-    color: DS.gray500,
+  statusCardTitle: {
+    fontSize: 18,
     fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    color: DS.onSurface,
   },
-  heroShopName: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: DS.gray900,
-    letterSpacing: -0.8,
-    marginTop: 2,
+  hqBadge: {
+    backgroundColor: DS.primaryFixed,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
   },
-  heroLiveBadge: {
+  hqBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: DS.onPrimaryFixed,
+  },
+  liveDotRed: {
+    width: 8, height: 8,
+    borderRadius: 4,
+    backgroundColor: DS.primaryContainer,
+  },
+  statusActiveText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: DS.primary,
+  },
+  statusSubText: {
+    fontSize: 12,
+    color: DS.onSurfaceVariant,
+  },
+  toggleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0FDF4',
-    borderWidth: 1,
-    borderColor: '#DCFCE7',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 999,
     gap: 6,
   },
-  heroLiveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: DS.success,
+  toggleOnline: {
+    backgroundColor: DS.primaryContainer,
   },
-  heroLiveText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#15803D',
+  toggleOffline: {
+    backgroundColor: DS.onSurfaceVariant,
   },
-
-  revenueCard: {
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: DS.primaryDark,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 8,
-    overflow: 'hidden',
-  },
-  revenueHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  revenueCardLabel: {
+  toggleText: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.75)',
     fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
-  revenueCardVal: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: -1,
-    marginTop: 4,
+  metricsRibbon: {
+    paddingLeft: 20,
   },
-  revenueGrowthBadge: {
+  ribbonItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 999,
-    gap: 3,
+    marginRight: 8,
+    gap: 6,
   },
-  revenueGrowthTxt: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: DS.primary,
+  ribbonItemText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: DS.onSurface,
   },
-
-  graphContainer: {
-    height: 48,
-    marginVertical: 14,
-    justifyContent: 'flex-end',
-  },
-  graphNode: {
-    position: 'absolute',
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 2,
-    borderColor: DS.primaryDark,
-    shadowColor: '#FFF',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 4,
-  },
-
-  revenueFooterRow: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.15)',
-    paddingTop: 12,
-    marginTop: 8,
-  },
-  revFooterCol: {
-    flex: 1,
-  },
-  revFooterLabel: {
+  ribbonItemHighlight: {
     fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  revFooterVal: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginTop: 2,
-  },
-  revFooterDivider: {
-    width: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    marginHorizontal: 16,
-  },
-
-  priorityBanner: {
-    marginHorizontal: 16,
-    marginBottom: 20,
-    padding: 16,
-    borderRadius: DS.radius.lg,
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FEE2E2',
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 64,
-  },
-  bannerIconRing: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  pulseDot: {
-    position: 'absolute',
-    top: 2,
-    right: 2,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: DS.error,
-    borderWidth: 1.5,
-    borderColor: '#FEF2F2',
-  },
-  bannerTextCol: { flex: 1 },
-  bannerTitle: { fontSize: 15, fontWeight: '700', color: DS.error, marginBottom: 2 },
-  bannerSub: { fontSize: 13, color: '#991B1B', fontWeight: '500' },
-
-  sectionHeader: {
-    fontSize: 16,
     fontWeight: '800',
-    color: DS.gray900,
-    letterSpacing: -0.2,
-    marginBottom: 12,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  sectionHeaderLink: {
-    fontSize: 13,
-    fontWeight: '700',
     color: DS.primary,
   },
 
-  operationsGrid: {
-    gap: 12,
-  },
-  opsRow: {
+  sectionTitleRow: {
     flexDirection: 'row',
-    gap: 12,
-  },
-  opsCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: DS.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 6,
-    elevation: 1,
-    minHeight: 110,
+    alignItems: 'center',
     justifyContent: 'space-between',
-    width: '100%',
-  },
-  opsIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  opsCardTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: DS.gray900,
-  },
-  opsCardDesc: {
-    fontSize: 11,
-    color: DS.gray500,
-    fontWeight: '500',
-    marginTop: 2,
-  },
-
-  dailyGoalCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: DS.border,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  dailyGoalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  dailyGoalTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: DS.gray700,
-  },
-  dailyGoalProgressText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: DS.gray900,
-  },
-  goalProgressTrack: {
-    height: 6,
-    backgroundColor: DS.gray100,
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginBottom: 10,
-  },
-  goalProgressFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  goalMotivationText: {
-    fontSize: 11,
-    color: DS.gray500,
-    fontWeight: '500',
-    lineHeight: 16,
-  },
-
-  ordersFeedCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: DS.border,
-    paddingVertical: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  orderFeedItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  orderIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: DS.gray50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  orderIdText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: DS.gray900,
-  },
-  orderStatusBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  orderStatusBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-  },
-  orderItemsText: {
-    fontSize: 12,
-    color: DS.gray500,
-    marginTop: 4,
-    fontWeight: '500',
-  },
-  orderPriceText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: DS.gray900,
-  },
-  orderDivider: {
-    height: 1,
-    backgroundColor: DS.border,
-    marginHorizontal: 16,
-  },
-
-  emptyOrdersCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: DS.border,
-    padding: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  emptyStateText: {
-    fontSize: 14,
-    color: DS.gray900,
-    fontWeight: '700',
-    marginTop: 4,
-  },
-  emptyStateSub: {
-    fontSize: 12,
-    color: DS.gray500,
-    textAlign: 'center',
-    marginTop: 4,
-    lineHeight: 16,
-  },
-
-  performerCard: {
-    backgroundColor: DS.card,
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: DS.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 6,
-    elevation: 1,
     marginBottom: 12,
   },
-  performerIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  performerInfo: { flex: 1 },
-  performerName: { fontSize: 14, fontWeight: '700', color: DS.gray900, marginBottom: 3 },
-  performerSold: { fontSize: 12, color: DS.gray500, fontWeight: '500' },
-  performerBadge: {
-    backgroundColor: 'rgba(13, 148, 136, 0.1)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-  performerBadgeTxt: { fontSize: 11, fontWeight: '800', color: DS.primary },
-
-  ratingBanner: {
-    backgroundColor: '#FFFDF5',
-    borderColor: '#FEF3C7',
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 16,
-  },
-  ratingIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ratingTitle: {
-    fontSize: 13,
+  sectionTitle: {
+    fontSize: 16,
     fontWeight: '700',
-    color: DS.gray900,
+    color: DS.onSurface,
   },
-  ratingSub: {
+  sectionLiveText: {
     fontSize: 12,
-    color: DS.gray600,
+    fontWeight: '700',
+    color: DS.primary,
+  },
+  sectionSubText: {
+    fontSize: 12,
+    color: DS.onSurfaceVariant,
     marginTop: 2,
-    lineHeight: 16,
-    fontWeight: '500',
   },
-  ratingStarsRow: {
-    flexDirection: 'row',
-    gap: 2,
-  },
-
-  marketingCard: {
-    borderRadius: 16,
-    shadowColor: '#8B5CF6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 3,
-    overflow: 'hidden',
-  },
-  marketingGradient: {
-    borderRadius: 16,
-    padding: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 88,
-  },
-  marketingIconRing: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.18)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  marketingInfo: { flex: 1 },
-  marketingTitle: { fontSize: 15, fontWeight: '800', color: '#FFF', marginBottom: 4 },
-  marketingSub: { fontSize: 12, color: 'rgba(255, 255, 255, 0.85)', lineHeight: 16, fontWeight: '500' },
-  marketingBtn: {
-    backgroundColor: '#FFF',
-    paddingHorizontal: 14,
-    height: 34,
-    borderRadius: 999,
-    marginLeft: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  marketingBtnText: { fontSize: 12, fontWeight: '700', color: '#6D28D9' },
-
-  kpiGrid: {
+  grid2x2: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
+    justifyContent: 'space-between',
   },
-  kpiTile: {
-    width: '48%',
-    backgroundColor: DS.card,
-    borderRadius: 16,
+  gridCard: {
+    width: (SCREEN_WIDTH - 40 - 12) / 2,
+    borderRadius: DS.radius.xl,
     padding: 16,
-    borderWidth: 1,
-    borderColor: DS.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 6,
-    elevation: 1,
+    minHeight: 120,
+    justifyContent: 'space-between',
   },
-  kpiIcon: {
-    marginBottom: 8,
+  gridCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  kpiLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: DS.gray500,
-    marginBottom: 4,
+  iconBox: {
+    width: 36, height: 36,
+    borderRadius: DS.radius.md,
+    backgroundColor: DS.surfaceContainerLowest,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 1,
   },
-  kpiValue: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: DS.gray900,
+  cardBadge: {
+    paddingHorizontal: 8, paddingVertical: 2,
+    borderRadius: 999,
   },
+  cardBadgeText: {
+    fontSize: 10, fontWeight: '700',
+  },
+  gridCardBody: { marginTop: 16 },
+  gridCardValue: { fontSize: 24, fontWeight: '800', color: DS.onSurface, marginBottom: 2 },
+  gridCardLabel: { fontSize: 12, fontWeight: '700', color: DS.onSurfaceVariant, marginBottom: 2 },
+  gridCardSub: { fontSize: 11, fontWeight: '800' },
 
-  storeHealthCard: {
-    backgroundColor: DS.card,
-    borderRadius: 16,
+  actionCard: {
+    width: (SCREEN_WIDTH - 40 - 12) / 2,
+    backgroundColor: DS.surfaceContainerLowest,
+    borderRadius: DS.radius.xl,
     padding: 16,
-    borderWidth: 1,
-    borderColor: DS.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 6,
-    elevation: 1,
+    shadowColor: DS.onSurface, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 10, elevation: 2,
   },
-  healthScoreRow: {
+  actionHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
-  },
-  healthScoreGauge: {
-    width: 80,
-    height: 40,
-    borderTopLeftRadius: 40,
-    borderTopRightRadius: 40,
-    backgroundColor: 'rgba(34,211,238,0.2)',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    overflow: 'hidden',
-    borderWidth: 4,
-    borderBottomWidth: 0,
-    borderColor: '#22D3EE',
-  },
-  healthScoreGaugeInner: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    marginBottom: -4,
-  },
-  healthScoreNum: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: '#22D3EE',
-  },
-  healthScoreTotal: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: DS.gray500,
-    marginLeft: 2,
-  },
-  healthScoreTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: DS.gray900,
-    marginBottom: 2,
-  },
-  healthScoreSub: {
-    fontSize: 11,
-    color: DS.gray500,
-    lineHeight: 16,
-  },
-  healthDivider: {
-    height: 1,
-    backgroundColor: DS.border,
-    marginBottom: 16,
-  },
-  optimizationTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: DS.gray900,
+    width: '100%',
     marginBottom: 12,
   },
-  optimizationList: {
-    gap: 8,
-  },
-  optItem: {
-    flexDirection: 'row',
+  actionIconBox: {
+    width: 32, height: 32,
+    borderRadius: 16,
     alignItems: 'center',
-    backgroundColor: DS.background,
-    padding: 10,
-    borderRadius: 8,
-    gap: 8,
+    justifyContent: 'center',
   },
-  optItemText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: DS.gray700,
-  }
+  actionDotPulse: { width: 8, height: 8, borderRadius: 4, backgroundColor: DS.primaryContainer },
+  actionDotRed: { width: 8, height: 8, borderRadius: 4, backgroundColor: DS.error },
+  actionSmallBadge: { backgroundColor: DS.surfaceContainerHigh, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 },
+  actionSmallBadgeText: { fontSize: 10, color: DS.onSurface, fontWeight: '700' },
+  actionTitle: { fontSize: 14, fontWeight: '700', color: DS.onSurface, marginBottom: 2 },
+  actionSub: { fontSize: 12, fontWeight: '800' },
+
+  chartCard: {
+    backgroundColor: DS.surfaceContainerLowest,
+    borderRadius: DS.radius.xl,
+    padding: 20,
+    shadowColor: DS.onSurface, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 10, elevation: 2,
+  },
+  chartHeaderRow: { marginBottom: 16 },
+  chartSubText: { fontSize: 12, color: DS.onSurfaceVariant, marginTop: 4 },
+  chartContainer: { height: 140, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', paddingHorizontal: 4, paddingTop: 16 },
+  chartBarCol: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: '100%', gap: 6 },
+  chartBarWrapper: { flex: 1, width: '100%', justifyContent: 'flex-end', alignItems: 'center' },
+  chartBarBg: { width: '80%', backgroundColor: DS.surfaceContainerHigh, borderTopLeftRadius: 6, borderTopRightRadius: 6, justifyContent: 'flex-end', overflow: 'hidden' },
+  chartBarFill: { width: '100%', backgroundColor: DS.primaryContainer },
+  chartDayLabel: { fontSize: 10, color: DS.onSurfaceVariant, fontWeight: '600' },
+  chartFooterBox: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: DS.surfaceContainerLow, paddingHorizontal: 12, paddingVertical: 10, borderRadius: DS.radius.lg, marginTop: 16 },
+  chartFooterText: { fontSize: 12, fontWeight: '700', color: DS.onSurface },
+  chartFooterSub: { fontSize: 12, color: DS.onSurfaceVariant },
+
+  trendsList: { gap: 12 },
+  trendItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: DS.surfaceContainerLowest, padding: 16, borderRadius: DS.radius.xl, shadowColor: DS.onSurface, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 10, elevation: 2 },
+  trendLeft: { flexDirection: 'row', alignItems: 'center', gap: 16, flex: 1 },
+  trendImg: { width: 48, height: 48, borderRadius: DS.radius.md },
+  trendTitle: { fontSize: 14, fontWeight: '700', color: DS.onSurface, marginBottom: 2 },
+  trendSubBold: { fontSize: 12, fontWeight: '800', color: DS.primary },
+  trendSubReg: { fontSize: 12, color: DS.onSurfaceVariant },
+  trendRight: { alignItems: 'flex-end', paddingLeft: 12 },
+  trendCount: { fontSize: 14, fontWeight: '700', color: DS.onSurface, marginBottom: 4 },
+  trendBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: DS.radius.sm },
+  trendBadgeText: { fontSize: 10, fontWeight: '700' },
+
+  reviewsCard: { backgroundColor: DS.surfaceContainerLowest, borderRadius: DS.radius.xl, padding: 20, shadowColor: DS.onSurface, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 10, elevation: 2 },
+  reviewsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  reviewsIconBox: { width: 40, height: 40, borderRadius: 20, backgroundColor: DS.primaryFixed, alignItems: 'center', justifyContent: 'center' },
+  reviewsTitle: { fontSize: 16, fontWeight: '700', color: DS.onSurface, marginBottom: 2 },
+  reviewsSub: { fontSize: 12, color: DS.onSurfaceVariant },
+  reviewsScoreText: { fontSize: 24, fontWeight: '800', color: DS.primary },
+  reviewsStarsBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: DS.surfaceContainerLow, padding: 12, borderRadius: DS.radius.lg, marginBottom: 16, gap: 8 },
+  reviewsStarsVal: { fontSize: 14, fontWeight: '800', color: DS.onSurface },
+  reviewsStarsSub: { fontSize: 12, color: DS.onSurfaceVariant },
+  reviewsFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 4 },
+  reviewsFooterText: { fontSize: 12, fontWeight: '700', color: DS.primary },
+  reviewsFooterLink: { fontSize: 12, color: DS.onSurface, fontWeight: '600', marginRight: 2 },
 });

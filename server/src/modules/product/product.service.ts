@@ -209,11 +209,14 @@ export class ProductService {
    * Get products for a specific shop
    */
   async getShopProducts(shopId: string, params: {
-    category?: string; sort?: string; page?: number; limit?: number;
+    category?: string; sort?: string; page?: number; limit?: number; includeInactive?: boolean;
   }) {
-    const { category, sort = 'newest', page = 1, limit = 20 } = params;
+    const { category, sort = 'newest', page = 1, limit = 20, includeInactive = false } = params;
 
-    const where: any = { shopId, isActive: true };
+    const where: any = { shopId };
+    if (!includeInactive) {
+      where.isActive = true;
+    }
     if (category) where.category = { equals: category, mode: 'insensitive' };
 
     let orderBy: any;

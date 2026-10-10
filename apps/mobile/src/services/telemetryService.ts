@@ -127,17 +127,7 @@ class TelemetryService {
     });
   }
 
-  trackConversion(campaignId: string, productId: string, keyword?: string, productPrice?: number) {
-    this.queue.push({
-      campaignId,
-      productId,
-      type: 'conversion',
-      keyword,
-      productPrice,
-      timestamp: Date.now(),
-      deviceId: this.deviceId || undefined,
-    });
-  }
+
 
   private async processQueue() {
     if (this.isProcessing || this.queue.length === 0) {

@@ -34,16 +34,17 @@ export class AuthController {
     }
   }
 
-  async register(req: Request, res: Response): Promise<void> {
+    async register(req: Request, res: Response): Promise<void> {
     try {
-      const { phone, name, role, email, referralCode, idToken, city } = req.body;
+      const { phone, name, role, email, referralCode, idToken, city, deviceId: bodyDeviceId } = req.body;
+      const deviceId = bodyDeviceId || req.headers['x-device-id'] || req.ip || 'unknown';
 
       if (!phone || !name) {
         res.status(400).json({ error: 'Phone and name are required.' });
         return;
       }
 
-      const result = await authService.register({ phone, name, role, email, referralCode, idToken, city });
+      const result = await authService.register({ phone, name, role, email, referralCode, idToken, city, deviceId: deviceId as string });
       res.status(201).json(result);
     } catch (error: any) {
       res.status(error.statusCode || 500).json({ error: error.message });

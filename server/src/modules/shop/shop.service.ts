@@ -314,44 +314,63 @@ export class ShopService {
       orderBy: [{ orderCount: 'desc' }, { viewCount: 'desc' }],
       take: 20,
       include: {
-        _count: { select: { orderItems: true } },
+        orderItems: {
+          where: { order: { createdAt: { gte: since }, status: 'DELIVERED' } },
+          select: { quantity: true, price: true }
+        },
         promotedListing: { select: { clicks: true, impressions: true } },
       },
     });
 
-    const topProducts = topProductsRaw.map(p => ({
-      id: p.id,
-      name: p.name,
-      images: p.images || [],
-      price: p.price,
-      category: p.category,
-      inStock: p.inStock,
-      units: p._count.orderItems,
-      impressions: p.viewCount,  // Real viewCount (reach)
-      clicks: p.promotedListing?.clicks ?? 0,
-      revenue: p.price * p._count.orderItems,
-      ctr: p.viewCount > 0 && (p.promotedListing?.clicks ?? 0) > 0
-        ? (((p.promotedListing?.clicks ?? 0) / p.viewCount) * 100).toFixed(2)
-        : '0.00',
-    }));
+    const topProducts = topProductsRaw.map(p => {
+      const unitsSold = p.orderItems.reduce((acc, item) => acc + item.quantity, 0);
+      const revenue = p.orderItems.reduce((acc, item) => acc + (item.quantity * item.price), 0);
+      const adImpressions = p.promotedListing?.impressions ?? 0;
+      const adClicks = p.promotedListing?.clicks ?? 0;
+      
+      return {
+        id: p.id,
+        name: p.name,
+        images: p.images || [],
+        price: p.price,
+        category: p.category,
+        inStock: p.inStock,
+        units: unitsSold,
+        impressions: p.viewCount,  // Organic views
+        clicks: adClicks,
+        revenue: revenue,
+        ctr: adImpressions > 0 && adClicks > 0
+          ? ((adClicks / adImpressions) * 100).toFixed(2)
+          : '0.00',
+      };
+    });
 
-    // Real total clicks from all promoted listings
-    const adMetrics = await prisma.promotedListing.aggregate({
-      where: { shopId },
-      _sum: { clicks: true, impressions: true, spent: true },
+    // Real total clicks from daily rollups by date range
+    const adMetrics = await prisma.adDailyMetricRollup.aggregate({
+      where: { campaign: { shopId }, date: { gte: since } },
+      _sum: { clicks: true, impressions: true, spend: true },
     });
     const realTotalAdClicks = adMetrics._sum.clicks ?? 0;
     const realTotalAdImpressions = adMetrics._sum.impressions ?? 0;
-    const realAdSpent = adMetrics._sum.spent ?? 0;
+    const realAdSpent = adMetrics._sum.spend ?? 0;
 
     // Real orderItems count for funnel
     const cartCount = await prisma.orderItem.count({
-      where: { order: { shopId } },
+      where: { order: { shopId, createdAt: { gte: since } } },
     });
+
+    // Real gross sales and order count
+    const orderMetrics = await prisma.order.aggregate({
+      where: { shopId, createdAt: { gte: since } },
+      _sum: { total: true },
+      _count: { id: true },
+    });
+    const realRevenue = orderMetrics._sum.total || 0;
+    const realOrdersCount = orderMetrics._count.id || 0;
 
     // Real product view counts from DB
     const productViewsAgg = await prisma.product.aggregate({
-      where: { shopId },
+      where: { shopId, createdAt: { gte: since } },
       _sum: { viewCount: true },
     });
     const realProductViews = productViewsAgg._sum.viewCount ?? 0;
@@ -361,7 +380,7 @@ export class ShopService {
       { label: 'Shop Views', value: totals.views, color: 'from-blue-500 to-cyan-400' },
       { label: 'Product Views', value: realProductViews, color: 'from-purple-500 to-pink-400' },
       { label: 'Add to Cart', value: cartCount, color: 'from-orange-500 to-rose-400' },
-      { label: 'Orders Placed', value: totals.orders, color: 'from-emerald-500 to-teal-400' },
+      { label: 'Orders Placed', value: realOrdersCount, color: 'from-emerald-500 to-teal-400' },
     ];
 
     // Traffic sources — calculated from real data (no dummy multipliers)
@@ -433,9 +452,10 @@ export class ShopService {
       totalImpressions: totals.views + realTotalAdImpressions,
       totalClicks: realTotalAdClicks,
       ctr: realCtr,
-      roas: realAdSpent > 0 ? (totals.revenue / realAdSpent).toFixed(2) : totals.revenue > 0 ? '∞' : '0.00',
-      totalRevenue: totals.revenue,
-      ordersCount: totals.orders,
+      roas: realAdSpent > 0 ? (realRevenue / realAdSpent).toFixed(2) : realRevenue > 0 ? '∞' : '0.00',
+      totalRevenue: realRevenue,
+      ordersCount: realOrdersCount,
+      activeProductsCount: await prisma.product.count({ where: { shopId, inStock: true } }),
       conversionRate,
       weeklyRevenue,
       topProducts,

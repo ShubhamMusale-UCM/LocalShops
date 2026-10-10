@@ -1,3 +1,4 @@
+import redis from '../../config/redis';
 import prisma from '../../config/database';
 import { TargetGender } from '@prisma/client';
 import { AppError } from '../../middleware/errorHandler.middleware';
@@ -55,14 +56,14 @@ export class AdsService {
     const budget = budgetPerDay * duration;
 
     const campaign = await prisma.$transaction(async (tx) => {
-      const shop = await tx.shop.findUnique({ where: { id: shopId } });
-      if (!shop) throw new AppError('Shop not found', 404);
+      const [lockedShop] = await tx.$queryRaw<any[]>`SELECT "adWalletBalance", id FROM "Shop" WHERE id = ${shopId} FOR UPDATE`;
+      if (!lockedShop) throw new AppError('Shop not found', 404);
 
-      if (shop.adWalletBalance < budget) {
-        throw new AppError(`Insufficient ad wallet balance. Need ₹${budget}, have ₹${shop.adWalletBalance}. Please top up your wallet.`, 402);
+      if (lockedShop.adWalletBalance < budget) {
+        throw new AppError(`Insufficient ad wallet balance. Need ₹${budget}, have ₹${lockedShop.adWalletBalance}. Please top up your wallet.`, 402);
       }
 
-      const newBalance = shop.adWalletBalance - budget;
+      const newBalance = lockedShop.adWalletBalance - budget;
       
       // Deduct budget upfront
       await tx.shop.update({
@@ -280,21 +281,13 @@ export class AdsService {
     const clicksMap = new Map<string, number>();
     const viewsMap = new Map<string, number>();
     const cartAddsMap = new Map<string, number>();
-    const conversionsMap = new Map<string, number>();
-    const revenueMap = new Map<string, number>();
     
     // Map of CampaignId_Keyword -> { impressions, clicks }
     const keywordStatsMap = new Map<string, { impressions: number; clicks: number }>();
 
-    // FRAUD PROTECTION: deduplicate clicks per campaign within this batch
-    // A legitimate user can only generate 1 meaningful click per campaign per batch window.
-    // We track by campaignId AND deviceId to allow different users to click the same ad.
-    const seenClickCampaigns = new Set<string>();
-    
-    // For calculating reach
-    const newImpressionLogs: { promotedListingId: string; deviceId: string }[] = [];
-
-    events.forEach(e => {
+    // FRAUD PROTECTION: Cross-request click deduplication using Redis
+    // A legitimate user can only generate 1 meaningful click per campaign per 1-hour window.
+    await Promise.all(events.map(async (e) => {
       if (e.type === 'impression') {
         impressionsMap.set(e.campaignId, (impressionsMap.get(e.campaignId) || 0) + 1);
         if (e.deviceId) {
@@ -302,33 +295,27 @@ export class AdsService {
         }
       }
       if (e.type === 'click') {
-        // Only count unique clicks per user per campaign per batch
-        // Fallback to random if deviceId is missing to avoid blocking legitimate untracked clicks
-        const clickKey = `${e.campaignId}_${e.deviceId || Math.random()}`;
-        if (!seenClickCampaigns.has(clickKey)) {
-          seenClickCampaigns.add(clickKey);
-          clicksMap.set(e.campaignId, (clicksMap.get(e.campaignId) || 0) + 1);
+        // Hard requirement: clicks MUST have a deviceId to be counted (anti-fraud)
+        if (e.deviceId) {
+          const clickKey = `adclick:${e.campaignId}:${e.deviceId}`;
+          // SETNX (set if not exists) with 1-hour expiration
+          const acquired = await redis.set(clickKey, '1', 'EX', 3600, 'NX');
+          if (acquired) {
+            clicksMap.set(e.campaignId, (clicksMap.get(e.campaignId) || 0) + 1);
+          }
         }
-        // Already counted — silently drop the duplicate click event
       }
       if (e.type === 'view') viewsMap.set(e.campaignId, (viewsMap.get(e.campaignId) || 0) + 1);
       if (e.type === 'cart_add') cartAddsMap.set(e.campaignId, (cartAddsMap.get(e.campaignId) || 0) + 1);
-      if (e.type === 'conversion') {
-        conversionsMap.set(e.campaignId, (conversionsMap.get(e.campaignId) || 0) + 1);
-        if (e.productPrice) {
-          revenueMap.set(e.campaignId, (revenueMap.get(e.campaignId) || 0) + e.productPrice);
-        }
-      }
-      
       if (e.keyword && e.keyword.trim().length > 0) {
         const kw = e.keyword.trim().toLowerCase();
-        const key = `${e.campaignId}_${kw}`;
+        const key = `${e.campaignId}::${kw}`;
         const existing = keywordStatsMap.get(key) || { impressions: 0, clicks: 0 };
         if (e.type === 'impression') existing.impressions += 1;
         if (e.type === 'click') existing.clicks += 1;
         keywordStatsMap.set(key, existing);
       }
-    });
+    }));
 
     // Hard cap: no campaign can receive more than 50 clicks per batch (burst fraud guard)
     clicksMap.forEach((count, id) => {
@@ -341,7 +328,6 @@ export class AdsService {
       ...clicksMap.keys(),
       ...viewsMap.keys(),
       ...cartAddsMap.keys(),
-      ...conversionsMap.keys(),
     ]));
 
     try {
@@ -367,13 +353,13 @@ export class AdsService {
           select: { promotedListingId: true, deviceId: true }
         });
 
-        const existingSet = new Set(existingLogs.map(l => `${l.promotedListingId}_${l.deviceId}`));
-        const newUniqueLogs = newImpressionLogs.filter(log => !existingSet.has(`${log.promotedListingId}_${log.deviceId}`));
+        const existingSet = new Set(existingLogs.map(l => `${l.promotedListingId}::${l.deviceId}`));
+        const newUniqueLogs = newImpressionLogs.filter(log => !existingSet.has(`${log.promotedListingId}::${log.deviceId}`));
 
         // Deduplicate the new logs array itself so we don't count the same device twice in one batch
-        const uniqueToInsert = Array.from(new Set(newUniqueLogs.map(l => `${l.promotedListingId}_${l.deviceId}`)))
+        const uniqueToInsert = Array.from(new Set(newUniqueLogs.map(l => `${l.promotedListingId}::${l.deviceId}`)))
           .map(str => {
-            const [promotedListingId, deviceId] = str.split('_');
+            const [promotedListingId, deviceId] = str.split('::');
             return { promotedListingId, deviceId };
           });
 
@@ -397,104 +383,113 @@ export class AdsService {
         const clickCount = clicksMap.get(campaign.id) || 0;
         const viewCount = viewsMap.get(campaign.id) || 0;
         const cartAddCount = cartAddsMap.get(campaign.id) || 0;
-        const convCount = conversionsMap.get(campaign.id) || 0;
-        const revAmount = revenueMap.get(campaign.id) || 0;
-
-        let totalCost = 0;
-        let newSpent = campaign.spent;
-        
-        if (clickCount > 0) {
-          // Second-Price Auction Logic
-          // Find the second highest competitor bid in the same category
-          const competitors = await prisma.promotedListing.findMany({
-            where: {
-              isActive: true,
-              id: { not: campaign.id },
-              product: { category: campaign.product?.category }
-            },
-            select: { bidPerClick: true, qualityScore: true }
-          });
-
-          // Sort competitors by Ad Rank
-          const sortedCompetitors = competitors.sort((a, b) => {
-            return (b.bidPerClick * (b.qualityScore || 5)) - (a.bidPerClick * (a.qualityScore || 5));
-          });
-
-          // The second price is the highest competitor's bid + ₹0.1, capped at our max bid
-          let actualCostPerClick = campaign.bidPerClick;
-          if (sortedCompetitors.length > 0) {
-            const nextHighestBid = sortedCompetitors[0].bidPerClick;
-            actualCostPerClick = Math.min(campaign.bidPerClick, nextHighestBid + 0.1);
-          }
-
-          totalCost = actualCostPerClick * clickCount;
-          newSpent += totalCost;
-        }
-
         const uniqueReachCount = uniqueReachMap.get(campaign.id) || 0;
 
-        if (impCount > 0 || clickCount > 0 || viewCount > 0 || cartAddCount > 0 || convCount > 0 || uniqueReachCount > 0) {
-          ops.push(prisma.promotedListing.update({
-            where: { id: campaign.id },
-            data: {
-              ...(impCount > 0 && { impressions: { increment: impCount } }),
-              ...(viewCount > 0 && { views: { increment: viewCount } }),
-              ...(cartAddCount > 0 && { cartAdds: { increment: cartAddCount } }),
-              ...(convCount > 0 && { conversions: { increment: convCount } }),
-              ...(revAmount > 0 && { revenue: { increment: revAmount } }),
-              ...(uniqueReachCount > 0 && { uniqueReach: { increment: uniqueReachCount } }),
-              ...(clickCount > 0 && {
-                clicks: { increment: clickCount },
-                spent: { increment: totalCost },
-                isActive: newSpent >= campaign.budget ? false : campaign.isActive
-              })
-            }
-          }));
-        }
+        if (impCount > 0 || clickCount > 0 || viewCount > 0 || cartAddCount > 0 || uniqueReachCount > 0) {
+          try {
+            await prisma.$transaction(async (tx) => {
+              let lockedSpent = campaign.spent;
+              let budget = campaign.budget;
+              let isActive = campaign.isActive;
 
-        // Write daily rollup for trend data (upsert so it's idempotent)
-        if (impCount > 0 || clickCount > 0 || viewCount > 0 || cartAddCount > 0 || convCount > 0 || uniqueReachCount > 0) {
-          const clickCost = totalCost;
-
-          ops.push(prisma.adDailyMetricRollup.upsert({
-            where: {
-              promotedListingId_date_hour: {
-                promotedListingId: campaign.id,
-                date: today,
-                hour: 0, // Using 0 instead of null to avoid Prisma unique index bug
+              // Lock the campaign if we are charging clicks to ensure budget limits are strict
+              if (clickCount > 0) {
+                const [lockedCampaign] = await tx.$queryRaw<any[]>`SELECT spent, budget, "isActive" FROM "PromotedListing" WHERE id = ${campaign.id} FOR UPDATE`;
+                if (lockedCampaign) {
+                  lockedSpent = lockedCampaign.spent;
+                  budget = lockedCampaign.budget;
+                  isActive = lockedCampaign.isActive;
+                }
               }
-            },
-            update: {
-              impressions: { increment: impCount },
-              clicks: { increment: clickCount },
-              spend: { increment: clickCost },
-              views: { increment: viewCount },
-              cartAdds: { increment: cartAddCount },
-              conversions: { increment: convCount },
-              revenue: { increment: revAmount },
-              uniqueReach: { increment: uniqueReachCount },
-            },
-            create: {
-              promotedListingId: campaign.id,
-              date: today,
-              hour: 0,
-              impressions: impCount,
-              clicks: clickCount,
-              spend: clickCost,
-              views: viewCount,
-              cartAdds: cartAddCount,
-              conversions: convCount,
-              revenue: revAmount,
-              uniqueReach: uniqueReachCount,
-            }
-          }));
+
+              let totalCost = 0;
+              if (clickCount > 0 && isActive) {
+                // Second-Price Auction Logic
+                const competitors = await tx.promotedListing.findMany({
+                  where: {
+                    isActive: true,
+                    id: { not: campaign.id },
+                    product: { category: campaign.product?.category }
+                  },
+                  select: { bidPerClick: true, qualityScore: true }
+                });
+
+                const sortedCompetitors = competitors.sort((a, b) => {
+                  return (b.bidPerClick * (b.qualityScore || 5)) - (a.bidPerClick * (a.qualityScore || 5));
+                });
+
+                let actualCostPerClick = campaign.bidPerClick;
+                if (sortedCompetitors.length > 0) {
+                  const nextHighestCompetitor = sortedCompetitors[0];
+                  const nextHighestAdRank = nextHighestCompetitor.bidPerClick * (nextHighestCompetitor.qualityScore || 5);
+                  const priceToBeat = nextHighestAdRank / (campaign.qualityScore || 5);
+                  actualCostPerClick = Math.min(campaign.bidPerClick, priceToBeat + 0.1);
+                }
+
+                const remaining = budget - lockedSpent;
+                const requestedCost = actualCostPerClick * clickCount;
+                totalCost = Math.min(requestedCost, remaining > 0 ? remaining : 0);
+              }
+
+              const newSpent = lockedSpent + totalCost;
+              const shouldDeactivate = newSpent >= budget;
+
+              await tx.promotedListing.update({
+                where: { id: campaign.id },
+                data: {
+                  ...(impCount > 0 && { impressions: { increment: impCount } }),
+                  ...(viewCount > 0 && { views: { increment: viewCount } }),
+                  ...(cartAddCount > 0 && { cartAdds: { increment: cartAddCount } }),
+                  ...(uniqueReachCount > 0 && { uniqueReach: { increment: uniqueReachCount } }),
+                  ...(clickCount > 0 && {
+                    clicks: { increment: clickCount },
+                    spent: { increment: totalCost },
+                    isActive: shouldDeactivate ? false : isActive
+                  })
+                }
+              });
+
+              await tx.adDailyMetricRollup.upsert({
+                where: {
+                  promotedListingId_date_hour: {
+                    promotedListingId: campaign.id,
+                    date: today,
+                    hour: 0,
+                  }
+                },
+                update: {
+                  impressions: { increment: impCount },
+                  clicks: { increment: clickCount },
+                  spend: { increment: totalCost },
+                  views: { increment: viewCount },
+                  cartAdds: { increment: cartAddCount },
+                  uniqueReach: { increment: uniqueReachCount },
+                },
+                create: {
+                  promotedListingId: campaign.id,
+                  date: today,
+                  hour: 0,
+                  impressions: impCount,
+                  clicks: clickCount,
+                  spend: totalCost,
+                  views: viewCount,
+                  cartAdds: cartAddCount,
+                  conversions: 0,
+                  revenue: 0,
+                  uniqueReach: uniqueReachCount,
+                }
+              });
+            });
+          } catch (err) {
+            console.error(`Failed to process telemetry for campaign ${campaign.id}:`, err);
+          }
         }
       }
 
       // Add keyword stats upserts
       for (const [key, stats] of keywordStatsMap.entries()) {
-        const [campaignId, ...kwParts] = key.split('_');
-        const keyword = kwParts.join('_');
+        const [campaignId, ...kwParts] = key.split('::');
+        const keyword = kwParts.join('::');
         
         ops.push(prisma.campaignKeywordStat.upsert({
           where: {
@@ -685,11 +680,14 @@ export class AdsService {
       });
       if (!ad) throw new AppError('Ad not found', 404);
 
-      if (ad.shop.adWalletBalance < additionalBudget) {
-        throw new AppError(`Insufficient ad wallet balance. Need ₹${additionalBudget}, have ₹${ad.shop.adWalletBalance}. Please top up your wallet.`, 402);
+      const [lockedShop] = await tx.$queryRaw<any[]>`SELECT "adWalletBalance", id FROM "Shop" WHERE id = ${ad.shopId} FOR UPDATE`;
+      if (!lockedShop) throw new AppError('Shop not found', 404);
+
+      if (lockedShop.adWalletBalance < additionalBudget) {
+        throw new AppError(`Insufficient ad wallet balance. Need ₹${additionalBudget}, have ₹${lockedShop.adWalletBalance}. Please top up your wallet.`, 402);
       }
 
-      const newBalance = ad.shop.adWalletBalance - additionalBudget;
+      const newBalance = lockedShop.adWalletBalance - additionalBudget;
 
       await tx.shop.update({
         where: { id: ad.shopId },
@@ -767,102 +765,17 @@ export class AdsService {
     return Array.from(byDate.entries()).map(([date, metrics]) => ({ date, ...metrics }));
   }
 
-  async getPersonalizedAds(userId: string, limit: number = 10, lat?: number, lng?: number, userGender?: string) {
-    const recentSearches = await prisma.userSearchHistory.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-      select: { keyword: true }
-    });
+  async serveAds(params: {
+    limit: number;
+    query?: string;
+    keywords?: string[];
+    category?: string;
+    lat?: number;
+    lng?: number;
+    userGender?: string;
+  }) {
+    const { limit = 10, query, keywords, category, lat, lng, userGender } = params;
     
-    const keywords = Array.from(new Set(recentSearches.map(s => s.keyword)));
-    
-    if (keywords.length === 0) {
-      return this.getTrendingProducts(limit, undefined, undefined, lat, lng, userGender);
-    }
-    
-    const whereClause: any = {
-      isActive: true,
-      startDate: { lte: new Date() },
-      endDate: { gte: new Date() },
-      product: { 
-        is: { 
-          isActive: true,
-          OR: keywords.map(kw => ({
-            OR: [
-              { name: { contains: kw, mode: 'insensitive' } },
-              { description: { contains: kw, mode: 'insensitive' } },
-              { category: { contains: kw, mode: 'insensitive' } }
-            ]
-          }))
-        } 
-      },
-    };
-    
-    if (userGender && userGender !== 'OTHER') {
-      whereClause.OR = [
-        { targetGender: 'ALL' },
-        { targetGender: userGender }
-      ];
-    } else {
-      whereClause.targetGender = 'ALL';
-    }
-
-    whereClause.shop = { adWalletBalance: { gt: 0 } };
-
-    if (lat !== undefined && lng !== undefined) {
-      const bbox = getBoundingBox(lat, lng, 50);
-      whereClause.shop = {
-        ...whereClause.shop,
-        latitude: { gte: bbox.minLat, lte: bbox.maxLat },
-        longitude: { gte: bbox.minLng, lte: bbox.maxLng },
-      };
-    }
-
-    const listings = await prisma.promotedListing.findMany({
-      where: whereClause,
-      include: {
-        product: {
-          include: { shop: { select: { id: true, name: true, logo: true, coverImage: true, latitude: true, longitude: true } } },
-        },
-      },
-      take: limit * 5, 
-    });
-
-    const now = new Date().getTime();
-    
-    const validListings = listings
-      .filter((l) => {
-        if (l.spent >= l.budget) return false;
-        
-        const campaignDurationMs = new Date(l.endDate).getTime() - new Date(l.startDate).getTime();
-        const elapsedMs = now - new Date(l.startDate).getTime();
-        const idealSpendRatio = elapsedMs / campaignDurationMs;
-        const actualSpendRatio = l.spent / l.budget;
-        
-        if (actualSpendRatio > idealSpendRatio * 1.5) return false;
-        return true;
-      })
-      .map(l => {
-        const adRank = l.bidPerClick * (l.qualityScore || 5);
-        let distance = 0;
-        if (lat !== undefined && lng !== undefined && l.product.shop.latitude && l.product.shop.longitude) {
-           distance = haversineDistance(lat, lng, l.product.shop.latitude, l.product.shop.longitude);
-        }
-        const geoScore = Math.max(0, 50 - distance); 
-        return { ...l, finalScore: adRank + (geoScore * 0.5) };
-      })
-      .sort((a, b) => b.finalScore - a.finalScore)
-      .slice(0, limit);
-
-    if (validListings.length === 0) {
-      return this.getTrendingProducts(limit, undefined, undefined, lat, lng, userGender);
-    }
-      
-    return validListings.map(({ finalScore, ...rest }) => rest);
-  }
-
-  async getTrendingProducts(limit: number = 10, query?: string, category?: string, lat?: number, lng?: number, userGender?: string) {
     if (lat === undefined || lng === undefined) {
       return [];
     }
@@ -871,51 +784,48 @@ export class AdsService {
       isActive: true,
       startDate: { lte: new Date() },
       endDate: { gte: new Date() },
-      product: { 
-        is: { 
-          isActive: true,
-          ...(category && category !== 'all' && { category }),
-          ...(query && {
-            OR: [
-              { name: { contains: query, mode: 'insensitive' } },
-              { description: { contains: query, mode: 'insensitive' } },
-              { category: { contains: query, mode: 'insensitive' } }
-            ]
-          })
-        } 
-      },
     };
 
-    // Audience Targeting: Filter by Gender
+    const productQuery: any = { isActive: true };
+    if (category && category !== 'all') productQuery.category = category;
+    
+    const searchTerms = [];
+    if (query) searchTerms.push(...query.split(' ').filter(k => k.trim().length > 0));
+    if (keywords && keywords.length > 0) searchTerms.push(...keywords);
+    
+    if (searchTerms.length > 0) {
+      productQuery.OR = searchTerms.map(kw => ({
+        OR: [
+          { name: { contains: kw, mode: 'insensitive' } },
+          { description: { contains: kw, mode: 'insensitive' } },
+          { category: { contains: kw, mode: 'insensitive' } }
+        ]
+      }));
+    }
+    
+    if (query) {
+      whereClause.negativeKeywords = {
+        none: { keyword: { equals: query, mode: 'insensitive' } }
+      };
+    }
+    
+    whereClause.product = productQuery;
+
     if (userGender && userGender !== 'OTHER') {
       whereClause.OR = [
         { targetGender: 'ALL' },
         { targetGender: userGender }
       ];
     } else {
-      // If we don't know the user's gender, or it's OTHER, only show ALL
       whereClause.targetGender = 'ALL';
     }
 
-    // Ensure the seller has a positive wallet balance
+    whereClause.shop = {};
+    const bbox = getBoundingBox(lat, lng, 50);
     whereClause.shop = {
-      adWalletBalance: { gt: 0 }
+      latitude: { gte: bbox.minLat, lte: bbox.maxLat },
+      longitude: { gte: bbox.minLng, lte: bbox.maxLng },
     };
-
-    if (lat !== undefined && lng !== undefined) {
-      const bbox = getBoundingBox(lat, lng, 50); // 50km radius by default for trending
-      whereClause.shop = {
-        ...whereClause.shop,
-        latitude: { gte: bbox.minLat, lte: bbox.maxLat },
-        longitude: { gte: bbox.minLng, lte: bbox.maxLng },
-      };
-    }
-
-    if (query) {
-      whereClause.negativeKeywords = {
-        none: { keyword: { equals: query, mode: 'insensitive' } }
-      };
-    }
 
     const listings = await prisma.promotedListing.findMany({
       where: whereClause,
@@ -924,7 +834,7 @@ export class AdsService {
           include: { shop: { select: { id: true, name: true, logo: true, coverImage: true, latitude: true, longitude: true } } },
         },
       },
-      take: limit * 5, // Fetch extra for AdRank memory sorting
+      take: limit * 5,
     });
 
     const now = new Date().getTime();
@@ -932,52 +842,34 @@ export class AdsService {
     const validListings = listings
       .filter((l) => {
         if (l.spent >= l.budget) return false;
-
-        // BUDGET PACING ALGORITHM (Evenly Distributed)
-        // We calculate the ideal spend at this precise millisecond.
+        
         const campaignDurationMs = new Date(l.endDate).getTime() - new Date(l.startDate).getTime();
         const elapsedMs = now - new Date(l.startDate).getTime();
         
-        if (campaignDurationMs > 0 && elapsedMs > 0) {
-          const idealSpend = l.budget * (elapsedMs / campaignDurationMs);
-          
-          // If we have spent more than the ideal spend, we are over-pacing.
-          if (l.spent > idealSpend) {
-            // Probabilistic throttle: The more we over-spend, the higher the chance of being hidden.
-            // Example: Ideal is 50, spent is 100. Ratio is 50/100 = 0.5. Throttle probability is 50%.
-            const throttleProbability = 1 - (idealSpend / l.spent);
-            if (Math.random() < throttleProbability) {
-              return false; // Skip this ad to let time catch up
-            }
-          }
-        }
+        if (campaignDurationMs <= 0 || elapsedMs <= 0) return true; // Failsafe
         
+        const idealSpendRatio = elapsedMs / campaignDurationMs;
+        const actualSpendRatio = l.spent / l.budget;
+        
+        // Deterministic pacing (cut off if spent > 150% of ideal)
+        if (actualSpendRatio > idealSpendRatio * 1.5) return false;
         return true;
       })
-      .sort((a, b) => {
-        // Sort by Ad Rank: Bid * Quality Score
-        const rankA = a.bidPerClick * (a.qualityScore || 5);
-        const rankB = b.bidPerClick * (b.qualityScore || 5);
-        return rankB - rankA;
+      .map(l => {
+        const adRank = l.bidPerClick * (l.qualityScore || 5);
+        let distance = 0;
+        if (l.product.shop.latitude && l.product.shop.longitude) {
+           distance = haversineDistance(lat, lng, l.product.shop.latitude, l.product.shop.longitude);
+        }
+        const geoScore = Math.max(0, 50 - distance); 
+        return { ...l, finalScore: adRank + (geoScore * 0.5) };
       })
+      .sort((a, b) => b.finalScore - a.finalScore)
       .slice(0, limit);
-
-    return validListings.map((listing) => {
-      const product = listing.product;
-      const distance = (lat !== undefined && lng !== undefined)
-        ? haversineDistance(lat, lng, product.shop.latitude, product.shop.longitude)
-        : null;
-
-      return {
-        ...product,
-        isBoosted: true,
-        isSponsored: true,
-        sponsoredListingId: listing.id,
-        campaignId: listing.id,
-        shopDistance_km: distance,
-      };
-    });
+      
+    return validListings.map(({ finalScore, ...rest }) => rest);
   }
+
 }
 
 export default new AdsService();

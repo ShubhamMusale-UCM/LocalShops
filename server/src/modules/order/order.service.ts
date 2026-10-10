@@ -48,9 +48,9 @@ export class OrderService {
     const shop = await prisma.shop.findUnique({ where: { id: data.shopId } });
     if (!shop) throw new AppError('Shop not found.', 404);
     if (!shop.isActive) throw new AppError('Shop is not active.', 400);
-    if (shop.ownerId === userId) {
-      throw new AppError('You cannot place an order on your own shop.', 400);
-    }
+    // if (shop.ownerId === userId) {
+    //   throw new AppError('You cannot place an order on your own shop.', 400);
+    // }
 
     // Determine delivery type
     const effectiveDeliveryType = data.deliveryType === 'DELIVERY' ? 'DELIVERY' : 'PICKUP';
@@ -381,9 +381,10 @@ export class OrderService {
     // Validate status transition
     const validTransitions: Record<string, string[]> = {
       PLACED: ['CONFIRMED', 'CANCELLED'],
-      CONFIRMED: ['PREPARING', 'CANCELLED'],
-      PREPARING: ['READY_FOR_PICKUP', 'CANCELLED'],
+      CONFIRMED: ['PREPARING', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'],
+      PREPARING: ['READY_FOR_PICKUP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'],
       READY_FOR_PICKUP: ['DELIVERED'],
+      OUT_FOR_DELIVERY: ['DELIVERED'],
       DELIVERED: ['REFUNDED'],
       CANCELLED: [],
       REFUNDED: [],

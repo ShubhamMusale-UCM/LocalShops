@@ -800,10 +800,10 @@ const CheckoutScreen: React.FC<{ route: any }> = ({ route }) => { // TODO: Add s
   const [walletBalance, setWalletBalance] = useState(0);
 
   useEffect(() => {
-    walletService.calculateUsage(total).then((res) => {
-      setMaxCoinsUsable(res.coinsUsed);
+    walletService.calculateUsage(total).then((res: any) => {
+      setMaxCoinsUsable(res.maxCoinUsage);
       setWalletBalance(res.walletBalance);
-      if (res.coinsUsed === 0) setUseCoins(false);
+      if (res.maxCoinUsage === 0) setUseCoins(false);
     }).catch(console.error);
   }, [total]);
 

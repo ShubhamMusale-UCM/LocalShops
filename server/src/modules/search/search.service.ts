@@ -1,3 +1,4 @@
+import adsService from '../ads/ads.service';
 import prisma from '../../config/database';
 import { AppError } from '../../middleware/errorHandler.middleware';
 import { cacheGet, cacheSet } from '../../config/redis';
@@ -16,7 +17,10 @@ export class SearchService {
       shopId?: string;
     } = {},
     limit: number = 20,
-    offset: number = 0
+    offset: number = 0,
+    lat?: number,
+    lng?: number,
+    userGender?: string
   ) {
     const formattedQuery = query.trim().replace(/[&|!():<>'"]/g, '').split(/\s+/).filter(Boolean).join(' | ');
 
@@ -64,34 +68,21 @@ export class SearchService {
     // 1. Fetch Sponsored Products dynamically (only on first page)
     let sponsoredProducts: any[] = [];
     if ((cleanQuery || filters.category) && offset === 0) {
-      const sponsoredRaw = await prisma.product.findMany({
-        where: {
-          ...whereClause,
-          promotedListing: {
-            isActive: true,
-            startDate: { lte: now },
-            endDate: { gte: now },
-          }
-        },
-        include: {
-          shop: { select: { id: true, name: true, slug: true, logo: true, coverImage: true, averageRating: true, address: true, city: true } },
-          promotedListing: {
-            select: { id: true, bidPerClick: true, spent: true, budget: true }
-          }
-        }
+      const activeSponsored = await adsService.serveAds({
+        limit: 3,
+        query: cleanQuery,
+        category: filters.category,
+        lat,
+        lng,
+        userGender
       });
-      
-      const activeSponsored = sponsoredRaw
-        .filter(p => p.promotedListing && p.promotedListing.spent < p.promotedListing.budget)
-        .sort((a, b) => b.promotedListing!.bidPerClick - a.promotedListing!.bidPerClick)
-        .slice(0, 3); // Inject up to 3 sponsored products
         
-      sponsoredProducts = activeSponsored.map(p => ({
-        ...p,
+      sponsoredProducts = activeSponsored.map(ad => ({
+        ...ad.product,
         isBoosted: true,
         isSponsored: true,
-        campaignId: p.promotedListing!.id,
-        sponsoredListingId: p.promotedListing!.id,
+        campaignId: ad.id,
+        sponsoredListingId: ad.id,
       }));
     }
 

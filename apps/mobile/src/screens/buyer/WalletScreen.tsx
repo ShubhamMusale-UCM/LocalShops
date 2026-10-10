@@ -86,7 +86,7 @@ export default function WalletScreen() {
           <View style={styles.statsRow}>
             <View style={styles.statBox}>
               <Text style={styles.statLabel}>Total Earned</Text>
-              <Text style={styles.statValue}>₹{balanceData?.totalEarned?.toFixed(2) || '0.00'}</Text>
+              <Text style={styles.statValue}>₹{balanceData?.lifetime?.toFixed(2) || '0.00'}</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statBox}>

@@ -15,3 +15,4 @@ coverage
 CityLocalShop/serviceAccountKey.json
 .env.*
 *.local
+.npmrc

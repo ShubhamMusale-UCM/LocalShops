@@ -7,7 +7,7 @@ const router = Router();
 // Public route (optional auth for gender targeting)
 router.get('/personalized', optionalAuth, AdsController.getPersonalizedAds);
 router.get('/trending', optionalAuth, AdsController.getTrendingProducts);
-router.post('/telemetry/batch', AdsController.processBatchTelemetry);
+router.post('/telemetry/batch', optionalAuth, AdsController.processBatchTelemetry);
 
 // Protected routes for sellers
 router.use(authenticate);
