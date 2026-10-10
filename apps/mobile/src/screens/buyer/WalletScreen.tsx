@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Animated } from 'react-native';
+import React, { useState, useRef, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, RefreshControl, TouchableOpacity, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { GlassPanel, GlassCard } from '../../components/ui/Glassmorphism';
@@ -9,32 +9,54 @@ import AmbientOrbs from '../../components/ui/AmbientOrbs';
 import { walletService, BuyerWalletBalance, WalletTransaction } from '../../services/walletService';
 
 export default function WalletScreen() {
+  const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const [balanceData, setBalanceData] = useState<BuyerWalletBalance | null>(null);
   const [history, setHistory] = useState<WalletTransaction[]>([]);
   const [loading, setLoading] = useState(true);
-  const scrollY = new Animated.Value(0);
+  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const scrollY = useRef(new Animated.Value(0)).current;
 
-  const fetchData = async () => {
+  const fetchData = async (pageNum = 1) => {
     try {
-      setLoading(true);
+      if (pageNum === 1) setLoading(true);
+      setError(null);
       const [balanceRes, historyRes] = await Promise.all([
         walletService.getBuyerBalance(),
-        walletService.getBuyerHistory(1, 100),
+        walletService.getBuyerHistory(pageNum, 20),
       ]);
       setBalanceData(balanceRes);
-      setHistory(historyRes.transactions || []);
-    } catch (error) {
-      console.error('Error fetching wallet data:', error);
+      
+      const newHistory = historyRes.transactions || [];
+      if (pageNum === 1) {
+        setHistory(newHistory);
+      } else {
+        setHistory(prev => [...prev, ...newHistory]);
+      }
+      setHasMore(newHistory.length === 20);
+      setPage(pageNum);
+    } catch (err: any) {
+      console.error('Error fetching wallet data:', err);
+      setError(err?.response?.data?.error || 'Failed to load wallet data');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const loadMore = () => {
+    if (!loading && hasMore) {
+      fetchData(page + 1);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+    }, [])
+  );
 
   const headerOpacity = scrollY.interpolate({
     inputRange: [0, 50, 100],
@@ -42,35 +64,9 @@ export default function WalletScreen() {
     extrapolate: 'clamp',
   });
 
-  return (
-    <View style={styles.container}>
-      <AmbientOrbs />
-      
-      {/* Sticky Header */}
-      <Animated.View style={[styles.stickyHeader, { height: insets.top + 44, opacity: headerOpacity }]}>
-        <GlassPanel style={StyleSheet.absoluteFillObject} />
-        <View style={styles.stickyHeaderInner}>
-          <Text style={styles.stickyTitle}>My Coins</Text>
-        </View>
-      </Animated.View>
-
-      <View style={[styles.headerActions, { top: insets.top }]}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={24} color="#FFF" />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.referButton} onPress={() => navigation.navigate('Referral')}>
-          <Ionicons name="gift-outline" size={20} color="#38BDF8" />
-          <Text style={styles.referText}>Earn More</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Animated.ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 60 }]}
-        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
-        scrollEventThrottle={16}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchData} tintColor="#38BDF8" />}
-      >
-        <GlassCard style={styles.balanceCard}>
+  const renderHeader = () => (
+    <>
+      <GlassCard style={styles.balanceCard}>
           <LinearGradient
             colors={['rgba(56, 189, 248, 0.2)', 'transparent']}
             style={StyleSheet.absoluteFillObject}
@@ -98,35 +94,79 @@ export default function WalletScreen() {
 
         <Text style={styles.sectionTitle}>Transaction History</Text>
         
-        {history.length === 0 ? (
+        {error ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="alert-circle-outline" size={48} color="#EF4444" />
+            <Text style={styles.emptyStateText}>{error}</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={() => fetchData(1)}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (!loading && history.length === 0) ? (
           <View style={styles.emptyState}>
             <Ionicons name="receipt-outline" size={48} color="rgba(255,255,255,0.2)" />
             <Text style={styles.emptyStateText}>No transactions yet</Text>
           </View>
-        ) : (
-          history.map(tx => (
-            <GlassCard key={tx.id} style={styles.txCard}>
-              <View style={styles.txIconContainer}>
-                <Ionicons
-                  name={tx.direction === 'CREDIT' ? 'arrow-down-circle' : 'arrow-up-circle'}
-                  size={24}
-                  color={tx.direction === 'CREDIT' ? '#10B981' : '#EF4444'}
-                />
-              </View>
-              <View style={styles.txDetails}>
-                <Text style={styles.txDesc} numberOfLines={1}>{tx.description}</Text>
-                <Text style={styles.txDate}>{new Date(tx.createdAt).toLocaleDateString()} • {new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-              </View>
-              <View style={styles.txAmountContainer}>
-                <Text style={[styles.txAmount, { color: tx.direction === 'CREDIT' ? '#10B981' : '#EF4444' }]}>
-                  {tx.direction === 'CREDIT' ? '+' : '-'}₹{tx.amount}
-                </Text>
-                {tx.isExpired && <Text style={styles.expiredBadge}>Expired</Text>}
-              </View>
-            </GlassCard>
-          ))
-        )}
-      </Animated.ScrollView>
+        ) : null}
+    </>
+  );
+
+  const renderItem = ({ item: tx }: { item: WalletTransaction }) => (
+    <GlassCard style={styles.txCard}>
+      <View style={styles.txIconContainer}>
+        <Ionicons
+          name={tx.direction === 'CREDIT' ? 'arrow-down-circle' : 'arrow-up-circle'}
+          size={24}
+          color={tx.direction === 'CREDIT' ? '#10B981' : '#EF4444'}
+        />
+      </View>
+      <View style={styles.txDetails}>
+        <Text style={styles.txDesc} numberOfLines={1}>{tx.description}</Text>
+        <Text style={styles.txDate}>{new Date(tx.createdAt).toLocaleDateString()} • {new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+      </View>
+      <View style={styles.txAmountContainer}>
+        <Text style={[styles.txAmount, { color: tx.direction === 'CREDIT' ? '#10B981' : '#EF4444' }]}>
+          {tx.direction === 'CREDIT' ? '+' : '-'}₹{tx.amount}
+        </Text>
+        {tx.isExpired && <Text style={styles.expiredBadge}>Expired</Text>}
+      </View>
+    </GlassCard>
+  );
+
+  return (
+    <View style={styles.container}>
+      <AmbientOrbs />
+      
+      {/* Sticky Header */}
+      <Animated.View style={[styles.stickyHeader, { height: insets.top + 44, opacity: headerOpacity }]}>
+        <GlassPanel style={StyleSheet.absoluteFillObject} />
+        <View style={styles.stickyHeaderInner}>
+          <Text style={styles.stickyTitle}>My Coins</Text>
+        </View>
+      </Animated.View>
+
+      <View style={[styles.headerActions, { top: insets.top }]}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Ionicons name="chevron-back" size={24} color="#FFF" />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.referButton} onPress={() => navigation.navigate('Referral')}>
+          <Ionicons name="gift-outline" size={20} color="#38BDF8" />
+          <Text style={styles.referText}>Earn More</Text>
+        </TouchableOpacity>
+      </View>
+
+      <AnimatedFlatList
+        data={error ? ([] as WalletTransaction[]) : history}
+        keyExtractor={(item: any) => item.id}
+        renderItem={(props: any) => renderItem(props)}
+        ListHeaderComponent={renderHeader}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 60 }]}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
+        scrollEventThrottle={16}
+        refreshControl={<RefreshControl refreshing={loading && page === 1} onRefresh={() => fetchData(1)} tintColor="#38BDF8" />}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.5}
+      />
     </View>
   );
 }
@@ -297,6 +337,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 40,
+  },
+  retryButton: {
+    marginTop: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  retryButtonText: {
+    color: '#EF4444',
+    fontFamily: 'Outfit_600SemiBold',
+    fontSize: 14,
   },
   emptyStateText: {
     color: 'rgba(255,255,255,0.5)',

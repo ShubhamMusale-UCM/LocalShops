@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Share, Image } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, SectionList, RefreshControl, TouchableOpacity, Share, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassPanel, GlassCard } from '../../components/ui/Glassmorphism';
 import AmbientOrbs from '../../components/ui/AmbientOrbs';
@@ -11,29 +11,34 @@ export default function ReferralScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const [data, setData] = useState<ReferralStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
     try {
       setLoading(true);
+      setError(null);
       const res = await walletService.getReferralStatus();
       setData(res);
-    } catch (error) {
-      console.error('Error fetching referral status:', error);
+    } catch (err: any) {
+      console.error('Error fetching referral status:', err);
+      setError(err?.response?.data?.error || 'Failed to load referral status');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+    }, [])
+  );
 
   const handleShare = async () => {
     if (!data?.referralCode) return;
     try {
       await Share.share({
-        message: `Use my referral code ${data.referralCode} to get exclusive rewards on CityLocalShop!`,
+        message: `Use my referral code ${data.referralCode} to get ₹${data.rewardPerReferral || 50} on CityLocalShop! Download the app: https://citylocalshop.com/app`,
       });
     } catch (error) {
       console.error(error);
@@ -52,75 +57,80 @@ export default function ReferralScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView
+      <SectionList
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchData} tintColor="#38BDF8" />}
-      >
-        <View style={styles.heroSection}>
-          <Image source={require('../../assets/images/app-icon.png')} style={styles.heroIcon} />
-          <Text style={styles.heroTitle}>Invite Friends, Earn Coins!</Text>
-          <Text style={styles.heroSubtitle}>
-            Get ₹50 in coins for every friend who signs up with your code and completes their first booking.
-          </Text>
-        </View>
+        sections={[
+          { title: 'Pending Referrals', data: data?.pendingReferrals || [], type: 'PENDING' },
+          { title: 'Completed Referrals', data: data?.completedReferrals || [], type: 'COMPLETED' },
+        ]}
+        keyExtractor={(item: any) => item.id}
+        ListHeaderComponent={() => (
+          <>
+            <View style={styles.heroSection}>
+              <Image source={require('../../assets/images/app-icon.png')} style={styles.heroIcon} />
+              <Text style={styles.heroTitle}>Invite Friends, Earn Coins!</Text>
+              <Text style={styles.heroSubtitle}>
+                Get ₹{data?.rewardPerReferral || 50} in coins for every friend who signs up with your code and completes their first booking.
+              </Text>
+            </View>
 
-        <GlassCard style={styles.codeCard}>
-          <Text style={styles.codeLabel}>Your Referral Code</Text>
-          <View style={styles.codeRow}>
-            <Text style={styles.codeText}>{data?.referralCode || '...'}</Text>
-            <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
-              <Ionicons name="share-social" size={20} color="#FFF" />
-              <Text style={styles.shareText}>Share</Text>
-            </TouchableOpacity>
-          </View>
-        </GlassCard>
-
-        <View style={styles.statsContainer}>
-          <GlassCard style={styles.statBox}>
-            <Text style={styles.statLabel}>Total Referrals</Text>
-            <Text style={styles.statValue}>{data?.totalReferrals || 0}</Text>
-          </GlassCard>
-          <View style={{ width: 16 }} />
-          <GlassCard style={styles.statBox}>
-            <Text style={styles.statLabel}>Total Earned</Text>
-            <Text style={styles.statValue}>₹{data?.totalEarned?.toFixed(2) || '0.00'}</Text>
-          </GlassCard>
-        </View>
-
-        <Text style={styles.sectionTitle}>Pending Referrals</Text>
-        {data?.pendingReferrals && data.pendingReferrals.length > 0 ? (
-          data.pendingReferrals.map((ref, i) => (
-            <GlassCard key={i} style={styles.referralCard}>
-              <View style={styles.refUser}>
-                <View style={styles.avatarPlaceholder}>
-                  <Ionicons name="person" size={20} color="rgba(255,255,255,0.5)" />
-                </View>
-                <Text style={styles.refName}>{ref.referredUser.name}</Text>
+            <GlassCard style={styles.codeCard}>
+              <Text style={styles.codeLabel}>Your Referral Code</Text>
+              <View style={styles.codeRow}>
+                <Text style={styles.codeText}>{error ? 'Error' : (data?.referralCode || '...')}</Text>
+                <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
+                  <Ionicons name="share-social" size={20} color="#FFF" />
+                  <Text style={styles.shareText}>Share</Text>
+                </TouchableOpacity>
               </View>
+            </GlassCard>
+
+            <View style={styles.statsContainer}>
+              <GlassCard style={styles.statBox}>
+                <Text style={styles.statLabel}>Total Referrals</Text>
+                <Text style={styles.statValue}>{data?.totalReferrals || 0}</Text>
+              </GlassCard>
+              <View style={{ width: 16 }} />
+              <GlassCard style={styles.statBox}>
+                <Text style={styles.statLabel}>Total Earned</Text>
+                <Text style={styles.statValue}>₹{data?.totalEarned?.toFixed(2) || '0.00'}</Text>
+              </GlassCard>
+            </View>
+
+            {error && (
+              <View style={styles.errorContainer}>
+                <Ionicons name="alert-circle-outline" size={32} color="#EF4444" />
+                <Text style={styles.errorText}>{error}</Text>
+                <TouchableOpacity style={styles.retryButton} onPress={fetchData}>
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
+        )}
+        renderSectionHeader={({ section: { title, data } }) => (
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>{title} ({data.length})</Text>
+        )}
+        renderItem={({ item, section }) => (
+          <GlassCard style={styles.referralCard}>
+            <View style={styles.refUser}>
+              <View style={styles.avatarPlaceholder}>
+                <Ionicons name="person" size={20} color="rgba(255,255,255,0.5)" />
+              </View>
+              <Text style={styles.refName}>{item.referredUser?.name || 'User'}</Text>
+            </View>
+            {section.type === 'PENDING' ? (
               <Text style={styles.refStatusPending}>Awaiting 1st Order</Text>
-            </GlassCard>
-          ))
-        ) : (
-          <Text style={styles.emptyText}>No pending referrals</Text>
+            ) : (
+              <Text style={styles.refStatusCompleted}>+₹{item.amountCredited}</Text>
+            )}
+          </GlassCard>
         )}
-
-        <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Completed Referrals</Text>
-        {data?.completedReferrals && data.completedReferrals.length > 0 ? (
-          data.completedReferrals.map((ref, i) => (
-            <GlassCard key={i} style={styles.referralCard}>
-              <View style={styles.refUser}>
-                <View style={styles.avatarPlaceholder}>
-                  <Ionicons name="person" size={20} color="rgba(255,255,255,0.5)" />
-                </View>
-                <Text style={styles.refName}>{ref.referredUser.name}</Text>
-              </View>
-              <Text style={styles.refStatusCompleted}>+₹{ref.amountCredited}</Text>
-            </GlassCard>
-          ))
-        ) : (
-          <Text style={styles.emptyText}>No completed referrals yet</Text>
+        ListEmptyComponent={() => (
+           <Text style={styles.emptyText}>No referrals yet</Text>
         )}
-      </ScrollView>
+      />
     </View>
   );
 }
@@ -240,6 +250,32 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontFamily: 'Outfit_700Bold',
     fontSize: 24,
+  },
+  errorContainer: {
+    padding: 16,
+    alignItems: 'center',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    marginTop: 16,
+  },
+  errorText: {
+    color: '#EF4444',
+    marginTop: 8,
+    textAlign: 'center',
+    fontFamily: 'Outfit_500Medium',
+  },
+  retryButton: {
+    marginTop: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#FFF',
+    fontFamily: 'Outfit_600SemiBold',
   },
   sectionTitle: {
     color: '#FFF',
