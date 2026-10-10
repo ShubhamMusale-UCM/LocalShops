@@ -17,7 +17,7 @@ export const AdsController = {
       const schema = z.object({
         productId: z.string().min(1),
         shopId: z.string().min(1),
-        budgetPerDay: z.number().positive().min(50), // Min 50 rupees per day
+        budgetPerDay: z.number().positive().min(50).max(1000000), // Min 50 rupees, Max 1M
         bidPerClick: z.number().positive().min(1).max(100), // Between 1 and 100
         duration: z.number().int().positive().min(1).max(365), // Max 1 year
         targetGender: z.enum(['ALL', 'MALE', 'FEMALE']).default('ALL'),
@@ -253,7 +253,7 @@ export const AdsController = {
     try {
       const { adId } = req.params;
       const schema = z.object({
-        additionalBudget: z.number().positive().min(100),
+        additionalBudget: z.number().positive().min(100).max(1000000),
         durationDays: z.number().int().positive().min(1).max(365).default(30)
       });
       const { additionalBudget, durationDays } = schema.parse(req.body);
