@@ -51,7 +51,13 @@ const DS = {
   radius: { sm: 4, md: 8, lg: 12, xl: 16, full: 9999 },
 };
 
-const AnimatedPressable = ({ onPress, style, containerStyle, activeOpacity = 0.9, children }) => {
+const AnimatedPressable = ({ onPress, style, containerStyle, activeOpacity = 0.9, children }: {
+  onPress?: () => void;
+  style?: any;
+  containerStyle?: any;
+  activeOpacity?: number;
+  children: React.ReactNode;
+}) => {
   const scale = useRef(new Animated.Value(1)).current;
   const onPressIn = () => {
     Animated.spring(scale, { toValue: 0.96, damping: 12, stiffness: 220, useNativeDriver: true }).start();
@@ -74,7 +80,11 @@ const AnimatedPressable = ({ onPress, style, containerStyle, activeOpacity = 0.9
   );
 };
 
-const AnimatedEntry = ({ delay, children, style }) => {
+const AnimatedEntry = ({ delay, children, style }: {
+  delay?: number;
+  children: React.ReactNode;
+  style?: any;
+}) => {
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(16)).current;
 
@@ -103,7 +113,7 @@ const EMPTY_DASHBOARD_DATA = {
   topProduct: { name: 'No products yet', sold: 0 },
 };
 
-export default function SellerDashboard({ navigation }) {
+export default function SellerDashboard({ navigation }: any) {
   const [data, setData] = useState(EMPTY_DASHBOARD_DATA);
   const [shopName, setShopName] = useState('Urban Living - FC Road');
   const [isLoading, setIsLoading] = useState(true);
@@ -139,10 +149,10 @@ export default function SellerDashboard({ navigation }) {
         
         setData({
           totalOrders: Number(ordersRes?.data?.pagination?.total ?? orders.length),
-          totalRevenue: orders.reduce((s, o) => s + Number(o?.total || 0), 0),
+          totalRevenue: orders.reduce((s: number, o: any) => s + Number(o?.total || 0), 0),
           totalProducts: Number(productsRes?.data?.pagination?.total ?? products.length),
           averageRating: Number(primaryShop.averageRating ?? primaryShop.rating ?? 4.8),
-          pendingOrders: orders.filter(o => ['PLACED', 'CONFIRMED', 'PREPARING'].includes(String(o?.status))).length,
+          pendingOrders: orders.filter((o: any) => ['PLACED', 'CONFIRMED', 'PREPARING'].includes(String(o?.status))).length,
           thisMonthRevenue: 48650,
           thisMonthOrders: 14,
           topProduct: { name: products[0]?.name || 'Nordic Armchair', sold: Number(products[0]?.orderCount ?? 3) },
@@ -165,7 +175,7 @@ export default function SellerDashboard({ navigation }) {
 
   const handleScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
     useNativeDriver: false,
-    listener: (e) => _onScroll(e),
+    listener: (e: any) => _onScroll(e),
   });
 
   return (
@@ -270,7 +280,7 @@ export default function SellerDashboard({ navigation }) {
             {/* Card 1 */}
             <View style={[s.gridCard, { backgroundColor: 'rgba(142, 245, 222, 0.3)' }]}>
               <View style={s.gridCardHeader}>
-                <View style={[s.iconBox, { color: DS.primary }]}>
+                <View style={s.iconBox}>
                   <MaterialIcons name="currency-rupee" size={20} color={DS.primary} />
                 </View>
                 <View style={[s.cardBadge, { backgroundColor: DS.primaryContainer }]}>
@@ -287,7 +297,7 @@ export default function SellerDashboard({ navigation }) {
             {/* Card 2 */}
             <View style={[s.gridCard, { backgroundColor: DS.surfaceContainerHigh }]}>
               <View style={s.gridCardHeader}>
-                <View style={[s.iconBox, { color: DS.onSurface }]}>
+                <View style={s.iconBox}>
                   <MaterialIcons name="storefront" size={20} color={DS.onSurface} />
                 </View>
                 <View style={[s.cardBadge, { backgroundColor: DS.surfaceVariant }]}>
@@ -304,7 +314,7 @@ export default function SellerDashboard({ navigation }) {
             {/* Card 3 */}
             <View style={[s.gridCard, { backgroundColor: 'rgba(255, 219, 203, 0.5)' }]}>
               <View style={s.gridCardHeader}>
-                <View style={[s.iconBox, { color: DS.secondary }]}>
+                <View style={s.iconBox}>
                   <MaterialIcons name="video-chat" size={20} color={DS.secondary} />
                 </View>
                 <View style={[s.cardBadge, { backgroundColor: DS.secondaryContainer }]}>
@@ -321,7 +331,7 @@ export default function SellerDashboard({ navigation }) {
             {/* Card 4 */}
             <View style={[s.gridCard, { backgroundColor: 'rgba(226, 223, 255, 0.4)' }]}>
               <View style={s.gridCardHeader}>
-                <View style={[s.iconBox, { color: DS.tertiary }]}>
+                <View style={s.iconBox}>
                   <MaterialIcons name="radar" size={20} color={DS.tertiary} />
                 </View>
                 <View style={[s.cardBadge, { backgroundColor: DS.tertiary }]}>
@@ -420,8 +430,8 @@ export default function SellerDashboard({ navigation }) {
               ].map((item, index) => (
                 <View key={index} style={s.chartBarCol}>
                   <View style={s.chartBarWrapper}>
-                    <View style={[s.chartBarBg, { height: item.v1 }, item.active && { backgroundColor: DS.primaryFixed, elevation: 1 }, item.secondary && { backgroundColor: DS.secondaryFixed }]}>
-                      <View style={[s.chartBarFill, { height: item.v2 }, item.secondary && { backgroundColor: DS.secondaryContainer }]} />
+                    <View style={[s.chartBarBg, { height: item.v1 as `${number}%` }, item.active && { backgroundColor: DS.primaryFixed, elevation: 1 }, item.secondary && { backgroundColor: DS.secondaryFixed }]}>
+                      <View style={[s.chartBarFill, { height: item.v2 as `${number}%` }, item.secondary && { backgroundColor: DS.secondaryContainer }]} />
                     </View>
                   </View>
                   <Text style={[s.chartDayLabel, item.active && { color: DS.primary, fontWeight: '800' }, item.secondary && { color: DS.secondary, fontWeight: '800' }]}>{item.d}</Text>

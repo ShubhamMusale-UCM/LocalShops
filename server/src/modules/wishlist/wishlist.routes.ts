@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { WishlistController } from './wishlist.controller.js';
-import { protect } from '../../middlewares/auth.middleware.js';
+import { WishlistController } from './wishlist.controller';
+import { authenticate } from '../../middleware/auth.middleware';
 
 const router = Router();
 
 // All wishlist routes require authentication
-router.use(protect);
+router.use(authenticate);
 
 router.get('/', WishlistController.getWishlist);
 router.post('/toggle', WishlistController.toggleWishlist);

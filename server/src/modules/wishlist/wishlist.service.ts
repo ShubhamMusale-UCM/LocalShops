@@ -1,6 +1,5 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from '../../config/database';
+import { AppError } from '../../middleware/errorHandler.middleware';
 
 class WishlistService {
   async getWishlist(userId: string) {
@@ -20,15 +19,17 @@ class WishlistService {
       orderBy: { createdAt: 'desc' }
     });
     
-    return items.map(item => ({
-      id: item.id,
-      productId: item.productId,
-      name: item.product.name,
-      price: item.product.price,
-      image: item.product.images[0] || null,
-      shopName: item.product.shop.name,
-      addedAt: item.createdAt
-    }));
+    return items
+      .filter(item => Boolean(item.product))
+      .map(item => ({
+        id: item.id,
+        productId: item.productId,
+        name: item.product.name,
+        price: item.product.price,
+        image: item.product.images?.[0] || null,
+        shopName: item.product.shop?.name || '',
+        addedAt: item.createdAt
+      }));
   }
 
   async toggleWishlist(userId: string, productId: string) {
@@ -47,6 +48,15 @@ class WishlistService {
       });
       return { isWishlisted: false };
     } else {
+      const product = await prisma.product.findUnique({
+        where: { id: productId },
+        select: { id: true, isActive: true },
+      });
+
+      if (!product) {
+        throw new AppError('Product not found', 404);
+      }
+
       await prisma.wishlist.create({
         data: {
           userId,

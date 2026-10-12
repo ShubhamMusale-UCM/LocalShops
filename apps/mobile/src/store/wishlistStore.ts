@@ -36,6 +36,7 @@ export const useWishlistStore = create<WishlistState>()(
         const exists = get().items.some((entry) => entry.productId === item.productId);
         if (exists) {
           set({ items: get().items.filter((entry) => entry.productId !== item.productId) });
+          api.post('/wishlist/toggle', { productId: item.productId }).catch(() => {});
           return;
         }
 

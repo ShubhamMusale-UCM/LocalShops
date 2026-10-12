@@ -61,8 +61,8 @@ export const ProductCard = ({ item, width, style, onPress, onAdd }: ProductCardP
   const isSaved = items.some(entry => entry.productId === item.id);
   
   const updateQuantity = useCartStore(state => state.updateQuantity);
-  const quantities = useCartStore(state => state.quantities);
-  const cartQty = quantities[item.id] || 0;
+  const cartItem = useCartStore(state => state.items.find(i => i.productId === item.id));
+  const cartQty = cartItem?.quantity || 0;
 
   const [isAdding, setIsAdding] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -136,7 +136,16 @@ export const ProductCard = ({ item, width, style, onPress, onAdd }: ProductCardP
     
     // Auto add 1 item to cart
     if (cartQty === 0) {
-      updateQuantity(item.id, 1, item.shop?.id || '');
+      useCartStore.getState().addItem({
+        productId: item.id,
+        shopId: item.shop?.id || '',
+        shopName: item.shop?.name || '',
+        name: item.name,
+        price: Number(item.price || 0),
+        mrp: item.mrp ? Number(item.mrp) : undefined,
+        image: imageUri || '',
+        inStock: item.inStock ?? true,
+      });
     }
     
     if (onAdd) {
@@ -146,12 +155,12 @@ export const ProductCard = ({ item, width, style, onPress, onAdd }: ProductCardP
   };
 
   const handleIncrease = () => {
-    updateQuantity(item.id, cartQty + 1, item.shop?.id || '');
+    updateQuantity(item.id, cartQty + 1);
   };
 
   const handleDecrease = () => {
     if (cartQty > 0) {
-      updateQuantity(item.id, cartQty - 1, item.shop?.id || '');
+      updateQuantity(item.id, cartQty - 1);
     }
   };
 
@@ -226,7 +235,7 @@ export const ProductCard = ({ item, width, style, onPress, onAdd }: ProductCardP
           <View style={styles.bottomRow}>
             <View style={styles.priceContainer}>
               <Text style={[styles.price, { color: colors.accent }]}>{formatPrice(item.price)}</Text>
-              {hasMRP && <Text style={[styles.mrp, { color: colors.textMuted }]}>₹{item.mrp}</Text>}
+              {hasMRP && <Text style={[styles.mrp, { color: (colors as any).textMuted || colors.textSecondary }]}>₹{item.mrp}</Text>}
             </View>
             <Animated.View style={[styles.addButtonContainer, buttonAnimatedStyle]}>
               {cartQty > 0 ? (

@@ -1,6 +1,6 @@
 import { Response, NextFunction } from 'express';
-import { AuthRequest } from '../../middlewares/auth.middleware.js';
-import wishlistService from './wishlist.service.js';
+import { AuthRequest } from '../../middleware/auth.middleware';
+import wishlistService from './wishlist.service';
 
 export const WishlistController = {
   getWishlist: async (req: AuthRequest, res: Response, next: NextFunction) => {

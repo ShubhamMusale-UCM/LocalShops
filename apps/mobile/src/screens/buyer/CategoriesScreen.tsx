@@ -130,7 +130,7 @@ export default function CategoriesScreen() {
   }));
 
   const handleCategorySelect = useCallback(
-    (categoryId: string) => {
+    (categoryId: string, _subCategory?: string) => {
       setCategory(categoryId);
       navigation.navigate('Search');
     },
@@ -197,7 +197,7 @@ export default function CategoriesScreen() {
               <TouchableOpacity
                 style={[styles.searchResultItem, { borderBottomColor: colors.border }]}
                 activeOpacity={0.7}
-                onPress={() => handleSubCategorySelect(item.parentId, item.type === 'sub' ? item.title : undefined)}
+                onPress={() => handleCategorySelect(item.parentId, item.type === 'sub' ? item.title : undefined)}
               >
                 <View style={[styles.searchResultIconBox, { backgroundColor: item.type === 'parent' ? (isDarkMode ? 'rgba(5,150,105,0.25)' : '#ECFDF5') : colors.surface }]}>
                   <Ionicons name={item.type === 'parent' ? 'grid' : 'list'} size={16} color={item.type === 'parent' ? '#059669' : colors.textSecondary} />

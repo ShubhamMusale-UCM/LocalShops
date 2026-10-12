@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { MMKV } from 'react-native-mmkv';
 import authService from '../services/authService';
 import { setAuthToken, setRefreshHandler } from '../services/api';
+import { useWishlistStore } from './wishlistStore';
 
 const storage = new MMKV();
 const zustandStorage = {
@@ -77,9 +78,7 @@ export const useAuthStore = create<AuthState>()(
         });
         
         // Sync wishlist
-        import('./wishlistStore').then(({ useWishlistStore }) => {
-          useWishlistStore.getState().syncWithBackend();
-        }).catch(() => {});
+        useWishlistStore.getState().syncWithBackend();
       },
 
       logout: () => {
@@ -94,9 +93,7 @@ export const useAuthStore = create<AuthState>()(
         });
         
         // Clear local wishlist
-        import('./wishlistStore').then(({ useWishlistStore }) => {
-          useWishlistStore.getState().clearWishlist();
-        }).catch(() => {});
+        useWishlistStore.getState().clearWishlist();
       },
 
       continueAsGuest: () => {
@@ -143,9 +140,7 @@ export const useAuthStore = create<AuthState>()(
         
         // Sync wishlist on app load if authenticated
         if (state?.isAuthenticated) {
-          import('./wishlistStore').then(({ useWishlistStore }) => {
-            useWishlistStore.getState().syncWithBackend();
-          }).catch(() => {});
+          useWishlistStore.getState().syncWithBackend();
         }
       },
     }

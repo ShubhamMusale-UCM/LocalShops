@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ViewStyle,
   Easing,
-  Easing,
   Platform,
 } from 'react-native';
 import { useTheme } from '../../theme';
