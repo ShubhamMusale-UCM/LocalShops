@@ -3,6 +3,7 @@ import adsService from './ads.service';
 import walletService from '../wallet/wallet.service';
 import { AuthRequest } from '../../middleware/auth.middleware';
 import { AppError } from '../../middleware/errorHandler.middleware';
+import { bidForObjective, MAX_TARGET_RADIUS_KM, MIN_DAILY_BUDGET } from './ads.targeting';
 import prisma from '../../config/database';
 import { createRazorpayOrder, verifyPaymentSignature } from '../../config/razorpay';
 import { nanoid } from 'nanoid';
@@ -17,17 +18,29 @@ export const AdsController = {
       const schema = z.object({
         productId: z.string().min(1),
         shopId: z.string().min(1),
-        budgetPerDay: z.number().positive().min(50).max(1000000), // Min 50 rupees, Max 1M
-        bidPerClick: z.number().positive().min(1).max(100), // Between 1 and 100
+        budgetPerDay: z.number().positive().min(MIN_DAILY_BUDGET).max(1000000), // Min 200 rupees, Max 1M
+        bidPerClick: z.number().positive().min(1).max(100).optional(), // Ignored: bid is set server-side per objective
         duration: z.number().int().positive().min(1).max(365), // Max 1 year
         targetGender: z.enum(['ALL', 'MALE', 'FEMALE']).default('ALL'),
+        objective: z.enum(['AWARENESS', 'TRAFFIC', 'CONVERSIONS']).default('TRAFFIC'),
+        geoMode: z.enum(['RADIUS', 'CITIES']).default('RADIUS'),
+        targetRadiusKm: z.number().min(1).max(MAX_TARGET_RADIUS_KM).optional(),
+        targetCities: z.array(z.string().trim().min(2).max(50)).max(10).optional(),
         razorpay_order_id: z.string().optional(),
         razorpay_payment_id: z.string().optional(),
         razorpay_signature: z.string().optional(),
+      }).superRefine((val, ctx) => {
+        if (val.geoMode === 'RADIUS' && val.targetRadiusKm === undefined) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['targetRadiusKm'], message: 'targetRadiusKm is required for RADIUS targeting' });
+        }
+        if (val.geoMode === 'CITIES' && (!val.targetCities || val.targetCities.length === 0)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['targetCities'], message: 'At least one city is required for CITIES targeting' });
+        }
       });
 
       const validated = schema.parse(req.body);
-      const { productId, shopId, budgetPerDay, bidPerClick, duration, targetGender, razorpay_order_id, razorpay_payment_id, razorpay_signature } = validated;
+      const { productId, shopId, budgetPerDay, duration, targetGender, objective, geoMode, targetRadiusKm, targetCities, razorpay_order_id, razorpay_payment_id, razorpay_signature } = validated;
+      const bidPerClick = bidForObjective(objective);
 
       if (bidPerClick > budgetPerDay) {
         throw new AppError('Bid per click cannot be greater than budget per day', 400);
@@ -77,7 +90,8 @@ export const AdsController = {
         Number(bidPerClick),
         new Date(),
         Number(duration),
-        targetGender
+        targetGender,
+        { objective, geoMode, targetRadiusKm, targetCities }
       );
 
       res.status(201).json({
@@ -286,18 +300,20 @@ export const AdsController = {
     next: NextFunction
   ) => {
     try {
-      const { limit = 10, lat, lng } = req.query;
+      const { limit = 10, lat, lng, city } = req.query;
       const user = req.user as any;
       const parsedLimit = parseInt(limit as string);
       const parsedLat = lat ? parseFloat(lat as string) : undefined;
       const parsedLng = lng ? parseFloat(lng as string) : undefined;
+      const buyerCity = (city as string) || user?.city || undefined;
 
       let products;
       if (!user) {
         products = await adsService.serveAds({
           limit: parsedLimit,
           lat: parsedLat,
-          lng: parsedLng
+          lng: parsedLng,
+          city: buyerCity
         });
       } else {
         
@@ -314,6 +330,8 @@ export const AdsController = {
           keywords: keywords,
           lat: parsedLat,
           lng: parsedLng,
+          city: buyerCity,
+          userId: user.id,
           userGender: user?.gender
         });
       }
@@ -336,7 +354,8 @@ export const AdsController = {
     next: NextFunction
   ) => {
     try {
-      const { limit = 10, q, category, lat, lng } = req.query;
+      const { limit = 10, q, category, lat, lng, city } = req.query;
+      const user = req.user as any;
 
       const products = await adsService.serveAds({
         limit: parseInt(limit as string), 
@@ -344,6 +363,9 @@ export const AdsController = {
         category: category as string,
         lat: lat ? parseFloat(lat as string) : undefined,
         lng: lng ? parseFloat(lng as string) : undefined,
+        city: (city as string) || user?.city || undefined,
+        userId: user?.id,
+        userGender: user?.gender,
       });
 
       res.json({

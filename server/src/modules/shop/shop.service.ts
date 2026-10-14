@@ -318,15 +318,15 @@ export class ShopService {
           where: { order: { createdAt: { gte: since }, status: 'DELIVERED' } },
           select: { quantity: true, price: true }
         },
-        promotedListing: { select: { clicks: true, impressions: true } },
+        promotedListings: { select: { clicks: true, impressions: true } },
       },
     });
 
     const topProducts = topProductsRaw.map(p => {
       const unitsSold = p.orderItems.reduce((acc, item) => acc + item.quantity, 0);
       const revenue = p.orderItems.reduce((acc, item) => acc + (item.quantity * item.price), 0);
-      const adImpressions = p.promotedListing?.impressions ?? 0;
-      const adClicks = p.promotedListing?.clicks ?? 0;
+      const adImpressions = (p.promotedListings || []).reduce((a, l) => a + (l.impressions || 0), 0);
+      const adClicks = (p.promotedListings || []).reduce((a, l) => a + (l.clicks || 0), 0);
       
       return {
         id: p.id,

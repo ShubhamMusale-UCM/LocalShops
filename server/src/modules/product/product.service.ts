@@ -371,7 +371,6 @@ export class ProductService {
       const product = await prisma.product.update({
         where: { id: productId },
         data: { viewCount: { increment: 1 } },
-        include: { promotedListing: true }
       });
 
       // Also track click for promoted listings if active and within budget

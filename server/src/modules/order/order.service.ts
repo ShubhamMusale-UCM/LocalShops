@@ -64,7 +64,7 @@ export class OrderService {
         flashSales: {
           where: { isActive: true, startTime: { lte: now }, endTime: { gte: now } }
         },
-        promotedListing: {
+        promotedListings: {
           where: { isActive: true, startDate: { lte: now }, endDate: { gte: now } },
           select: { id: true }
         }
@@ -190,7 +190,7 @@ export class OrderService {
           const product = products.find(p => p.id === item.productId);
           
           // SECURITY FIX: Only attribute if the client's campaignId exactly matches the database's active campaignId for this product
-          if (originalItem?.campaignId && product?.promotedListing?.id === originalItem.campaignId) {
+          if (originalItem?.campaignId && product?.promotedListings?.some(l => l.id === originalItem.campaignId)) {
             const current = campaignTotals.get(originalItem.campaignId) || { revenue: 0, conversions: 0 };
             campaignTotals.set(originalItem.campaignId, {
               revenue: current.revenue + item.total,

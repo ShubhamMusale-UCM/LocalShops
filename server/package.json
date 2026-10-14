@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
-    "build": "tsc",
+    "dev": "npm run build && node dist/app.js",
+    "serve": "node dist/app.js",
+    "build": "node ../node_modules/sucrase/bin/sucrase ./src -d ./dist --transforms typescript,imports",
     "start": "node dist/app.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

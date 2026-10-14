@@ -4,6 +4,7 @@ import { TargetGender } from '@prisma/client';
 import { AppError } from '../../middleware/errorHandler.middleware';
 import { cacheDelete, cacheGet, cacheSet } from '../../config/redis';
 import { getBoundingBox, haversineDistance } from '../../utils/geoUtils';
+import { evaluateGeoTarget, bidForObjective, normalizeCity, MAX_TARGET_RADIUS_KM, MIN_DAILY_BUDGET } from './ads.targeting';
 
 const isCampaignLive = (campaign: {
   isActive: boolean;
@@ -26,11 +27,28 @@ export class AdsService {
     shopId: string,
     productId: string,
     budgetPerDay: number,
-    bidPerClick: number,
+    _clientBidPerClick: number,
     startDate: Date,
     duration: number,
-    targetGender: TargetGender = 'ALL'
+    targetGender: TargetGender = 'ALL',
+    targeting: {
+      objective?: 'AWARENESS' | 'TRAFFIC' | 'CONVERSIONS';
+      geoMode?: 'RADIUS' | 'CITIES';
+      targetRadiusKm?: number;
+      targetCities?: string[];
+    } = {}
   ) {
+    const objective = targeting.objective || 'TRAFFIC';
+    const geoMode = targeting.geoMode || 'RADIUS';
+    const targetRadiusKm = Math.min(Math.max(targeting.targetRadiusKm ?? 5, 1), MAX_TARGET_RADIUS_KM);
+    const targetCities = Array.from(new Set((targeting.targetCities || []).map(normalizeCity).filter(Boolean)));
+    // Server decides the bid so the auction cannot be gamed from the client.
+    const bidPerClick = bidForObjective(objective);
+
+    if (geoMode === 'CITIES' && targetCities.length === 0) {
+      throw new AppError('Select at least one target city.', 400);
+    }
+
     const product = await prisma.product.findUnique({
       where: { id: productId },
       select: { id: true, shopId: true, isActive: true },
@@ -44,8 +62,8 @@ export class AdsService {
       throw new AppError('Cannot promote a deleted/inactive product', 400);
     }
 
-    if (budgetPerDay < 100) {
-      throw new AppError('Minimum daily budget is ₹100', 400);
+    if (budgetPerDay < MIN_DAILY_BUDGET) {
+      throw new AppError(`Minimum daily budget is ₹${MIN_DAILY_BUDGET}`, 400);
     }
 
     if (duration < 1) {
@@ -107,6 +125,10 @@ export class AdsService {
           startDate,
           endDate,
           targetGender,
+          objective,
+          geoMode,
+          targetRadiusKm,
+          targetCities,
           isActive: true,
         },
         include: {
@@ -598,6 +620,11 @@ export class AdsService {
         state: isLive ? 'LIVE' : 'HISTORY',
         startDate: campaign.startDate,
         endDate: campaign.endDate,
+        objective: campaign.objective,
+        geoMode: campaign.geoMode,
+        targetRadiusKm: campaign.targetRadiusKm,
+        targetCities: campaign.targetCities,
+        targetGender: campaign.targetGender,
         topKeywords,
       };
     });
@@ -762,9 +789,11 @@ export class AdsService {
     category?: string;
     lat?: number;
     lng?: number;
+    city?: string | null;
+    userId?: string;
     userGender?: string;
   }) {
-    const { limit = 10, query, keywords, category, lat, lng, userGender } = params;
+    const { limit = 10, query, keywords, category, lat, lng, city, userId, userGender } = params;
     
     if (lat === undefined || lng === undefined) {
       return [];
@@ -811,7 +840,9 @@ export class AdsService {
     }
 
     whereClause.shop = {};
-    const bbox = getBoundingBox(lat, lng, 50);
+    // Coarse prefilter only (widest allowed campaign radius). Exact radius/city targeting
+    // is evaluated per-campaign below.
+    const bbox = getBoundingBox(lat, lng, MAX_TARGET_RADIUS_KM);
     whereClause.shop = {
       latitude: { gte: bbox.minLat, lte: bbox.maxLat },
       longitude: { gte: bbox.minLng, lte: bbox.maxLng },
@@ -821,42 +852,100 @@ export class AdsService {
       where: whereClause,
       include: {
         product: {
-          include: { shop: { select: { id: true, name: true, logo: true, coverImage: true, latitude: true, longitude: true } } },
+          include: { shop: { select: { id: true, name: true, logo: true, coverImage: true, latitude: true, longitude: true, city: true } } },
         },
       },
-      take: limit * 5,
+      take: Math.max(limit * 20, 100),
     });
 
     const now = new Date().getTime();
-    
+    const buyer = { lat, lng, city };
+
+    // Buyer intent signals, only fetched when a CONVERSIONS campaign is in the candidate set.
+    let intent: { categories: Set<string>; shopIds: Set<string>; productIds: Set<string> } | null = null;
+    if (userId && listings.some((l) => l.objective === 'CONVERSIONS')) {
+      const cacheKey = `buyer:intent:${userId}`;
+      const cached = await cacheGet(cacheKey) as { categories: string[]; shopIds: string[]; productIds: string[] } | null;
+      let raw = cached;
+      if (!raw) {
+        const [cartItems, wishlist, orders] = await Promise.all([
+          prisma.cartItem.findMany({ where: { userId }, select: { product: { select: { id: true, category: true, shopId: true } } }, take: 50 }),
+          prisma.wishlist.findMany({ where: { userId }, select: { product: { select: { id: true, category: true, shopId: true } } }, take: 50 }),
+          prisma.order.findMany({ where: { userId }, select: { shopId: true }, orderBy: { createdAt: 'desc' }, take: 20 }),
+        ]);
+        const prods = [...cartItems, ...wishlist].map((r) => r.product).filter(Boolean);
+        raw = {
+          categories: Array.from(new Set(prods.map((p) => p.category))),
+          shopIds: Array.from(new Set([...prods.map((p) => p.shopId), ...orders.map((o) => o.shopId)])),
+          productIds: Array.from(new Set(prods.map((p) => p.id))),
+        };
+        await cacheSet(cacheKey, raw, 300);
+      }
+      intent = {
+        categories: new Set(raw.categories),
+        shopIds: new Set(raw.shopIds),
+        productIds: new Set(raw.productIds),
+      };
+    }
+
     const validListings = listings
-      .filter((l) => {
+      .map((l) => {
+        const geo = evaluateGeoTarget(l as any, l.product.shop as any, buyer);
+        return { l, geo };
+      })
+      .filter(({ l, geo }) => {
+        if (!geo.eligible) return false;
         if (l.spent >= l.budget) return false;
-        
+
         const campaignDurationMs = new Date(l.endDate).getTime() - new Date(l.startDate).getTime();
         const elapsedMs = now - new Date(l.startDate).getTime();
-        
+
         if (campaignDurationMs <= 0 || elapsedMs <= 0) return true; // Failsafe
-        
+
         const idealSpendRatio = elapsedMs / campaignDurationMs;
         const actualSpendRatio = l.spent / l.budget;
-        
+
         // Deterministic pacing (cut off if spent > 150% of ideal)
         if (actualSpendRatio > idealSpendRatio * 1.5) return false;
         return true;
       })
-      .map(l => {
+      .map(({ l, geo }) => {
         const adRank = l.bidPerClick * (l.qualityScore || 5);
-        let distance = 0;
-        if (l.product.shop.latitude && l.product.shop.longitude) {
-           distance = haversineDistance(lat, lng, l.product.shop.latitude, l.product.shop.longitude);
+        const radius = l.geoMode === 'RADIUS' ? Math.max(l.targetRadiusKm || 5, 1) : 50;
+        const proximity = geo.distanceKm === null ? 0 : Math.max(0, 1 - geo.distanceKm / radius);
+
+        const campaignDurationMs = Math.max(new Date(l.endDate).getTime() - new Date(l.startDate).getTime(), 1);
+        const idealSpendRatio = Math.min(1, Math.max(0, (now - new Date(l.startDate).getTime()) / campaignDurationMs));
+        const actualSpendRatio = l.budget > 0 ? l.spent / l.budget : 1;
+        const underDelivery = Math.max(0, idealSpendRatio - actualSpendRatio);
+        // Laplace-smoothed CTR so brand new campaigns are not penalised or over-rewarded.
+        const smoothedCtr = (l.clicks + 1) / (l.impressions + 20);
+
+        let finalScore: number;
+        switch (l.objective) {
+          case 'AWARENESS':
+            // Maximise distribution: ignore proximity, push campaigns that are behind schedule.
+            finalScore = adRank + underDelivery * 10 + 2;
+            break;
+          case 'CONVERSIONS': {
+            const hasIntent = !!intent && (
+              intent.productIds.has(l.productId) ||
+              intent.shopIds.has(l.shopId) ||
+              intent.categories.has(l.product.category)
+            );
+            finalScore = adRank * (hasIntent ? 1.5 : 0.6) + proximity * 5;
+            break;
+          }
+          case 'TRAFFIC':
+          default:
+            finalScore = adRank * (1 + smoothedCtr * 5) + proximity * 5;
+            break;
         }
-        const geoScore = Math.max(0, 50 - distance); 
-        return { ...l, finalScore: adRank + (geoScore * 0.5) };
+        return { ...l, finalScore };
       })
       .sort((a, b) => b.finalScore - a.finalScore)
       .slice(0, limit);
-      
+
     return validListings.map(({ finalScore, ...rest }) => rest);
   }
 

@@ -74,7 +74,9 @@ export const SearchController = {
         parseInt(offset as string),
         lat ? parseFloat(lat as string) : undefined,
         lng ? parseFloat(lng as string) : undefined,
-        (req.user as any)?.gender
+        (req.user as any)?.gender,
+        ((req.query.city as string) || (req.user as any)?.city || undefined),
+        req.user?.id
       );
 
       // Track keyword stats (non-blocking fire-and-forget)

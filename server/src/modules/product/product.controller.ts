@@ -61,6 +61,7 @@ export class ProductController {
         latitude: params.lat,
         longitude: params.lng,
         radius: params.radius,
+        city: params.city,
         minPrice: params.minPrice,
         maxPrice: params.maxPrice,
         category: params.category,

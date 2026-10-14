@@ -27,6 +27,7 @@ export const productSearchSchema = z.object({
   lat: z.string().transform(Number).pipe(z.number().min(-90).max(90)).optional(),
   lng: z.string().transform(Number).pipe(z.number().min(-180).max(180)).optional(),
   radius: z.string().transform(Number).pipe(z.number().positive()).optional(),
+  city: z.string().trim().max(60).optional(),
   minPrice: z.string().transform(Number).pipe(z.number().min(0)).optional(),
   maxPrice: z.string().transform(Number).pipe(z.number().positive()).optional(),
   category: z.string().optional(),

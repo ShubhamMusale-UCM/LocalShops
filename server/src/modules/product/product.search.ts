@@ -1,6 +1,7 @@
 import prisma from '../../config/database';
 import { getBoundingBox, haversineDistance } from '../../utils/geoUtils';
 import { Prisma } from '@prisma/client';
+import { evaluateGeoTarget } from '../ads/ads.targeting';
 
 const normalizeSignedS3Url = (value: string): string => {
   try {
@@ -58,6 +59,7 @@ interface SearchParams {
   latitude?: number;
   longitude?: number;
   radius?: number;
+  city?: string;
   minPrice?: number;
   maxPrice?: number;
   category?: string;
@@ -78,6 +80,7 @@ export const searchProducts = async (params: SearchParams) => {
     latitude,
     longitude,
     radius = 50,
+    city,
     minPrice,
     maxPrice,
     category,
@@ -164,7 +167,10 @@ export const searchProducts = async (params: SearchParams) => {
             logo: true, coverImage: true,
           },
         },
-        promotedListing: {
+        promotedListings: {
+          where: { isActive: true, endDate: { gte: new Date() } },
+          orderBy: { createdAt: 'desc' },
+          take: 3,
           select: {
             id: true,
             isActive: true,
@@ -172,6 +178,10 @@ export const searchProducts = async (params: SearchParams) => {
             endDate: true,
             budget: true,
             spent: true,
+            geoMode: true,
+            targetRadiusKm: true,
+            targetCities: true,
+            objective: true,
           },
         },
       },
@@ -196,12 +206,19 @@ export const searchProducts = async (params: SearchParams) => {
   // Add distance info if location provided
   let results = products.map((product) => {
     const normalized = normalizeProductImages(product);
-    const isSponsored = isSponsoredActive((product as any).promotedListing);
+    // Pick the first live campaign whose geo targeting includes this buyer.
+    // Without buyer location we cannot verify targeting, so no sponsorship is applied.
+    const liveListing = ((product as any).promotedListings || []).find((l: any) => {
+      if (!isSponsoredActive(l)) return false;
+      if (!hasGeo) return false;
+      return evaluateGeoTarget(l, product.shop as any, { lat: latitude, lng: longitude, city }).eligible;
+    });
+    const isSponsored = Boolean(liveListing);
 
     return {
       ...normalized,
       isSponsored,
-      sponsoredListingId: isSponsored ? (product as any).promotedListing?.id : null,
+      sponsoredListingId: isSponsored ? liveListing.id : null,
       sponsoredPriority: isSponsored ? 1 : 0,
       shopDistance_km: hasGeo
         ? haversineDistance(latitude, longitude, product.shop.latitude, product.shop.longitude)

@@ -157,7 +157,7 @@ export const SellerTabNavigator = () => {
 
 // ─── Seller Stack (wraps tabs + detail screens) ─────────
 export const SellerStackNavigator = () => (
-  <SellerStack.Navigator screenOptions={{ headerShown: false }}>
+  <SellerStack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
     <SellerStack.Screen name="SellerTabs" component={SellerTabNavigator} />
     <SellerStack.Screen name="AddProduct" component={AddProductScreen} />
     <SellerStack.Screen

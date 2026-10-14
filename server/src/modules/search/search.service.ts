@@ -20,7 +20,9 @@ export class SearchService {
     offset: number = 0,
     lat?: number,
     lng?: number,
-    userGender?: string
+    userGender?: string,
+    city?: string,
+    userId?: string
   ) {
     const formattedQuery = query.trim().replace(/[&|!():<>'"]/g, '').split(/\s+/).filter(Boolean).join(' | ');
 
@@ -74,6 +76,8 @@ export class SearchService {
         category: filters.category,
         lat,
         lng,
+        city,
+        userId,
         userGender
       });
         
@@ -315,6 +319,9 @@ export class SearchService {
         category: filters.category,
         lat: filters.latitude,
         lng: filters.longitude,
+        city: (filters as any).city,
+        userId: (filters as any).userId,
+        userGender: (filters as any).userGender,
       });
         
       sponsoredProducts = activeSponsored.map(ad => ({

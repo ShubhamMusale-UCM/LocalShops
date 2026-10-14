@@ -43,6 +43,17 @@ enum SentimentType {
   NEGATIVE
 }
 
+enum AdObjective {
+  AWARENESS
+  TRAFFIC
+  CONVERSIONS
+}
+
+enum GeoTargetMode {
+  RADIUS
+  CITIES
+}
+
 // ============= MODELS =============
 
 model User {
@@ -202,7 +213,7 @@ model Product {
   reviews         Review[]
   orderItems      OrderItem[]
   cartItems       CartItem[]
-  promotedListing PromotedListing?
+  promotedListings PromotedListing[]
   variants        ProductVariant[]
   wishlistedBy    Wishlist[]
   flashSales      FlashSale[]
@@ -335,7 +346,7 @@ model PromotedListing {
   id               String          @id @default(uuid())
   shopId           String
   shop             Shop            @relation(fields: [shopId], references: [id])
-  productId        String          @unique
+  productId        String
   product          Product         @relation(fields: [productId], references: [id])
   budget           Float
   spent            Float           @default(0)
@@ -349,6 +360,10 @@ model PromotedListing {
   revenue          Float           @default(0)
   qualityScore     Int             @default(5)
   targetGender     TargetGender    @default(ALL)
+  objective        AdObjective     @default(TRAFFIC)
+  geoMode          GeoTargetMode   @default(RADIUS)
+  targetRadiusKm   Float           @default(5)
+  targetCities     String[]        @default([])
   startDate        DateTime
   endDate          DateTime
   isActive         Boolean         @default(true)
@@ -359,6 +374,9 @@ model PromotedListing {
   keywordStats     CampaignKeywordStat[]
   impressionLogs   AdImpressionLog[]
   negativeKeywords NegativeKeyword[]
+
+  @@index([productId, isActive])
+  @@index([shopId, isActive])
 }
 
 model NegativeKeyword {

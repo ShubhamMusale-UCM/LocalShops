@@ -145,7 +145,7 @@ const startServer = async () => {
     await initializeBackgroundJobs();
 
     // Start HTTP server
-    httpServer.listen(PORT, () => {
+    httpServer.listen(Number(PORT), '0.0.0.0', () => {
       console.log(`
 ╔══════════════════════════════════════════════════╗
 ║                                                  ║
