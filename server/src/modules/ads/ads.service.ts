@@ -861,23 +861,25 @@ export class AdsService {
     const now = new Date().getTime();
     const buyer = { lat, lng, city };
 
-    // Buyer intent signals, only fetched when a CONVERSIONS campaign is in the candidate set.
-    let intent: { categories: Set<string>; shopIds: Set<string>; productIds: Set<string> } | null = null;
+    // Buyer intent signals, fetched when a CONVERSIONS campaign is in the candidate set.
+    let intent: { categories: Set<string>; shopIds: Set<string>; productIds: Set<string>; searchKeywords: Set<string> } | null = null;
     if (userId && listings.some((l) => l.objective === 'CONVERSIONS')) {
       const cacheKey = `buyer:intent:${userId}`;
-      const cached = await cacheGet(cacheKey) as { categories: string[]; shopIds: string[]; productIds: string[] } | null;
+      const cached = await cacheGet(cacheKey) as { categories: string[]; shopIds: string[]; productIds: string[]; searchKeywords: string[] } | null;
       let raw = cached;
       if (!raw) {
-        const [cartItems, wishlist, orders] = await Promise.all([
+        const [cartItems, wishlist, orders, searchHistory] = await Promise.all([
           prisma.cartItem.findMany({ where: { userId }, select: { product: { select: { id: true, category: true, shopId: true } } }, take: 50 }),
           prisma.wishlist.findMany({ where: { userId }, select: { product: { select: { id: true, category: true, shopId: true } } }, take: 50 }),
           prisma.order.findMany({ where: { userId }, select: { shopId: true }, orderBy: { createdAt: 'desc' }, take: 20 }),
+          prisma.userSearchHistory.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 20, select: { keyword: true } }),
         ]);
         const prods = [...cartItems, ...wishlist].map((r) => r.product).filter(Boolean);
         raw = {
           categories: Array.from(new Set(prods.map((p) => p.category))),
           shopIds: Array.from(new Set([...prods.map((p) => p.shopId), ...orders.map((o) => o.shopId)])),
           productIds: Array.from(new Set(prods.map((p) => p.id))),
+          searchKeywords: Array.from(new Set((searchHistory || []).map((s: any) => s.keyword?.toLowerCase().trim()).filter(Boolean))),
         };
         await cacheSet(cacheKey, raw, 300);
       }
@@ -885,6 +887,7 @@ export class AdsService {
         categories: new Set(raw.categories),
         shopIds: new Set(raw.shopIds),
         productIds: new Set(raw.productIds),
+        searchKeywords: new Set(raw.searchKeywords || []),
       };
     }
 
@@ -928,10 +931,16 @@ export class AdsService {
             finalScore = adRank + underDelivery * 10 + 2;
             break;
           case 'CONVERSIONS': {
+            const matchesSearch = !!intent && Array.from(intent.searchKeywords).some((kw: string) => {
+              const nameMatch = l.product.name ? l.product.name.toLowerCase().includes(kw) : false;
+              const catMatch = l.product.category ? l.product.category.toLowerCase().includes(kw) : false;
+              return nameMatch || catMatch;
+            });
             const hasIntent = !!intent && (
               intent.productIds.has(l.productId) ||
               intent.shopIds.has(l.shopId) ||
-              intent.categories.has(l.product.category)
+              intent.categories.has(l.product.category) ||
+              matchesSearch
             );
             finalScore = adRank * (hasIntent ? 1.5 : 0.6) + proximity * 5;
             break;

@@ -357,9 +357,21 @@ export const AdsController = {
       const { limit = 10, q, category, lat, lng, city } = req.query;
       const user = req.user as any;
 
+      let keywords: string[] | undefined;
+      if (user?.id && !q) {
+        const recentSearches = await prisma.userSearchHistory.findMany({
+          where: { userId: user.id },
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: { keyword: true }
+        });
+        keywords = recentSearches.map((s: any) => s.keyword).filter(Boolean);
+      }
+
       const products = await adsService.serveAds({
         limit: parseInt(limit as string), 
         query: q as string, 
+        keywords: keywords,
         category: category as string,
         lat: lat ? parseFloat(lat as string) : undefined,
         lng: lng ? parseFloat(lng as string) : undefined,
