@@ -49,7 +49,7 @@ class TelemetryService {
   }
 
   private enqueue(event: TelemetryEvent) {
-    this.enqueue(event);
+    this.queue.push(event);
     this.persistQueue();
   }
 

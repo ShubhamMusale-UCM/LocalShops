@@ -1411,6 +1411,7 @@ const ShopProfileScreen: React.FC<Props> = ({ navigation, route }) => {
                     onPress={() =>
                       navigation.push('ProductDetail', {
                         productId: item.id,
+                        campaignId: (item as any)?.campaignId || (item as any)?.promotedListings?.[0]?.id,
                       })
                     }
                   />

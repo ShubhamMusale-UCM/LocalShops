@@ -28,6 +28,7 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import shopService from '../../services/shopService';
 import adsService from '../../services/adsService';
+import { socketService } from '../../services/socketService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -228,13 +229,30 @@ export default function PromoteProductScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadProducts();
+      loadProducts(true);
+
+      const handleLiveUpdate = () => {
+        loadProducts(false);
+      };
+
+      socketService.onShopEvent('shop:ad-analytics-updated', handleLiveUpdate);
+      socketService.onShopEvent('shop:new-order', handleLiveUpdate);
+
+      const pollTimer = setInterval(() => {
+        loadProducts(false);
+      }, 6000);
+
+      return () => {
+        clearInterval(pollTimer);
+        socketService.off('shop:ad-analytics-updated', handleLiveUpdate);
+        socketService.off('shop:new-order', handleLiveUpdate);
+      };
     }, [])
   );
 
-  const loadProducts = async () => {
+  const loadProducts = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const myShopsResponse = await shopService.getMyShops();
       const myShops = Array.isArray(myShopsResponse.data)
         ? myShopsResponse.data
@@ -248,6 +266,7 @@ export default function PromoteProductScreen() {
 
       const primaryShop = myShops[0];
       setShopId(primaryShop.id);
+      socketService.joinShop(primaryShop.id);
       setAdWalletBalance(primaryShop.adWalletBalance || 0);
 
       const ads = await adsService.getShopAds(primaryShop.id);
@@ -394,6 +413,19 @@ export default function PromoteProductScreen() {
       if (!shopId) throw new Error('Shop ID missing');
       
       const orderData = await adsService.topUpWallet(shopId, amount);
+
+      // Bypass Razorpay payment directly on seller side
+      const updated = await adsService.verifyTopUp({
+        razorpay_order_id: orderData.orderId || `order_${Date.now()}`,
+        razorpay_payment_id: 'pay_test_' + Date.now(),
+        razorpay_signature: 'test_signature',
+        shopId,
+        amount
+      });
+      Alert.alert('Success', `₹${amount} added to Ad Wallet (Bypassed)!`);
+      setAdWalletBalance(updated.newBalance || (adWalletBalance + amount));
+      setShowTopUpModal(false);
+      return;
 
       try {
         const RazorpayCheckout = require('react-native-razorpay').default;
@@ -619,15 +651,26 @@ export default function PromoteProductScreen() {
 
   const renderProduct = ({ item }: { item: Product }) => {
     const imageUri = getSafeImageUri(item.image);
+    const isAlreadyBoosted = campaignAnalytics.some(
+      (c) => c.productId === item.id && (c.isLive !== false && c.isActive !== false)
+    );
 
     return (
       <AnimatedPressable
         onPress={() => {
+          if (isAlreadyBoosted) {
+            Alert.alert(
+              'Product Already Boosted',
+              `"${item.name}" currently has an active boost campaign running. You can track its live performance in the active campaigns section above.`,
+              [{ text: 'OK' }]
+            );
+            return;
+          }
           setSelectedProduct(item);
           setShowModal(true);
         }}
         activeOpacity={0.9}
-        style={s.gridProductCard}
+        style={[s.gridProductCard, isAlreadyBoosted && { borderColor: '#10B981', borderWidth: 1.5 }]}
         containerStyle={{ width: '48%' }}
       >
         <View style={s.gridProductImageWrap}>
@@ -641,15 +684,28 @@ export default function PromoteProductScreen() {
           <View style={s.gridProductPriceBadge}>
             <Text style={s.gridProductPriceText}>₹{item.price}</Text>
           </View>
+          {isAlreadyBoosted && (
+            <View style={{ position: 'absolute', top: 8, left: 8, backgroundColor: '#10B981', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, flexDirection: 'row', alignItems: 'center', gap: 3, zIndex: 10 }}>
+              <Ionicons name="flash" size={10} color="#FFF" />
+              <Text style={{ color: '#FFF', fontSize: 9, fontWeight: '800' }}>BOOSTED</Text>
+            </View>
+          )}
         </View>
         <View style={{ padding: 12 }}>
           <Text style={s.gridProductTitle} numberOfLines={1}>
             {item.name}
           </Text>
-          <View style={s.gridPromoteButton}>
-            <Text style={s.gridPromoteButtonText}>Boost Item</Text>
-            <Ionicons name="rocket-sharp" size={12} color="#FFF" />
-          </View>
+          {isAlreadyBoosted ? (
+            <View style={[s.gridPromoteButton, { backgroundColor: '#10B981', opacity: 0.95 }]}>
+              <Text style={s.gridPromoteButtonText}>Boosted</Text>
+              <Ionicons name="checkmark-circle" size={12} color="#FFF" />
+            </View>
+          ) : (
+            <View style={s.gridPromoteButton}>
+              <Text style={s.gridPromoteButtonText}>Boost Item</Text>
+              <Ionicons name="rocket-sharp" size={12} color="#FFF" />
+            </View>
+          )}
         </View>
       </AnimatedPressable>
     );

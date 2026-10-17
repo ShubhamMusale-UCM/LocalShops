@@ -11,12 +11,12 @@ export type DeliveryLocationPayload = {
 class SocketService {
   private socket: Socket | null = null;
 
-  connect(token: string) {
+  connect(token?: string) {
     if (this.socket?.connected) return this.socket;
 
     this.socket = io(SOCKET_URL, {
-      transports: ['websocket'],
-      auth: { token: `Bearer ${token}` },
+      transports: ['websocket', 'polling'],
+      auth: token ? { token: `Bearer ${token}` } : undefined,
       autoConnect: true,
     });
 
@@ -68,6 +68,20 @@ class SocketService {
       return;
     }
     this.socket.off(event);
+  }
+
+  joinShop(shopId: string) {
+    if (!this.socket) this.connect();
+    this.socket?.emit('shop:subscribe', { shopId });
+  }
+
+  onShopEvent(event: string, cb: (payload: any) => void) {
+    if (!this.socket) this.connect();
+    this.socket?.on(event, cb);
+  }
+
+  getSocket() {
+    return this.socket;
   }
 
   isConnected() {

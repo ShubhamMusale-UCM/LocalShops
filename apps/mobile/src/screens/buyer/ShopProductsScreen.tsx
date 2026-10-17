@@ -113,7 +113,7 @@ const ShopProductsScreen: React.FC<Props> = ({ navigation, route }) => {
 
             return (
               <TouchableOpacity
-                onPress={() => navigation.push('ProductDetail', { productId: item.id })}
+                onPress={() => navigation.push('ProductDetail', { productId: item.id, campaignId: (item as any)?.campaignId || (item as any)?.promotedListings?.[0]?.id })}
                 activeOpacity={0.86}
                 style={styles.card}
               >

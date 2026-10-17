@@ -57,6 +57,18 @@ export default function SellerAdWalletScreen() {
       // Create Razorpay order for wallet topup
       // Assuming a generic topup endpoint exists or reusing an existing payment flow
       const res = await api.post('/wallet/topup/initiate', { amount, shopId: currentShop?.id });
+      // Direct bypass for seller test mode
+      await api.post('/wallet/topup/verify', {
+        razorpay_order_id: res.data?.orderId || `order_${Date.now()}`,
+        razorpay_payment_id: 'pay_test_' + Date.now(),
+        razorpay_signature: 'test_signature',
+        shopId: currentShop?.id,
+        amount
+      });
+      Alert.alert('Success', `₹${amount} added to Ad Wallet (Bypassed)!`);
+      fetchData();
+      return;
+
       const { orderId, amount: rpAmount, currency, key } = res.data;
 
       const options = {

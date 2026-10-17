@@ -153,10 +153,11 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
   }, [productId]);
 
   useEffect(() => {
-    if (campaignId && productId) {
-      telemetryService.trackView(campaignId, productId);
+    const activeCampaignId = campaignId || product?.promotedListings?.[0]?.id || (product as any)?.campaignId;
+    if (activeCampaignId && productId) {
+      telemetryService.trackView(activeCampaignId, productId);
     }
-  }, [campaignId, productId]);
+  }, [campaignId, productId, product]);
 
   // Handlers
   const handleGoBack = useCallback(() => {
@@ -224,12 +225,13 @@ const ProductDetailScreen: React.FC<Props> = ({ navigation, route }) => {
         image: getProductImageUrl(product.images),
         unit: product.unit,
         inStock: product.inStock,
-        campaignId: campaignId || undefined,
+        campaignId: (campaignId || product?.promotedListings?.[0]?.id || (product as any)?.campaignId) || undefined,
       });
 
       // Fire cart_add synchronously — only on first add, no stale closure risk
-      if (campaignId) {
-        telemetryService.trackCartAdd(campaignId, product.id, keyword);
+      const effectiveCampaignId = campaignId || product?.promotedListings?.[0]?.id || (product as any)?.campaignId;
+      if (effectiveCampaignId) {
+        telemetryService.trackCartAdd(effectiveCampaignId, product.id, keyword);
       }
     }
   }, [product, addItem, updateQuantity, quantity, cartItem, campaignId, keyword]);

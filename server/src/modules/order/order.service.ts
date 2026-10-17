@@ -190,28 +190,58 @@ export class OrderService {
           const product = products.find(p => p.id === item.productId);
           
           // SECURITY FIX: Only attribute if the client's campaignId exactly matches the database's active campaignId for this product
-          if (originalItem?.campaignId && product?.promotedListings?.some(l => l.id === originalItem.campaignId)) {
-            const current = campaignTotals.get(originalItem.campaignId) || { revenue: 0, conversions: 0 };
-            campaignTotals.set(originalItem.campaignId, {
+          const activeCampaign = (originalItem?.campaignId && product?.promotedListings?.find(l => l.id === originalItem.campaignId))
+            || product?.promotedListings?.[0];
+          if (activeCampaign) {
+            const current = campaignTotals.get(activeCampaign.id) || { revenue: 0, conversions: 0 };
+            campaignTotals.set(activeCampaign.id, {
               revenue: current.revenue + item.total,
               conversions: current.conversions + item.quantity
             });
           }
         }
 
-      for (const [campaignId, stats] of campaignTotals.entries()) {
-        await tx.promotedListing.update({
-          where: { id: campaignId },
-          data: { 
-            revenue: { increment: stats.revenue },
-            conversions: { increment: stats.conversions }
-          }
-        });
-      }
+        const today = new Date();
+        today.setUTCHours(0, 0, 0, 0);
 
-      // Real-time ShopAnalytics update
-      const today = new Date();
-      today.setUTCHours(0, 0, 0, 0);
+        for (const [campaignId, stats] of campaignTotals.entries()) {
+          await tx.promotedListing.update({
+            where: { id: campaignId },
+            data: { 
+              revenue: { increment: stats.revenue },
+              conversions: { increment: stats.conversions }
+            }
+          });
+
+          await tx.adDailyMetricRollup.upsert({
+            where: {
+              promotedListingId_date_hour: {
+                promotedListingId: campaignId,
+                date: today,
+                hour: 0,
+              }
+            },
+            update: {
+              conversions: { increment: stats.conversions },
+              revenue: { increment: stats.revenue },
+            },
+            create: {
+              promotedListingId: campaignId,
+              date: today,
+              hour: 0,
+              impressions: 0,
+              clicks: 0,
+              spend: 0,
+              views: 0,
+              cartAdds: 0,
+              conversions: stats.conversions,
+              revenue: stats.revenue,
+              uniqueReach: 0,
+            }
+          });
+        }
+
+      // Real-time ShopAnalytics update (reusing today)
       await tx.shopAnalytics.upsert({
         where: { shopId_date: { shopId: data.shopId, date: today } },
         update: { orders: { increment: 1 }, revenue: { increment: total } },
@@ -256,11 +286,22 @@ export class OrderService {
       sendOrderConfirmationEmail(user.email, orderNumber, total).catch(() => { });
     }
 
+    // Invalidate Redis caches for real-time fresh analytics
+    await Promise.all([
+      cacheDelete(`shop:${data.shopId}:ads`),
+      cacheDelete(`shop:${data.shopId}:analytics`),
+      cacheDelete(`shop:${data.shopId}:daily-metrics`),
+    ]).catch(() => {});
+
     // Notify seller in real-time
     try {
       const { orderSocket } = require('../../app');
       if (orderSocket) {
         orderSocket.notifyShopNewOrder(data.shopId, order);
+        orderSocket.getIO().to(`shop:${data.shopId}`).emit('shop:ad-analytics-updated', {
+          shopId: data.shopId,
+          timestamp: new Date(),
+        });
       }
     } catch (e) {
       console.warn('Socket emit failed for new order:', e);

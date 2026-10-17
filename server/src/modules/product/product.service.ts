@@ -101,6 +101,10 @@ export class ProductService {
           include: { user: { select: { id: true, name: true, avatar: true } } },
         },
         _count: { select: { reviews: true, orderItems: true } },
+        promotedListings: {
+          where: { isActive: true, startDate: { lte: new Date() }, endDate: { gte: new Date() } },
+          select: { id: true },
+        },
       },
     });
 
@@ -241,14 +245,37 @@ export class ProductService {
               logo: true, coverImage: true,
             },
           },
+          promotedListings: {
+            where: {
+              isActive: true,
+              startDate: { lte: new Date() },
+              endDate: { gt: new Date() },
+            },
+            select: { id: true, isActive: true, startDate: true, endDate: true, budget: true, spent: true },
+          },
         },
         skip: (page - 1) * limit, take: limit,
       }),
       prisma.product.count({ where }),
     ]);
 
+    const now = new Date();
+    const enrichedProducts = products.map((p: any) => ({
+      ...p,
+      isBoosted: !!(
+        p.promotedListings &&
+        p.promotedListings.some(
+          (ad: any) =>
+            ad.isActive &&
+            new Date(ad.startDate) <= now &&
+            new Date(ad.endDate) > now &&
+            (ad.budget === undefined || ad.spent === undefined || ad.spent < ad.budget)
+        )
+      ),
+    }));
+
     return {
-      products,
+      products: enrichedProducts,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
