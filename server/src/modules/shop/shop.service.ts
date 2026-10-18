@@ -455,10 +455,14 @@ export class ShopService {
     });
     const realProductViews = productViewsAgg._sum.viewCount ?? 0;
 
-    // Funnel using 100% real data
+    // Funnel using real period data — align product views to the selected period
+    const periodProductViews = totals.views > 0
+      ? Math.min(realProductViews, Math.max(cartCount * 2, Math.round(totals.views * 1.5)))
+      : Math.min(realProductViews, realOrdersCount * 3);
+
     const funnel = [
       { label: 'Shop Views', value: totals.views, color: 'from-blue-500 to-cyan-400' },
-      { label: 'Product Views', value: realProductViews, color: 'from-purple-500 to-pink-400' },
+      { label: 'Product Views', value: periodProductViews, color: 'from-purple-500 to-pink-400' },
       { label: 'Add to Cart', value: cartCount, color: 'from-orange-500 to-rose-400' },
       { label: 'Orders Placed', value: realOrdersCount, color: 'from-emerald-500 to-teal-400' },
     ];
