@@ -381,7 +381,7 @@ export class ShopService {
       const revenue = p.orderItems.reduce((acc, item) => acc + (item.quantity * item.price), 0);
       const adImpressions = (p.promotedListings || []).reduce((a, l) => a + (l.impressions || 0), 0);
       const adClicks = (p.promotedListings || []).reduce((a, l) => a + (l.clicks || 0), 0);
-      const safeProdImpressions = Math.max(adImpressions, adClicks);
+      const totalViews = Math.max(p.viewCount || 0, adImpressions, adClicks);
       
       return {
         id: p.id,
@@ -392,11 +392,11 @@ export class ShopService {
         inStock: p.inStock,
         units: unitsSold,
         orderCount: p.orderCount ?? 0,
-        impressions: p.viewCount,  // Organic views
+        impressions: p.viewCount || totalViews,
         clicks: adClicks,
         revenue: revenue,
-        ctr: safeProdImpressions > 0 && adClicks > 0
-          ? Math.min(100, Math.max(0, (adClicks / safeProdImpressions) * 100)).toFixed(2)
+        ctr: totalViews > 0 && adClicks > 0
+          ? Math.min(100, Math.max(0, (adClicks / totalViews) * 100)).toFixed(2)
           : '0.00',
       };
     });
@@ -406,9 +406,9 @@ export class ShopService {
       where: { promotedListing: { shopId }, date: { gte: since } },
       _sum: { clicks: true, impressions: true, spend: true },
     });
-    const realTotalAdClicks = adMetrics._sum?.clicks ?? 0;
-    const realTotalAdImpressions = adMetrics._sum?.impressions ?? 0;
-    const realAdSpent = adMetrics._sum?.spend ?? 0;
+    let realTotalAdClicks = adMetrics._sum?.clicks ?? 0;
+    let realTotalAdImpressions = adMetrics._sum?.impressions ?? 0;
+    let realAdSpent = adMetrics._sum?.spend ?? 0;
 
     // Real orderItems count for funnel
     const cartCount = await prisma.orderItem.count({
@@ -521,6 +521,19 @@ export class ShopService {
       clicks: k._sum.clicks || 0,
       ctr: k._sum.searches ? (((k._sum.clicks || 0) / k._sum.searches) * 100).toFixed(2) : '0.00'
     }));
+
+    // If adDailyMetricRollup was empty/unpopulated, fallback to real campaign metrics
+    if (campaignsData?.totals) {
+      if (realTotalAdClicks === 0 && campaignsData.totals.totalClicks > 0) {
+        realTotalAdClicks = campaignsData.totals.totalClicks;
+      }
+      if (realTotalAdImpressions === 0 && campaignsData.totals.totalImpressions > 0) {
+        realTotalAdImpressions = campaignsData.totals.totalImpressions;
+      }
+      if (realAdSpent === 0 && campaignsData.totals.totalSpent > 0) {
+        realAdSpent = campaignsData.totals.totalSpent;
+      }
+    }
 
     // Real CTR from ad data — strictly 0.00 if no impressions or no clicks
     const safeAdImpressions = Math.max(realTotalAdImpressions, realTotalAdClicks);

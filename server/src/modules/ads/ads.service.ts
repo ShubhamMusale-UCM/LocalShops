@@ -464,8 +464,9 @@ export class AdsService {
       const ops: any[] = [];
 
       for (const campaign of campaigns) {
-        const impCount = impressionsMap.get(campaign.id) || 0;
+        const rawImpCount = impressionsMap.get(campaign.id) || 0;
         const clickCount = clicksMap.get(campaign.id) || 0;
+        const impCount = Math.max(rawImpCount, clickCount);
         const viewCount = viewsMap.get(campaign.id) || 0;
         const cartAddCount = cartAddsMap.get(campaign.id) || 0;
         const conversionCount = conversionsMap.get(campaign.id) || 0;
