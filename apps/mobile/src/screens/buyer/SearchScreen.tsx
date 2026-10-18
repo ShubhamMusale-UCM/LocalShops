@@ -1030,7 +1030,11 @@ const SearchScreen = () => {
         }
 
         // Backend now injects sponsored products at top of results (sorted by bid)
-        const products = res.data?.products || [];
+        const products = (res.data?.products || []).map((p: any) => ({
+          ...p,
+          isBoosted: Boolean(p.isBoosted || p.isSponsored || p.sponsoredListingId),
+          campaignId: p.campaignId || p.sponsoredListingId || undefined,
+        }));
 
         const total = Number(res.data?.pagination?.total || products.length);
         setResults(products);
@@ -1407,7 +1411,7 @@ const SearchScreen = () => {
           <ProductCard
             item={item}
             width={CARD_WIDTH}
-            onPress={() => navigateToProductDetail(item.id, item.sponsoredListingId)}
+            onPress={() => navigateToProductDetail(item.id, item.campaignId || item.sponsoredListingId)}
           />
         )}
         contentContainerStyle={[

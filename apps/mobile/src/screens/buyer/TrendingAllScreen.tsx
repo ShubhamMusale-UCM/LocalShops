@@ -29,6 +29,7 @@ import { useTheme } from '../../theme';
 import { formatPrice, formatDistance } from '../../utils/formatters';
 import { getProductImageUrl, getSingleImageUrl } from '../../utils/image';
 import adsService from '../../services/adsService';
+import telemetryService from '../../services/telemetryService';
 import productService from '../../services/productService';
 import { CATEGORIES } from '@citylocalshop/shared';
 
@@ -248,13 +249,14 @@ const TrendingAllScreen: React.FC<any> = ({ navigation, route }) => {
   const navigateToProductDetail = useCallback(
     async (productId: string, sponsoredListingId?: string | null) => {
       if (sponsoredListingId) {
+        telemetryService.trackClick(sponsoredListingId, productId);
         try {
           await adsService.trackClick(sponsoredListingId);
         } catch (error) {
           console.warn('Sponsored click tracking failed:', error);
         }
       }
-      navigation.navigate('ProductDetail', { productId });
+      navigation.navigate('ProductDetail', { productId, campaignId: sponsoredListingId || undefined });
     },
     [navigation]
   );

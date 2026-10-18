@@ -68,7 +68,13 @@ export const useCartStore = create<CartState>()(
         if (existing) {
           set({
             items: items.map(i =>
-              i.productId === item.productId ? { ...i, quantity: i.quantity + 1 } : i
+              i.productId === item.productId
+                ? {
+                    ...i,
+                    quantity: i.quantity + 1,
+                    campaignId: item.campaignId || i.campaignId,
+                  }
+                : i
             ),
           });
         } else {

@@ -141,8 +141,8 @@ export default function EarningsBreakdownScreen() {
       setSummary({
         ...FALLBACK_SUMMARY,
         totalEarnings: totalRevenue,
-        thisMonthEarnings: timeRange === 'month' ? totalRevenue : 0,
-        thisWeekEarnings: timeRange === 'week' ? totalRevenue : 0,
+        thisMonthEarnings: totalRevenue,
+        thisWeekEarnings: totalRevenue,
         averageOrderValue: totalOrders > 0 ? totalRevenue / totalOrders : 0,
         totalOrders,
       });
@@ -172,7 +172,7 @@ export default function EarningsBreakdownScreen() {
 
   const stats = [
     { label: 'Total Earned', value: fmt(summary.totalEarnings), icon: 'wallet-outline', color: DS.primary, bgColor: DS.primaryFaded },
-    { label: 'This Period', value: fmt(timeRange === 'week' ? summary.thisWeekEarnings : summary.thisMonthEarnings), icon: 'trending-up-outline', color: DS.success, bgColor: DS.successLight },
+    { label: 'This Period', value: fmt(summary.totalEarnings), icon: 'trending-up-outline', color: DS.success, bgColor: DS.successLight },
     { label: 'Avg Order', value: fmt(summary.averageOrderValue), icon: 'receipt-outline', color: DS.warning, bgColor: DS.warningLight },
     { label: 'Total Orders', value: String(summary.totalOrders), icon: 'bag-handle-outline', color: DS.purple, bgColor: DS.purpleLight },
   ];

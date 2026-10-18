@@ -17,7 +17,7 @@ const WALLET_CONFIG = {
   /** Number of days before seller ad wallet credits expire */
   SELLER_CREDIT_EXPIRY_DAYS: 180,
   /** Maximum seller ad wallet balance */
-  MAX_SELLER_AD_WALLET: 2000,
+  MAX_SELLER_AD_WALLET: 500000,
   /** Maximum referrals a user can make per month */
   MAX_REFERRALS_PER_MONTH: 20,
 } as const;

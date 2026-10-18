@@ -37,7 +37,7 @@ export class AnalyticsService {
       }),
     ]);
 
-    const validOrders = orders.filter((o) => o.status !== 'CANCELLED');
+    const validOrders = orders.filter((o) => !['CANCELLED', 'REFUNDED'].includes(o.status));
     const totalRevenue = validOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
 
     const averageRating =
@@ -48,7 +48,7 @@ export class AnalyticsService {
     return {
       period: dateRange,
       stats: {
-        totalOrders: orders.length,
+        totalOrders: validOrders.length,
         totalRevenue,
         productCount: products,
         averageRating: Number(averageRating.toFixed(1)),
@@ -65,7 +65,7 @@ export class AnalyticsService {
       where: {
         shop: { ownerId: sellerId },
         createdAt: { gte: startDate },
-        status: { not: 'CANCELLED' },
+        status: { notIn: ['CANCELLED', 'REFUNDED'] },
       },
       select: {
         createdAt: true,
@@ -243,21 +243,27 @@ export class AnalyticsService {
         spent: true,
         impressions: true,
         clicks: true,
+        conversions: true,
+        revenue: true,
         isActive: true,
       },
     });
 
     const totalSpent = ads.reduce((sum, ad) => sum + Number(ad.spent || 0), 0);
-    const totalClicks = ads.reduce((sum, ad) => sum + ad.clicks, 0);
-    const totalImpressions = ads.reduce((sum, ad) => sum + ad.impressions, 0);
+    const totalClicks = ads.reduce((sum, ad) => sum + (ad.clicks || 0), 0);
+    const totalImpressions = ads.reduce((sum, ad) => sum + (ad.impressions || 0), 0);
+    const totalConversions = ads.reduce((sum, ad) => sum + (ad.conversions || 0), 0);
+    const totalRevenue = ads.reduce((sum, ad) => sum + Number(ad.revenue || 0), 0);
 
     return {
       activeAds: ads.filter((ad) => ad.isActive).length,
-      totalSpent,
+      totalSpent: Number(totalSpent.toFixed(2)),
       totalClicks,
-      totalConversions: 0,
+      totalImpressions,
+      totalConversions,
+      totalRevenue: Number(totalRevenue.toFixed(2)),
       avgCTR: totalImpressions > 0 ? Number(((totalClicks / totalImpressions) * 100).toFixed(2)) : 0,
-      roi: 0,
+      roi: totalSpent > 0 ? Number((totalRevenue / totalSpent).toFixed(2)) : 0,
     };
   }
 

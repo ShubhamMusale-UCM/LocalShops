@@ -42,9 +42,11 @@ export default function ReviewsAnalyticsScreen() {
     try {
       setLoading(true);
       const shopsResponse = await shopService.getMyShops();
-      const shops = shopsResponse?.data || [];
-      if (shops && shops.length > 0) {
-        const shop = shops[0];
+      const myShops = Array.isArray(shopsResponse?.data)
+        ? shopsResponse.data
+        : shopsResponse?.data?.shops || [];
+      if (myShops && myShops.length > 0) {
+        const shop = myShops[0];
         setShopStats({
           averageRating: shop.averageRating,
           totalReviews: shop.totalReviews,

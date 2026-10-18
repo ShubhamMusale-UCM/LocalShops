@@ -10,6 +10,7 @@ export type DeliveryLocationPayload = {
 
 class SocketService {
   private socket: Socket | null = null;
+  private activeShopSubscriptions = new Set<string>();
 
   connect(token?: string) {
     if (this.socket?.connected) return this.socket;
@@ -18,6 +19,12 @@ class SocketService {
       transports: ['websocket', 'polling'],
       auth: token ? { token: `Bearer ${token}` } : undefined,
       autoConnect: true,
+    });
+
+    this.socket.on('connect', () => {
+      this.activeShopSubscriptions.forEach((shopId) => {
+        this.socket?.emit('shop:subscribe', { shopId });
+      });
     });
 
     return this.socket;
@@ -71,8 +78,14 @@ class SocketService {
   }
 
   joinShop(shopId: string) {
+    this.activeShopSubscriptions.add(shopId);
     if (!this.socket) this.connect();
     this.socket?.emit('shop:subscribe', { shopId });
+  }
+
+  leaveShop(shopId: string) {
+    this.activeShopSubscriptions.delete(shopId);
+    this.socket?.emit('shop:unsubscribe', { shopId });
   }
 
   onShopEvent(event: string, cb: (payload: any) => void) {

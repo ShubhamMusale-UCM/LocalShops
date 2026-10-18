@@ -4,6 +4,7 @@ import { MMKV } from 'react-native-mmkv';
 import authService from '../services/authService';
 import { setAuthToken, setRefreshHandler } from '../services/api';
 import { useWishlistStore } from './wishlistStore';
+import { clearPrimarySellerShopCache } from '../services/sellerShopContext';
 
 const storage = new MMKV();
 const zustandStorage = {
@@ -83,6 +84,7 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         setAuthToken(null);
+        clearPrimarySellerShopCache();
         set({
           user: null,
           activeRole: null,

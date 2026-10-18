@@ -43,6 +43,16 @@ class OrderUpdatesSocket {
       });
 
       /**
+       * Unsubscribe from shop (for seller)
+       */
+      socket.on('shop:unsubscribe', (data) => {
+        const { shopId } = data;
+
+        socket.leave(`shop:${shopId}`);
+        console.log(`Seller unsubscribed from shop ${shopId}`);
+      });
+
+      /**
        * Disconnect
        */
       socket.on('disconnect', () => {

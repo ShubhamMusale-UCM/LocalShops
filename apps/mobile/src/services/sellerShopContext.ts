@@ -1,12 +1,20 @@
 import shopService from './shopService';
 
-type SellerShop = {
+export type SellerShop = {
   id: string;
   name?: string;
+  city?: string;
+  area?: string;
   logo?: string;
   coverImage?: string;
   averageRating?: number;
   rating?: number;
+  walletBalance?: number;
+  adWalletBalance?: number;
+  totalReviews?: number;
+  productCount?: number;
+  orderCount?: number;
+  reviewCount?: number;
 };
 
 const CACHE_TTL_MS = 2 * 60 * 1000;
@@ -28,10 +36,18 @@ const extractPrimaryShop = (payload: any): SellerShop | null => {
   return {
     id: String(first.id),
     name: first.name,
+    city: first.city,
+    area: first.area,
     logo: first.logo,
     coverImage: first.coverImage,
     averageRating: first.averageRating,
     rating: first.rating,
+    walletBalance: Number(first.walletBalance || 0),
+    adWalletBalance: Number(first.adWalletBalance || 0),
+    totalReviews: Number(first.totalReviews || first._count?.reviews || 0),
+    productCount: Number(first._count?.products || 0),
+    orderCount: Number(first._count?.orders || 0),
+    reviewCount: Number(first.totalReviews || first._count?.reviews || 0),
   };
 };
 

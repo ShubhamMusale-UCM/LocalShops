@@ -68,10 +68,11 @@ class CronService {
       // Raw query for spent >= budget
       await prisma.$executeRaw`UPDATE "PromotedListing" SET "isActive" = false WHERE "isActive" = true AND "spent" >= "budget"`;
 
-      // 2. Find all inactive ads that have unspent budget
+      // 2. Find all expired ads that have unspent budget
       const endedAds = await prisma.promotedListing.findMany({
         where: {
           isActive: false,
+          endDate: { lt: now },
         },
         select: { id: true, shopId: true, budget: true, spent: true }
       });

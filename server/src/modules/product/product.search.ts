@@ -182,6 +182,7 @@ export const searchProducts = async (params: SearchParams) => {
             targetRadiusKm: true,
             targetCities: true,
             objective: true,
+            negativeKeywords: { select: { keyword: true } },
           },
         },
       },
@@ -207,11 +208,30 @@ export const searchProducts = async (params: SearchParams) => {
   let results = products.map((product) => {
     const normalized = normalizeProductImages(product);
     // Pick the first live campaign whose geo targeting includes this buyer.
-    // Without buyer location we cannot verify targeting, so no sponsorship is applied.
     const liveListing = ((product as any).promotedListings || []).find((l: any) => {
       if (!isSponsoredActive(l)) return false;
-      if (!hasGeo) return false;
-      return evaluateGeoTarget(l, product.shop as any, { lat: latitude, lng: longitude, city }).eligible;
+
+      // Negative keywords suppression check
+      if (query && Array.isArray(l.negativeKeywords) && l.negativeKeywords.length > 0) {
+        const normalizedQuery = query.trim().toLowerCase();
+        const hasNegativeMatch = l.negativeKeywords.some((nk: any) =>
+          normalizedQuery.includes(nk.keyword.trim().toLowerCase())
+        );
+        if (hasNegativeMatch) return false;
+      }
+
+      if (hasGeo) {
+        return evaluateGeoTarget(l, product.shop as any, { lat: latitude, lng: longitude, city }).eligible;
+      }
+
+      if (city) {
+        return (
+          evaluateGeoTarget(l, product.shop as any, { city }).eligible ||
+          (product.shop?.city && product.shop.city.toLowerCase() === city.toLowerCase())
+        );
+      }
+
+      return true;
     });
     const isSponsored = Boolean(liveListing);
 

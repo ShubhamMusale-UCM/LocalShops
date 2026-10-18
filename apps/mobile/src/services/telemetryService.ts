@@ -20,7 +20,8 @@ class TelemetryService {
   private trackedImpressions = new Map<string, number>();
   // Prevent click fraud, with 5-minute debounce
   private trackedClicks = new Map<string, number>();
-  private deviceId: string | null = null;
+  // Initialize synchronously with crypto UUID so clicks prior to AsyncStorage read have valid deviceId
+  private deviceId: string = `dev_${Crypto.randomUUID()}`;
 
   constructor() {
     this.initDeviceId();

@@ -234,14 +234,36 @@ export default function HomeScreen() {
           products = prodData;
         }
         
-        // Merge sponsored ads and remove duplicates
-        const adProducts = Array.isArray(adRes) ? adRes : [];
-        const combined = [...adProducts, ...products].filter(
+        // Normalize both PromotedListing objects (from adsService) and Product objects (from productService)
+        const normalizedAdProducts = (Array.isArray(adRes) ? adRes : []).map((item: any) => {
+          if (item.product) {
+            return {
+              ...item.product,
+              isBoosted: true,
+              campaignId: item.id,
+              shop: item.product.shop || item.shop,
+            };
+          }
+          return {
+            ...item,
+            isBoosted: true,
+            campaignId: item.sponsoredListingId || item.campaignId || item.id,
+          };
+        });
+
+        const normalizedOrganic = (Array.isArray(products) ? products : []).map((p: any) => ({
+          ...p,
+          isBoosted: Boolean(p.isSponsored || p.isBoosted || p.sponsoredListingId),
+          campaignId: p.sponsoredListingId || p.campaignId || undefined,
+        }));
+
+        // Merge sponsored ads and remove duplicates by product ID
+        const combined = [...normalizedAdProducts, ...normalizedOrganic].filter(
           (v, i, a) => a.findIndex((t) => t.id === v.id) === i
         );
-        
+
         setTrendingProducts(combined);
-        
+
         // Track impressions for sponsored items
         combined
           .filter((p: any) => p.isBoosted && p.campaignId)

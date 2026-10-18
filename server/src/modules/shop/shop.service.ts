@@ -55,6 +55,12 @@ export class ShopService {
           where: { isActive: true },
           take: 20,
           orderBy: { orderCount: 'desc' },
+          include: {
+            promotedListings: {
+              where: { isActive: true, startDate: { lte: new Date() }, endDate: { gte: new Date() } },
+              select: { id: true }
+            }
+          }
         },
         stories: {
           where: { expiresAt: { gte: new Date() } },
@@ -272,9 +278,17 @@ export class ShopService {
     if (!shop) throw new AppError('Shop not found.', 404);
     if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
 
-    const since = new Date();
-    since.setUTCHours(0, 0, 0, 0);
-    since.setDate(since.getDate() - days);
+    const timeZone = 'Asia/Kolkata';
+    const now = new Date();
+    const todayStr = now.toLocaleDateString('en-CA', { timeZone }); // YYYY-MM-DD
+    const todayStart = new Date(`${todayStr}T00:00:00+05:30`);
+
+    let since: Date;
+    if (days === 1) {
+      since = todayStart;
+    } else {
+      since = new Date(todayStart.getTime() - (days - 1) * 86400000);
+    }
 
     const analytics = await prisma.shopAnalytics.findMany({
       where: { shopId, date: { gte: since } },
@@ -294,17 +308,57 @@ export class ShopService {
       { views: 0, uniqueViews: 0, orders: 0, revenue: 0, calls: 0, whatsappClicks: 0, directions: 0 }
     );
 
-    // Calculate weekly revenue
+    // Calculate 7-day trailing data (ALWAYS 7 days regardless of the top filter)
+    const sevenDaysAgoStart = new Date(todayStart.getTime() - 6 * 86400000);
+
+    const [past7DaysOrders, past7DaysAnalytics, past7DaysAdRollups] = await Promise.all([
+      prisma.order.findMany({
+        where: {
+          shopId,
+          createdAt: { gte: sevenDaysAgoStart },
+          status: { notIn: ['CANCELLED', 'REFUNDED'] },
+        },
+        select: { total: true, createdAt: true },
+      }),
+      prisma.shopAnalytics.findMany({
+        where: { shopId, date: { gte: sevenDaysAgoStart } },
+        select: { date: true, views: true },
+      }),
+      prisma.adDailyMetricRollup.findMany({
+        where: { promotedListing: { shopId }, date: { gte: sevenDaysAgoStart } },
+        select: { date: true, views: true, impressions: true },
+      }),
+    ]);
+
     const weeklyRevenue = Array(7).fill(0);
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-    
-    analytics.forEach(day => {
-      const diffTime = Math.abs(today.getTime() - new Date(day.date).getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      if (diffDays < 7) {
-        // Map 0 to index 6, 1 to index 5, etc.
-        weeklyRevenue[6 - diffDays] += day.revenue;
+    const weeklyOrders = Array(7).fill(0);
+    const weeklyViews = Array(7).fill(0);
+
+    past7DaysOrders.forEach((o) => {
+      const orderDateStr = new Date(o.createdAt).toLocaleDateString('en-CA', { timeZone });
+      const target = new Date(`${orderDateStr}T00:00:00+05:30`);
+      const diffDays = Math.round((todayStart.getTime() - target.getTime()) / 86400000);
+      if (diffDays >= 0 && diffDays < 7) {
+        weeklyRevenue[6 - diffDays] += o.total;
+        weeklyOrders[6 - diffDays] += 1;
+      }
+    });
+
+    past7DaysAnalytics.forEach((a) => {
+      const aDateStr = new Date(a.date).toLocaleDateString('en-CA', { timeZone });
+      const target = new Date(`${aDateStr}T00:00:00+05:30`);
+      const diffDays = Math.round((todayStart.getTime() - target.getTime()) / 86400000);
+      if (diffDays >= 0 && diffDays < 7) {
+        weeklyViews[6 - diffDays] += a.views;
+      }
+    });
+
+    past7DaysAdRollups.forEach((a) => {
+      const aDateStr = new Date(a.date).toLocaleDateString('en-CA', { timeZone });
+      const target = new Date(`${aDateStr}T00:00:00+05:30`);
+      const diffDays = Math.round((todayStart.getTime() - target.getTime()) / 86400000);
+      if (diffDays >= 0 && diffDays < 7) {
+        weeklyViews[6 - diffDays] += (a.views || a.impressions || 0);
       }
     });
 
@@ -315,7 +369,7 @@ export class ShopService {
       take: 20,
       include: {
         orderItems: {
-          where: { order: { createdAt: { gte: since }, status: 'DELIVERED' } },
+          where: { order: { createdAt: { gte: since }, status: { notIn: ['CANCELLED', 'REFUNDED'] } } },
           select: { quantity: true, price: true }
         },
         promotedListings: { select: { clicks: true, impressions: true } },
@@ -327,6 +381,7 @@ export class ShopService {
       const revenue = p.orderItems.reduce((acc, item) => acc + (item.quantity * item.price), 0);
       const adImpressions = (p.promotedListings || []).reduce((a, l) => a + (l.impressions || 0), 0);
       const adClicks = (p.promotedListings || []).reduce((a, l) => a + (l.clicks || 0), 0);
+      const safeProdImpressions = Math.max(adImpressions, adClicks);
       
       return {
         id: p.id,
@@ -336,11 +391,12 @@ export class ShopService {
         category: p.category,
         inStock: p.inStock,
         units: unitsSold,
+        orderCount: p.orderCount ?? 0,
         impressions: p.viewCount,  // Organic views
         clicks: adClicks,
         revenue: revenue,
-        ctr: adImpressions > 0 && adClicks > 0
-          ? ((adClicks / adImpressions) * 100).toFixed(2)
+        ctr: safeProdImpressions > 0 && adClicks > 0
+          ? Math.min(100, Math.max(0, (adClicks / safeProdImpressions) * 100)).toFixed(2)
           : '0.00',
       };
     });
@@ -361,16 +417,40 @@ export class ShopService {
 
     // Real gross sales and order count
     const orderMetrics = await prisma.order.aggregate({
-      where: { shopId, createdAt: { gte: since } },
+      where: {
+        shopId,
+        createdAt: { gte: since },
+        status: { notIn: ['CANCELLED', 'REFUNDED'] },
+      },
       _sum: { total: true },
       _count: { id: true },
     });
     const realRevenue = orderMetrics._sum.total || 0;
     const realOrdersCount = orderMetrics._count.id || 0;
 
-    // Real product view counts from DB
+    // Previous period revenue & orders comparison for genuine growth rate
+    const periodDurationMs = Math.max(86400000, now.getTime() - since.getTime());
+    const prevPeriodStart = new Date(since.getTime() - periodDurationMs);
+    const prevOrderMetrics = await prisma.order.aggregate({
+      where: {
+        shopId,
+        createdAt: { gte: prevPeriodStart, lt: since },
+        status: { notIn: ['CANCELLED', 'REFUNDED'] },
+      },
+      _sum: { total: true },
+      _count: { id: true },
+    });
+    const previousRevenue = prevOrderMetrics._sum.total || 0;
+    const previousOrdersCount = prevOrderMetrics._count.id || 0;
+    const revenueGrowth = previousRevenue > 0
+      ? (((realRevenue - previousRevenue) / previousRevenue) * 100).toFixed(1)
+      : realRevenue > 0
+      ? '100.0'
+      : '0.0';
+
+    // Real product view counts from DB (all active products for this shop)
     const productViewsAgg = await prisma.product.aggregate({
-      where: { shopId, createdAt: { gte: since } },
+      where: { shopId, isActive: true },
       _sum: { viewCount: true },
     });
     const realProductViews = productViewsAgg._sum.viewCount ?? 0;
@@ -442,22 +522,29 @@ export class ShopService {
       ctr: k._sum.searches ? (((k._sum.clicks || 0) / k._sum.searches) * 100).toFixed(2) : '0.00'
     }));
 
-    // Real CTR from ad data
+    // Real CTR from ad data — strictly 0.00 if no impressions or no clicks
     const safeAdImpressions = Math.max(realTotalAdImpressions, realTotalAdClicks);
-    const realCtr = safeAdImpressions > 0
+    const realCtr = safeAdImpressions > 0 && realTotalAdClicks > 0
       ? Math.min(100, Math.max(0, (realTotalAdClicks / safeAdImpressions) * 100)).toFixed(2)
-      : totals.views > 0 ? Math.min(100, Math.max(0, (totals.orders / totals.views) * 100)).toFixed(2) : '0.00';
+      : '0.00';
+
+    const safeRoas = realAdSpent > 0 ? (realRevenue / realAdSpent).toFixed(2) : '0.00';
 
     return {
       totalImpressions: totals.views + realTotalAdImpressions,
       totalClicks: realTotalAdClicks,
       ctr: realCtr,
-      roas: realAdSpent > 0 ? (realRevenue / realAdSpent).toFixed(2) : realRevenue > 0 ? '∞' : '0.00',
+      roas: safeRoas,
       totalRevenue: realRevenue,
       ordersCount: realOrdersCount,
+      previousRevenue,
+      previousOrdersCount,
+      revenueGrowth,
       activeProductsCount: await prisma.product.count({ where: { shopId, inStock: true } }),
       conversionRate,
       weeklyRevenue,
+      weeklyViews,
+      weeklyOrders,
       topProducts,
       funnel,
       trafficSources,

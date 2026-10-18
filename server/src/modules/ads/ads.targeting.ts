@@ -56,7 +56,12 @@ export const evaluateGeoTarget = (
   }
 
   // RADIUS mode
-  if (distanceKm === null) return { eligible: false, distanceKm };
+  if (distanceKm === null) {
+    if (buyer.city && shop.city) {
+      return { eligible: normalizeCity(buyer.city) === normalizeCity(shop.city), distanceKm: null };
+    }
+    return { eligible: true, distanceKm: null };
+  }
   const radius = Math.min(Math.max(listing.targetRadiusKm ?? 5, 1), MAX_TARGET_RADIUS_KM);
   return { eligible: distanceKm <= radius, distanceKm };
 };

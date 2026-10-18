@@ -22,6 +22,7 @@ import Card from '../../components/ui/Card';
 import { useHideTabBarOnScroll } from '../../hooks/useHideTabBarOnScroll';
 import { orderService } from '../../services/orderService';
 import shopService from '../../services/shopService';
+import { socketService } from '../../services/socketService';
 import { getProductImageUrl } from '../../utils/image';
 import { SkeletonListItem } from '../../components/ui/Skeleton';
 
@@ -327,6 +328,7 @@ const OrderManagementScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
       const primaryShop = myShops[0];
       setShopId(primaryShop.id);
+      socketService.joinShop(primaryShop.id);
       const response = await orderService.getShopOrders(primaryShop.id, 1);
       const payload = response?.data || {};
       const list = Array.isArray(payload)
@@ -369,6 +371,18 @@ const OrderManagementScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
   useEffect(() => {
     loadSellerOrders();
+
+    const handleLiveOrderUpdate = () => {
+      loadSellerOrders(true);
+    };
+
+    socketService.onShopEvent('shop:new-order', handleLiveOrderUpdate);
+    socketService.onShopEvent('order:status-updated', handleLiveOrderUpdate);
+
+    return () => {
+      socketService.off('shop:new-order', handleLiveOrderUpdate);
+      socketService.off('order:status-updated', handleLiveOrderUpdate);
+    };
   }, [loadSellerOrders]);
 
   const handleUpdateStatus = useCallback(

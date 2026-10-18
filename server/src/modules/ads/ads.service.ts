@@ -151,6 +151,7 @@ export class AdsService {
       cacheDelete(`shop:${shopId}:ads`),
       cacheDelete(`shop:${shopId}:analytics`),
       cacheDelete(`shop:${shopId}:daily-metrics`),
+      cacheDelete(`product:${productId}`),
     ]).catch(() => {});
 
     try {
@@ -195,7 +196,7 @@ export class AdsService {
     });
 
     if (adsWithState.length > 0) {
-      await cacheSet(cacheKey, adsWithState, 600);
+      await cacheSet(cacheKey, adsWithState, 30);
     }
 
     return adsWithState;
@@ -219,10 +220,29 @@ export class AdsService {
   }
 
   async pauseAd(adId: string) {
-    return prisma.promotedListing.update({
+    const updated = await prisma.promotedListing.update({
       where: { id: adId },
       data: { isActive: false },
     });
+
+    await Promise.all([
+      cacheDelete(`shop:${updated.shopId}:ads`),
+      cacheDelete(`shop:${updated.shopId}:analytics`),
+      cacheDelete(`shop:${updated.shopId}:daily-metrics`),
+      cacheDelete(`product:${updated.productId}`),
+    ]).catch(() => {});
+
+    try {
+      const { orderSocket } = require('../../app');
+      if (orderSocket) {
+        orderSocket.getIO().to(`shop:${updated.shopId}`).emit('shop:ad-analytics-updated', {
+          shopId: updated.shopId,
+          timestamp: new Date(),
+        });
+      }
+    } catch (_) {}
+
+    return updated;
   }
 
   async resumeAd(adId: string) {
@@ -237,10 +257,29 @@ export class AdsService {
       throw new AppError('Ad budget exhausted. Please renew budget.', 400);
     }
 
-    return prisma.promotedListing.update({
+    const updated = await prisma.promotedListing.update({
       where: { id: adId },
       data: { isActive: true },
     });
+
+    await Promise.all([
+      cacheDelete(`shop:${updated.shopId}:ads`),
+      cacheDelete(`shop:${updated.shopId}:analytics`),
+      cacheDelete(`shop:${updated.shopId}:daily-metrics`),
+      cacheDelete(`product:${updated.productId}`),
+    ]).catch(() => {});
+
+    try {
+      const { orderSocket } = require('../../app');
+      if (orderSocket) {
+        orderSocket.getIO().to(`shop:${updated.shopId}`).emit('shop:ad-analytics-updated', {
+          shopId: updated.shopId,
+          timestamp: new Date(),
+        });
+      }
+    } catch (_) {}
+
+    return updated;
   }
 
   async getAdAnalytics(adId: string) {
@@ -331,6 +370,7 @@ export class AdsService {
           newImpressionLogs.push({ promotedListingId: e.campaignId, deviceId: e.deviceId });
         }
       }
+      let clickAcquired = false;
       if (e.type === 'click') {
         // Hard requirement: clicks MUST have a deviceId to be counted (anti-fraud)
         if (e.deviceId) {
@@ -338,6 +378,7 @@ export class AdsService {
           // SETNX (set if not exists) with 1-hour expiration
           const acquired = await redis.set(clickKey, '1', 'EX', 3600, 'NX');
           if (acquired) {
+            clickAcquired = true;
             clicksMap.set(e.campaignId, (clicksMap.get(e.campaignId) || 0) + 1);
           }
         }
@@ -355,7 +396,7 @@ export class AdsService {
         const key = `${e.campaignId}::${kw}`;
         const existing = keywordStatsMap.get(key) || { impressions: 0, clicks: 0 };
         if (e.type === 'impression') existing.impressions += 1;
-        if (e.type === 'click') existing.clicks += 1;
+        if (e.type === 'click' && clickAcquired) existing.clicks += 1;
         keywordStatsMap.set(key, existing);
       }
     }));
@@ -569,11 +610,16 @@ export class AdsService {
 
       // Invalidate Redis cache so seller dashboard shows fresh data immediately
       const shopIds = Array.from(new Set(campaigns.map(c => c.shopId)));
-      await Promise.all(shopIds.flatMap(id => [
-        cacheDelete(`shop:${id}:ads`),
-        cacheDelete(`shop:${id}:analytics`),
-        cacheDelete(`shop:${id}:daily-metrics`),
-      ])).catch(() => {});
+      const productIds = Array.from(new Set(campaigns.map(c => c.productId)));
+
+      await Promise.all([
+        ...shopIds.flatMap(id => [
+          cacheDelete(`shop:${id}:ads`),
+          cacheDelete(`shop:${id}:analytics`),
+          cacheDelete(`shop:${id}:daily-metrics`),
+        ]),
+        ...productIds.map(pid => redis.del(`product:${pid}`)),
+      ]).catch(() => {});
 
       // Broadcast real-time ad analytics update to active seller screens
       try {
@@ -676,6 +722,7 @@ export class AdsService {
         aov: Number(aov.toFixed(2)),
         cpm: Number(cpm.toFixed(2)),
         budgetRemaining: Number(budgetRemaining.toFixed(2)),
+        roas: campaign.spent > 0 ? Number(((campaign.revenue || 0) / campaign.spent).toFixed(2)) : 0,
         isActive: campaign.isActive,
         isLive,
         isDeletedProduct,
@@ -722,6 +769,8 @@ export class AdsService {
       ? (totals.totalClicks / totals.totalImpressions) * 100
       : 0;
 
+    const overallCpc = totals.totalClicks > 0 ? totals.totalSpent / totals.totalClicks : 0;
+    const overallRoas = totals.totalSpent > 0 ? totals.totalRevenue / totals.totalSpent : 0;
     const overallCpa = totals.totalConversions > 0 ? totals.totalSpent / totals.totalConversions : 0;
     const overallCvr = totals.totalClicks > 0 ? (totals.totalConversions / totals.totalClicks) * 100 : 0;
     const overallAov = totals.totalConversions > 0 ? totals.totalRevenue / totals.totalConversions : 0;
@@ -734,6 +783,8 @@ export class AdsService {
         totalSpent: Number(totals.totalSpent.toFixed(2)),
         totalBudget: Number(totals.totalBudget.toFixed(2)),
         overallCtr: Number(overallCtr.toFixed(2)),
+        overallCpc: Number(overallCpc.toFixed(2)),
+        overallRoas: Number(overallRoas.toFixed(2)),
         overallCpa: Number(overallCpa.toFixed(2)),
         overallCvr: Number(overallCvr.toFixed(2)),
         overallAov: Number(overallAov.toFixed(2)),
@@ -752,7 +803,7 @@ export class AdsService {
       throw new AppError('Additional budget must be at least ₹100', 400);
     }
 
-    return prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx) => {
       const ad = await tx.promotedListing.findUnique({ 
         where: { id: adId },
         include: { shop: true }
@@ -806,6 +857,25 @@ export class AdsService {
         },
       });
     });
+
+    await Promise.all([
+      cacheDelete(`shop:${updated.shopId}:ads`),
+      cacheDelete(`shop:${updated.shopId}:analytics`),
+      cacheDelete(`shop:${updated.shopId}:daily-metrics`),
+      cacheDelete(`product:${updated.productId}`),
+    ]).catch(() => {});
+
+    try {
+      const { orderSocket } = require('../../app');
+      if (orderSocket) {
+        orderSocket.getIO().to(`shop:${updated.shopId}`).emit('shop:ad-analytics-updated', {
+          shopId: updated.shopId,
+          timestamp: new Date(),
+        });
+      }
+    } catch (_) {}
+
+    return updated;
   }
 
   /**

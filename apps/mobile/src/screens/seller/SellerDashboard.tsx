@@ -19,7 +19,8 @@ import { BlurView } from 'expo-blur';
 import { useHideTabBarOnScroll } from '../../hooks/useHideTabBarOnScroll';
 import shopService from '../../services/shopService';
 import { orderService } from '../../services/orderService';
-import { getPrimarySellerShop } from '../../services/sellerShopContext';
+import { getPrimarySellerShop, SellerShop } from '../../services/sellerShopContext';
+import { socketService } from '../../services/socketService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -111,11 +112,15 @@ const EMPTY_DASHBOARD_DATA = {
   thisMonthRevenue: 0,
   thisMonthOrders: 0,
   topProduct: { name: 'No products yet', sold: 0 },
+  weeklyRevenue: [0, 0, 0, 0, 0, 0, 0],
+  weeklyViews: [0, 0, 0, 0, 0, 0, 0],
 };
 
 export default function SellerDashboard({ navigation }: any) {
   const [data, setData] = useState(EMPTY_DASHBOARD_DATA);
-  const [shopName, setShopName] = useState('Urban Living - FC Road');
+  const [shop, setShop] = useState<SellerShop | null>(null);
+  const [shopName, setShopName] = useState('My Shop');
+  const [catalogProducts, setCatalogProducts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { onScroll: _onScroll, scrollEventThrottle } = useHideTabBarOnScroll();
   const [isOnline, setIsOnline] = useState(true);
@@ -139,23 +144,40 @@ export default function SellerDashboard({ navigation }: any) {
       if (force) setIsLoading(true);
       const primaryShop = await getPrimarySellerShop(force);
       if (primaryShop?.id) {
-        setShopName(primaryShop.name || 'Urban Living - FC Road');
-        const [ordersRes, productsRes] = await Promise.all([
+        setShop(primaryShop);
+        setShopName(primaryShop.name || 'My Shop');
+        socketService.joinShop(primaryShop.id);
+        const [ordersRes, productsRes, analyticsRes] = await Promise.all([
           orderService.getShopOrders(primaryShop.id, 1).catch(() => null),
           shopService.getProducts(primaryShop.id, { page: 1 }).catch(() => null),
+          shopService.getAnalytics(primaryShop.id, 7).catch(() => null),
         ]);
         const orders = Array.isArray(ordersRes?.data) ? ordersRes.data : ordersRes?.data?.orders || [];
         const products = Array.isArray(productsRes?.data) ? productsRes.data : productsRes?.data?.products || [];
-        
+        setCatalogProducts(products);
+
+        const analyticsData = analyticsRes?.data?.data || analyticsRes?.data || {};
+        const weeklyRevenue = Array.isArray(analyticsData.weeklyRevenue) ? analyticsData.weeklyRevenue : [0, 0, 0, 0, 0, 0, 0];
+        const weeklyViews = Array.isArray(analyticsData.weeklyViews) ? analyticsData.weeklyViews : [0, 0, 0, 0, 0, 0, 0];
+
+        const totalRevenue = typeof analyticsData.totalRevenue === 'number'
+          ? analyticsData.totalRevenue
+          : orders.reduce((s: number, o: any) => s + Number(o?.total || 0), 0);
+
         setData({
-          totalOrders: Number(ordersRes?.data?.pagination?.total ?? orders.length),
-          totalRevenue: orders.reduce((s: number, o: any) => s + Number(o?.total || 0), 0),
+          totalOrders: Number(analyticsData.ordersCount ?? ordersRes?.data?.pagination?.total ?? orders.length),
+          totalRevenue,
           totalProducts: Number(productsRes?.data?.pagination?.total ?? products.length),
-          averageRating: Number(primaryShop.averageRating ?? primaryShop.rating ?? 4.8),
+          averageRating: Number(primaryShop.averageRating ?? primaryShop.rating ?? 0),
           pendingOrders: orders.filter((o: any) => ['PLACED', 'CONFIRMED', 'PREPARING'].includes(String(o?.status))).length,
-          thisMonthRevenue: 48650,
-          thisMonthOrders: 14,
-          topProduct: { name: products[0]?.name || 'Nordic Armchair', sold: Number(products[0]?.orderCount ?? 3) },
+          thisMonthRevenue: totalRevenue,
+          thisMonthOrders: Number(analyticsData.ordersCount ?? orders.length),
+          topProduct: {
+            name: analyticsData.topProducts?.[0]?.name || products[0]?.name || 'No products yet',
+            sold: Number(analyticsData.topProducts?.[0]?.units ?? products[0]?.orderCount ?? 0),
+          },
+          weeklyRevenue,
+          weeklyViews,
         });
       }
     } catch (e) {
@@ -168,8 +190,22 @@ export default function SellerDashboard({ navigation }: any) {
   useFocusEffect(
     useCallback(() => {
       loadData(true);
-      const int = setInterval(() => loadData(false), 90000);
-      return () => clearInterval(int);
+
+      const handleLiveDashboardUpdate = () => {
+        loadData(false);
+      };
+
+      socketService.onShopEvent('shop:new-order', handleLiveDashboardUpdate);
+      socketService.onShopEvent('shop:ad-analytics-updated', handleLiveDashboardUpdate);
+      socketService.onShopEvent('order:status-updated', handleLiveDashboardUpdate);
+
+      const int = setInterval(() => loadData(false), 30000);
+      return () => {
+        clearInterval(int);
+        socketService.off('shop:new-order', handleLiveDashboardUpdate);
+        socketService.off('shop:ad-analytics-updated', handleLiveDashboardUpdate);
+        socketService.off('order:status-updated', handleLiveDashboardUpdate);
+      };
     }, [loadData])
   );
 
@@ -199,7 +235,7 @@ export default function SellerDashboard({ navigation }: any) {
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
               <Animated.View style={[s.headerLiveDot, { opacity: pulse }]} />
-              <Text style={s.headerLiveText}>ACCEPTING ORDERS • PUNE</Text>
+              <Text style={s.headerLiveText}>ACCEPTING ORDERS • {((shop?.area || shop?.city || 'PUNE') as string).toUpperCase()}</Text>
             </View>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -226,14 +262,14 @@ export default function SellerDashboard({ navigation }: any) {
             <View style={s.statusHeaderRow}>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={s.statusCardTitle} numberOfLines={1}>Urban Living FC Road Hub</Text>
+                  <Text style={s.statusCardTitle} numberOfLines={1}>{shopName}</Text>
                   <View style={s.hqBadge}>
                     <Text style={s.hqBadgeText}>HQ</Text>
                   </View>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
                   <Animated.View style={[s.liveDotRed, { opacity: pulse }]} />
-                  <Text style={s.statusActiveText}>Showroom Desk: Active</Text>
+                  <Text style={s.statusActiveText}>Store Status: Active</Text>
                   <Text style={s.statusSubText}>• Instant Pickup Ready</Text>
                 </View>
               </View>
@@ -250,20 +286,20 @@ export default function SellerDashboard({ navigation }: any) {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.metricsRibbon}>
               <View style={[s.ribbonItem, { backgroundColor: DS.surfaceContainerLow }]}>
                 <MaterialIcons name="payments" size={18} color={DS.primary} />
-                <Text style={s.ribbonItemText}>₹48,650</Text>
-                <Text style={s.ribbonItemHighlight}>(+18.4%)</Text>
+                <Text style={s.ribbonItemText}>₹{Number(data.totalRevenue || 0).toLocaleString()}</Text>
+                <Text style={s.ribbonItemHighlight}>(Gross)</Text>
               </View>
               <View style={[s.ribbonItem, { backgroundColor: DS.surfaceContainerLow }]}>
                 <MaterialIcons name="task-alt" size={18} color={DS.tertiary} />
-                <Text style={s.ribbonItemText}>14 Fulfilled</Text>
+                <Text style={s.ribbonItemText}>{data.totalOrders} Orders</Text>
               </View>
               <View style={[s.ribbonItem, { backgroundColor: DS.secondaryFixed }]}>
                 <MaterialIcons name="local-shipping" size={18} color={DS.onSecondaryFixed} />
-                <Text style={[s.ribbonItemText, { color: DS.onSecondaryFixed }]}>3 In Transit</Text>
+                <Text style={[s.ribbonItemText, { color: DS.onSecondaryFixed }]}>{data.pendingOrders} Pending</Text>
               </View>
               <View style={[s.ribbonItem, { backgroundColor: DS.surfaceContainerLow }]}>
-                <MaterialIcons name="schedule" size={18} color={DS.onSurfaceVariant} />
-                <Text style={s.ribbonItemText}>Avg 18m Prep</Text>
+                <MaterialIcons name="star" size={18} color="#F59E0B" />
+                <Text style={s.ribbonItemText}>{Number(data.averageRating || 4.8).toFixed(1)} Rating</Text>
               </View>
               <View style={{ width: 16 }} />
             </ScrollView>
@@ -284,13 +320,13 @@ export default function SellerDashboard({ navigation }: any) {
                   <MaterialIcons name="currency-rupee" size={20} color={DS.primary} />
                 </View>
                 <View style={[s.cardBadge, { backgroundColor: DS.primaryContainer }]}>
-                  <Text style={[s.cardBadgeText, { color: DS.onPrimary }]}>↑ 22%</Text>
+                  <Text style={[s.cardBadgeText, { color: DS.onPrimary }]}>Sales</Text>
                 </View>
               </View>
               <View style={s.gridCardBody}>
-                <Text style={s.gridCardValue}>₹48,650</Text>
-                <Text style={s.gridCardLabel}>Gross Sales Today</Text>
-                <Text style={[s.gridCardSub, { color: DS.primary }]}>+₹8.2k vs avg</Text>
+                <Text style={s.gridCardValue}>₹{Number(data.totalRevenue || 0).toLocaleString()}</Text>
+                <Text style={s.gridCardLabel}>Gross Revenue</Text>
+                <Text style={[s.gridCardSub, { color: DS.primary }]}>{data.totalOrders} total orders</Text>
               </View>
             </View>
 
@@ -298,16 +334,16 @@ export default function SellerDashboard({ navigation }: any) {
             <View style={[s.gridCard, { backgroundColor: DS.surfaceContainerHigh }]}>
               <View style={s.gridCardHeader}>
                 <View style={s.iconBox}>
-                  <MaterialIcons name="storefront" size={20} color={DS.onSurface} />
+                  <MaterialIcons name="inventory-2" size={20} color={DS.onSurface} />
                 </View>
                 <View style={[s.cardBadge, { backgroundColor: DS.surfaceVariant }]}>
-                  <Text style={[s.cardBadgeText, { color: DS.onSurfaceVariant }]}>Goodluck</Text>
+                  <Text style={[s.cardBadgeText, { color: DS.onSurfaceVariant }]}>Catalog</Text>
                 </View>
               </View>
               <View style={s.gridCardBody}>
-                <Text style={s.gridCardValue}>142 Visits</Text>
-                <Text style={s.gridCardLabel}>Footfall & Showroom</Text>
-                <Text style={[s.gridCardSub, { color: DS.onSurfaceVariant, fontWeight: '400' }]}>86 FC Road Walk-ins</Text>
+                <Text style={s.gridCardValue}>{data.totalProducts} Items</Text>
+                <Text style={s.gridCardLabel}>Active Products</Text>
+                <Text style={[s.gridCardSub, { color: DS.onSurfaceVariant, fontWeight: '400' }]}>Rating: {Number(data.averageRating || 0).toFixed(1)} ★</Text>
               </View>
             </View>
 
@@ -315,16 +351,16 @@ export default function SellerDashboard({ navigation }: any) {
             <View style={[s.gridCard, { backgroundColor: 'rgba(255, 219, 203, 0.5)' }]}>
               <View style={s.gridCardHeader}>
                 <View style={s.iconBox}>
-                  <MaterialIcons name="video-chat" size={20} color={DS.secondary} />
+                  <MaterialIcons name="pending-actions" size={20} color={DS.secondary} />
                 </View>
                 <View style={[s.cardBadge, { backgroundColor: DS.secondaryContainer }]}>
-                  <Text style={[s.cardBadgeText, { color: DS.onSecondary }]}>75% Win</Text>
+                  <Text style={[s.cardBadgeText, { color: DS.onSecondary }]}>Queue</Text>
                 </View>
               </View>
               <View style={s.gridCardBody}>
-                <Text style={s.gridCardValue}>8 Inquiries</Text>
-                <Text style={s.gridCardLabel}>Live Consultations</Text>
-                <Text style={[s.gridCardSub, { color: DS.secondary }]}>6 Converted Instantly</Text>
+                <Text style={s.gridCardValue}>{data.pendingOrders} Orders</Text>
+                <Text style={s.gridCardLabel}>Pending Action</Text>
+                <Text style={[s.gridCardSub, { color: DS.secondary }]}>{Math.max(0, data.totalOrders - data.pendingOrders)} completed</Text>
               </View>
             </View>
 
@@ -332,16 +368,16 @@ export default function SellerDashboard({ navigation }: any) {
             <View style={[s.gridCard, { backgroundColor: 'rgba(226, 223, 255, 0.4)' }]}>
               <View style={s.gridCardHeader}>
                 <View style={s.iconBox}>
-                  <MaterialIcons name="radar" size={20} color={DS.tertiary} />
+                  <MaterialIcons name="trending-up" size={20} color={DS.tertiary} />
                 </View>
                 <View style={[s.cardBadge, { backgroundColor: DS.tertiary }]}>
-                  <Text style={[s.cardBadgeText, { color: DS.onTertiary }]}>Fast Grid</Text>
+                  <Text style={[s.cardBadgeText, { color: DS.onTertiary }]}>Top</Text>
                 </View>
               </View>
               <View style={s.gridCardBody}>
-                <Text style={s.gridCardValue}>4.8 km</Text>
-                <Text style={s.gridCardLabel}>Broadcast Radius</Text>
-                <Text style={[s.gridCardSub, { color: DS.tertiary }]}>Shivajinagar & Deccan</Text>
+                <Text style={s.gridCardValue} numberOfLines={1}>{data.topProduct.name}</Text>
+                <Text style={s.gridCardLabel}>Best Selling Item</Text>
+                <Text style={[s.gridCardSub, { color: DS.tertiary }]}>{data.topProduct.sold} units sold</Text>
               </View>
             </View>
           </View>
@@ -386,7 +422,7 @@ export default function SellerDashboard({ navigation }: any) {
                 <MaterialIcons name="arrow-forward" size={18} color={DS.primary} />
               </View>
               <Text style={s.actionTitle}>Instant Payout</Text>
-              <Text style={[s.actionSub, { color: DS.onSurfaceVariant, fontWeight: '400' }]}>₹34,200 ready to transfer</Text>
+              <Text style={[s.actionSub, { color: DS.onSurfaceVariant, fontWeight: '400' }]}>₹{Number(shop?.walletBalance || data.totalRevenue || 0).toLocaleString()} ready to transfer</Text>
             </AnimatedPressable>
 
             <AnimatedPressable onPress={() => navigation.navigate('Products')} style={s.actionCard}>
@@ -417,96 +453,142 @@ export default function SellerDashboard({ navigation }: any) {
               </View>
             </View>
 
-            {/* Chart Graphic Mock */}
-            <View style={s.chartContainer}>
-              {[
-                { d: 'M', v1: '45%', v2: '60%' },
-                { d: 'T', v1: '60%', v2: '70%' },
-                { d: 'W', v1: '52%', v2: '65%' },
-                { d: 'T', v1: '75%', v2: '80%' },
-                { d: 'F', v1: '85%', v2: '85%' },
-                { d: 'S', v1: '98%', v2: '90%', active: true },
-                { d: 'Today', v1: '88%', v2: '75%', secondary: true },
-              ].map((item, index) => (
-                <View key={index} style={s.chartBarCol}>
-                  <View style={s.chartBarWrapper}>
-                    <View style={[s.chartBarBg, { height: item.v1 as `${number}%` }, item.active && { backgroundColor: DS.primaryFixed, elevation: 1 }, item.secondary && { backgroundColor: DS.secondaryFixed }]}>
-                      <View style={[s.chartBarFill, { height: item.v2 as `${number}%` }, item.secondary && { backgroundColor: DS.secondaryContainer }]} />
-                    </View>
-                  </View>
-                  <Text style={[s.chartDayLabel, item.active && { color: DS.primary, fontWeight: '800' }, item.secondary && { color: DS.secondary, fontWeight: '800' }]}>{item.d}</Text>
-                </View>
-              ))}
-            </View>
+            {/* Dynamic Weekly Revenue & Views Chart */}
+            {(() => {
+              const weeklyRevenue = data.weeklyRevenue || [0, 0, 0, 0, 0, 0, 0];
+              const weeklyViews = data.weeklyViews || [0, 0, 0, 0, 0, 0, 0];
+              const maxRev = Math.max(...weeklyRevenue, 0);
+              const maxViews = Math.max(...weeklyViews, 0);
+              const peakIdx = maxRev > 0 ? weeklyRevenue.findIndex((v: number) => v === maxRev) : -1;
+              const total7dRev = weeklyRevenue.reduce((a: number, b: number) => a + b, 0);
+              const days = ['6d', '5d', '4d', '3d', '2d', '1d', 'Today'];
 
-            <View style={s.chartFooterBox}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <MaterialIcons name="local-fire-department" size={18} color={DS.secondary} />
-                <Text style={s.chartFooterText}>5 PM - 8 PM Peak Rush</Text>
-              </View>
-              <Text style={s.chartFooterSub}>42% of sales</Text>
-            </View>
+              return (
+                <>
+                  <View style={s.chartContainer}>
+                    {days.map((dayLabel, index) => {
+                      const rev = weeklyRevenue[index] || 0;
+                      const views = weeklyViews[index] || 0;
+                      const isPeak = index === peakIdx && maxRev > 0;
+                      const isToday = index === 6;
+
+                      const revPct = maxRev > 0 && rev > 0 ? `${Math.max(12, Math.round((rev / maxRev) * 100))}%` : '6px';
+                      const viewsPct = maxViews > 0 && views > 0 ? `${Math.max(12, Math.round((views / maxViews) * 100))}%` : '6px';
+
+                      return (
+                        <View key={index} style={s.chartBarCol}>
+                          <View style={s.chartBarWrapper}>
+                            <View
+                              style={[
+                                s.chartBarBg,
+                                { height: viewsPct as any },
+                                isPeak && { backgroundColor: DS.secondaryFixed },
+                                isToday && !isPeak && { backgroundColor: DS.primaryFixed },
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  s.chartBarFill,
+                                  { height: revPct as any },
+                                  isPeak && { backgroundColor: DS.secondary },
+                                  isToday && !isPeak && { backgroundColor: DS.primary },
+                                ]}
+                              />
+                            </View>
+                          </View>
+                          <Text
+                            style={[
+                              s.chartDayLabel,
+                              isPeak && { color: DS.secondary, fontWeight: '800' },
+                              isToday && !isPeak && { color: DS.primary, fontWeight: '800' },
+                            ]}
+                          >
+                            {dayLabel}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+
+                  <View style={s.chartFooterBox}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <MaterialIcons
+                        name={peakIdx !== -1 ? 'local-fire-department' : 'trending-up'}
+                        size={18}
+                        color={DS.secondary}
+                      />
+                      <Text style={s.chartFooterText}>
+                        {peakIdx !== -1
+                          ? `Peak: ${days[peakIdx]} (₹${(weeklyRevenue[peakIdx] || 0).toLocaleString()})`
+                          : 'Trailing 7-Day Performance'}
+                      </Text>
+                    </View>
+                    <Text style={s.chartFooterSub}>
+                      {total7dRev > 0 ? `₹${total7dRev.toLocaleString()} Total 7d` : '₹0 Gross Sales'}
+                    </Text>
+                  </View>
+                </>
+              );
+            })()}
           </View>
         </AnimatedEntry>
 
-        {/* Live Shivajinagar Trends */}
+        {/* Store Catalog Highlights */}
         <AnimatedEntry delay={300} style={s.section}>
           <View style={s.sectionTitleRow}>
             <View>
-              <Text style={s.sectionTitle}>Live Shivajinagar Trends</Text>
-              <Text style={s.sectionSubText}>Local shoppers searching near you</Text>
+              <Text style={s.sectionTitle}>{shop?.area ? `${shop.area} Store Highlights` : 'Catalog Highlights'}</Text>
+              <Text style={s.sectionSubText}>Active catalog items in your store</Text>
             </View>
             <MaterialIcons name="trending-up" size={24} color={DS.primary} />
           </View>
 
           <View style={s.trendsList}>
-            <View style={s.trendItem}>
-              <View style={s.trendLeft}>
-                <Image source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDji8_I6DAXqgJfY2I4mg5Zv6Bm04Z-nwWe0rSemNXxFXjIykrFDWCzl382xVoy2qTVhkWFdwISAnhbvnaGiLFD57PG7HVVuUw1nLo0BloFRoY5LfhA5Kqm9NRBTzGYg_LE7EEbWn6qdYy3cNtgqslMyyFTMY-3d7a6rTZ53ciQxAodoBLhjMkKb1PNw-8kLQgIEY01BVOBgmyOo9CV-qLcMmccGnz6snFb4zwQdpgpNO_WDU4y8lzH' }} style={s.trendImg} />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.trendTitle} numberOfLines={1}>Nordic Armchair</Text>
-                  <Text style={s.trendSubBold}>3 in stock • Ranked #1</Text>
+            {catalogProducts.length > 0 ? (
+              catalogProducts.slice(0, 3).map((prod: any, idx: number) => (
+                <View key={prod.id || idx} style={s.trendItem}>
+                  <View style={s.trendLeft}>
+                    <Image
+                      source={{
+                        uri: prod.images?.[0] || prod.image || 'https://placehold.co/100x100/F1F5F9/64748B?text=Product',
+                      }}
+                      style={s.trendImg}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.trendTitle} numberOfLines={1}>
+                        {prod.name}
+                      </Text>
+                      <Text style={s.trendSubBold}>
+                        {prod.stock !== undefined ? `${prod.stock} in stock • ` : ''}₹{Number(prod.price || 0).toLocaleString()}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={s.trendRight}>
+                    <Text style={s.trendCount}>
+                      {prod.orderCount ? `${prod.orderCount} orders` : 'Active'}
+                    </Text>
+                    <View
+                      style={[
+                        s.trendBadge,
+                        { backgroundColor: idx === 0 ? 'rgba(142, 245, 222, 0.5)' : DS.secondaryFixed },
+                      ]}
+                    >
+                      <Text style={[s.trendBadgeText, { color: idx === 0 ? DS.primaryContainer : DS.secondary }]}>
+                        {idx === 0 ? 'Best Seller' : 'Catalog'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ))
+            ) : (
+              <View style={s.trendItem}>
+                <View style={{ flex: 1, paddingVertical: 12 }}>
+                  <Text style={[s.trendSubReg, { textAlign: 'center' }]}>
+                    No products added yet. Add items to track performance.
+                  </Text>
                 </View>
               </View>
-              <View style={s.trendRight}>
-                <Text style={s.trendCount}>64 searches</Text>
-                <View style={[s.trendBadge, { backgroundColor: 'rgba(142, 245, 222, 0.5)' }]}>
-                  <Text style={[s.trendBadgeText, { color: DS.primaryContainer }]}>High Intent</Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={s.trendItem}>
-              <View style={s.trendLeft}>
-                <Image source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCFWoYyzea_w19JhLgK9b1DDRhFvi-5LhvCYbxHxPcRurifGr4gVRPtm9jjHNRxzMPmP0qI2z2cZ-jLNTVCFYUZTmlumAK3v9D1wLVHD1MMMor9OHh8Vbx2M_iDRQEWSnAiVEeFsb_W0ZyyRoWaWQHwDQQpq9ZpRuBzqWfSoNBTgnSIbOafSsCKQ66eSszodMfKe0n14iBzl9WJS4NZ0W50EB8uUo6smSvPNeIIJpNm2wsfiQileDfS' }} style={s.trendImg} />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.trendTitle} numberOfLines={1}>Teak Study Desks</Text>
-                  <Text style={s.trendSubReg}>High demand in Model Colony</Text>
-                </View>
-              </View>
-              <View style={s.trendRight}>
-                <Text style={s.trendCount}>42 searches</Text>
-                <View style={[s.trendBadge, { backgroundColor: DS.secondaryFixed }]}>
-                  <Text style={[s.trendBadgeText, { color: DS.secondary }]}>Trending</Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={s.trendItem}>
-              <View style={s.trendLeft}>
-                <Image source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuD26JZeJhjtBeI2mAYErcpyCtvRsn9Q7qSAssepGZEVfrIRfORx4R9Kogw7AnCCEBYn7R4fi0bC8bn2a7EU1t8GAgY4fyGHRHTvoVrlDkFXAPHSaARkdycYYFFiBvg4MSp8arZn9ir39CseqVJbe7nHtVrWS79UpVR8ZV7OE7u7DBZimepbD7sr0OPuczVv8ntTpg4Q67UrA0IKvGlCy9Os34XWvcOAvWefR6Xx7xwD2kKC7z6nrpcf' }} style={s.trendImg} />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.trendTitle} numberOfLines={1}>Sofa Waterproofing</Text>
-                  <Text style={s.trendSubReg}>Hyperlocal service booking</Text>
-                </View>
-              </View>
-              <View style={s.trendRight}>
-                <Text style={s.trendCount}>28 inquiries</Text>
-                <View style={[s.trendBadge, { backgroundColor: DS.tertiaryFixed }]}>
-                  <Text style={[s.trendBadgeText, { color: DS.tertiary }]}>Services</Text>
-                </View>
-              </View>
-            </View>
+            )}
           </View>
         </AnimatedEntry>
 
@@ -520,7 +602,7 @@ export default function SellerDashboard({ navigation }: any) {
                 </View>
                 <View>
                   <Text style={s.reviewsTitle}>Seller Trust Score</Text>
-                  <Text style={s.reviewsSub}>FC Road Collective Verified</Text>
+                  <Text style={s.reviewsSub}>{shop?.area ? `${shop.area} Collective Verified` : 'CityLocal Collective Verified'}</Text>
                 </View>
               </View>
               <Text style={s.reviewsScoreText}>98%</Text>
@@ -529,9 +611,9 @@ export default function SellerDashboard({ navigation }: any) {
             <View style={s.reviewsStarsBox}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <MaterialIcons name="star" size={20} color={DS.secondary} />
-                <Text style={s.reviewsStarsVal}>4.8</Text>
+                <Text style={s.reviewsStarsVal}>{Number(data.averageRating || shop?.averageRating || 4.8).toFixed(1)}</Text>
               </View>
-              <Text style={s.reviewsStarsSub}>• 320 Verified Local Reviews</Text>
+              <Text style={s.reviewsStarsSub}>• {shop?.reviewCount || shop?.totalReviews || 0} Verified Local Reviews</Text>
             </View>
 
             <View style={s.reviewsFooter}>

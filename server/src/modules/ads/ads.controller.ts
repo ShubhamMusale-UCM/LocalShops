@@ -5,6 +5,7 @@ import { AuthRequest } from '../../middleware/auth.middleware';
 import { AppError } from '../../middleware/errorHandler.middleware';
 import { bidForObjective, MAX_TARGET_RADIUS_KM, MIN_DAILY_BUDGET } from './ads.targeting';
 import prisma from '../../config/database';
+import { cacheDelete } from '../../config/redis';
 import { createRazorpayOrder, verifyPaymentSignature } from '../../config/razorpay';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
@@ -490,6 +491,11 @@ export const AdsController = {
         }
       });
 
+      await Promise.all([
+        cacheDelete(`shop:${existing.shopId}:ads`),
+        cacheDelete(`product:${existing.productId}`),
+      ]).catch(() => {});
+
       res.json({ status: 'success', data: added });
     } catch (error) {
       next(error);
@@ -514,6 +520,11 @@ export const AdsController = {
       await prisma.negativeKeyword.delete({
         where: { id: keywordId, promotedListingId: adId },
       });
+
+      await Promise.all([
+        cacheDelete(`shop:${existing.shopId}:ads`),
+        cacheDelete(`product:${existing.productId}`),
+      ]).catch(() => {});
 
       res.json({ status: 'success', data: null });
     } catch (error) {

@@ -23,6 +23,7 @@ import { useHideTabBarOnScroll } from '../../hooks/useHideTabBarOnScroll';
 import { getPrimarySellerShop } from '../../services/sellerShopContext';
 import { sanitizeImageUrl, getSingleImageUrl } from '../../utils/image';
 import { useTheme } from '../../theme';
+import apiClient from '../../services/api';
 
 const getStyles = (colors: any, radius: any, isDarkMode: boolean, topInset: number = 0) => {
   return StyleSheet.create({
@@ -350,12 +351,23 @@ export default function SellerProfileScreen() {
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const [shop, setShop] = useState<any>(null);
+  const [subscription, setSubscription] = useState({ plan: 'PRO SELLER', expiryDate: 'Active', status: 'Active' });
 
   useEffect(() => {
     getPrimarySellerShop().then(setShop).catch(console.error);
+    apiClient.get('/subscription/my-subscription')
+      .then((res) => {
+        const sub = res.data?.data || res.data;
+        if (sub?.plan) {
+          setSubscription({
+            plan: `${sub.plan} SELLER`,
+            expiryDate: sub.endDate ? new Date(sub.endDate).toLocaleDateString() : 'Active',
+            status: sub.isActive ? 'Active' : 'Inactive',
+          });
+        }
+      })
+      .catch(() => null);
   }, []);
-
-  const subscription = { plan: 'PRO SELLER', expiryDate: '12 Oct, 2026', status: 'Active' };
 
   const headerOpacity = scrollY.interpolate({ inputRange: [60, 100], outputRange: [0, 1], extrapolate: 'clamp' });
   const avatarScale = scrollY.interpolate({ inputRange: [-50, 0, 100], outputRange: [1.2, 1, 0.8], extrapolate: 'clamp' });

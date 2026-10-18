@@ -199,10 +199,17 @@ export class WalletController {
          return;
       }
       
-      // Credit the wallet (type string 'TOPUP' isn't explicitly in the schema for wallet tx, wait we can just use ADMIN_CREDIT or create a new type if we didn't add it)
-      await walletService.creditSellerAdWallet(shopId, amount, 'Wallet Top-up via Razorpay', 'ADMIN_CREDIT');
+      // Credit the seller ad wallet with payment ID as referenceId
+      const paymentRefId = razorpay_payment_id || `topup_${Date.now()}`;
+      const { shop: updatedShop } = await walletService.creditSellerAdWallet(
+        shopId,
+        amount,
+        'Wallet Top-up via Razorpay',
+        paymentRefId,
+        'TOPUP'
+      );
       
-      res.json({ success: true });
+      res.json({ success: true, newBalance: updatedShop?.adWalletBalance });
     } catch (error: any) {
       res.status(error.statusCode || 500).json({ error: error.message });
     }

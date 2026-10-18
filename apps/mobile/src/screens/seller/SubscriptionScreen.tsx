@@ -9,10 +9,12 @@ import {
   Animated,
   Platform,
   StatusBar,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
+import apiClient from '../../services/api';
 
 // ─── Design tokens ───────────────────────────────────────
 const DS = {
@@ -108,8 +110,9 @@ const PlanCard: React.FC<{
   plan: Plan;
   isActive: boolean;
   index: number;
+  renewalDate?: string | null;
   onSelect: (id: string) => void;
-}> = ({ plan, isActive, index, onSelect }) => {
+}> = ({ plan, isActive, index, renewalDate, onSelect }) => {
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(6)).current;
   const pressScale = useRef(new Animated.Value(1)).current;
@@ -188,7 +191,9 @@ const PlanCard: React.FC<{
         {isActive ? (
           <View style={[s.renewBadge, { backgroundColor: plan.bgColor }]}>
             <Ionicons name="calendar-outline" size={14} color={plan.color} />
-            <Text style={[s.renewText, { color: plan.color }]}>Renews Apr 1, 2026</Text>
+            <Text style={[s.renewText, { color: plan.color }]}>
+              {renewalDate ? `Renews ${renewalDate}` : 'Active Plan'}
+            </Text>
           </View>
         ) : (
           <TouchableOpacity
@@ -211,10 +216,45 @@ export default function SubscriptionScreen() {
   const navigation = useNavigation();
   const [loading, setLoading] = useState(false);
   const [activePlan, setActivePlan] = useState('starter');
+  const [renewalDate, setRenewalDate] = useState<string | null>(null);
   const headerFade = useRef(new Animated.Value(0)).current;
+
+  const fetchSubscription = async () => {
+    try {
+      setLoading(true);
+      const res = await apiClient.get('/subscription/my-subscription');
+      const sub = res.data?.data || res.data;
+      if (sub?.plan) {
+        setActivePlan(String(sub.plan).toLowerCase());
+        if (sub.endDate) {
+          setRenewalDate(new Date(sub.endDate).toLocaleDateString());
+        }
+      }
+    } catch {
+      // Keep default
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePlanSelect = async (planId: string) => {
+    if (planId === activePlan) return;
+    try {
+      setLoading(true);
+      await apiClient.post('/subscription/create', { planId: planId.toUpperCase() });
+      setActivePlan(planId);
+      Alert.alert('Subscription Updated', `Your plan has been updated to ${planId.toUpperCase()}.`);
+      fetchSubscription();
+    } catch (e: any) {
+      Alert.alert('Error', e.response?.data?.message || 'Failed to update subscription');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     Animated.timing(headerFade, { toValue: 1, duration: 250, useNativeDriver: true }).start();
+    fetchSubscription();
   }, []);
 
   return (
@@ -250,8 +290,9 @@ export default function SubscriptionScreen() {
                 key={plan.id}
                 plan={plan}
                 isActive={activePlan === plan.id}
+                renewalDate={renewalDate}
                 index={i}
-                onSelect={setActivePlan}
+                onSelect={handlePlanSelect}
               />
             ))}
           </View>
