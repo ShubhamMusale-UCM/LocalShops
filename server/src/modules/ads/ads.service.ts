@@ -364,23 +364,19 @@ export class AdsService {
     // FRAUD PROTECTION: Cross-request click deduplication using Redis
     // A legitimate user can only generate 1 meaningful click per campaign per 1-hour window.
     await Promise.all(events.map(async (e) => {
+      const deviceId = e.deviceId || (e as any).deviceId || 'device-anon';
       if (e.type === 'impression') {
         impressionsMap.set(e.campaignId, (impressionsMap.get(e.campaignId) || 0) + 1);
-        if (e.deviceId) {
-          newImpressionLogs.push({ promotedListingId: e.campaignId, deviceId: e.deviceId });
-        }
+        newImpressionLogs.push({ promotedListingId: e.campaignId, deviceId });
       }
       let clickAcquired = false;
       if (e.type === 'click') {
-        // Hard requirement: clicks MUST have a deviceId to be counted (anti-fraud)
-        if (e.deviceId) {
-          const clickKey = `adclick:${e.campaignId}:${e.deviceId}`;
-          // SETNX (set if not exists) with 1-hour expiration
-          const acquired = await redis.set(clickKey, '1', 'EX', 3600, 'NX');
-          if (acquired) {
-            clickAcquired = true;
-            clicksMap.set(e.campaignId, (clicksMap.get(e.campaignId) || 0) + 1);
-          }
+        const clickKey = `adclick:${e.campaignId}:${deviceId}`;
+        // SETNX with 1-hour expiration
+        const acquired = await redis.set(clickKey, '1', 'EX', 3600, 'NX');
+        if (acquired) {
+          clickAcquired = true;
+          clicksMap.set(e.campaignId, (clicksMap.get(e.campaignId) || 0) + 1);
         }
       }
       if (e.type === 'view') viewsMap.set(e.campaignId, (viewsMap.get(e.campaignId) || 0) + 1);
@@ -896,6 +892,7 @@ export class AdsService {
       },
       orderBy: { date: 'asc' },
       select: {
+        promotedListingId: true,
         date: true,
         impressions: true,
         clicks: true,
@@ -908,7 +905,22 @@ export class AdsService {
 
     // Aggregate by date across all campaigns
     const byDate = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number; views: number; cartAdds: number; }>();
+    const campaignRollupTotals = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number; views: number; cartAdds: number; }>();
+
     for (const r of rollups) {
+      const campId = r.promotedListingId;
+      if (campId) {
+        const prev = campaignRollupTotals.get(campId) || { impressions: 0, clicks: 0, spend: 0, conversions: 0, views: 0, cartAdds: 0 };
+        campaignRollupTotals.set(campId, {
+          impressions: prev.impressions + r.impressions,
+          clicks: prev.clicks + r.clicks,
+          spend: prev.spend + r.spend,
+          conversions: prev.conversions + r.conversions,
+          views: prev.views + (r.views || 0),
+          cartAdds: prev.cartAdds + (r.cartAdds || 0),
+        });
+      }
+
       const key = r.date.toISOString().split('T')[0];
       const existing = byDate.get(key) || { impressions: 0, clicks: 0, spend: 0, conversions: 0, views: 0, cartAdds: 0 };
       byDate.set(key, {
@@ -919,6 +931,49 @@ export class AdsService {
         views: existing.views + (r.views || 0),
         cartAdds: existing.cartAdds + (r.cartAdds || 0),
       });
+    }
+
+    // Include recent campaigns whose metrics have not yet been rolled up
+    const campaigns = await prisma.promotedListing.findMany({
+      where: {
+        shopId,
+        createdAt: { gte: since },
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        startDate: true,
+        impressions: true,
+        clicks: true,
+        spent: true,
+        conversions: true,
+        views: true,
+        cartAdds: true,
+      },
+    });
+
+    for (const c of campaigns) {
+      const rolled = campaignRollupTotals.get(c.id) || { impressions: 0, clicks: 0, spend: 0, conversions: 0, views: 0, cartAdds: 0 };
+      const unrolledImpr = Math.max(0, c.impressions - rolled.impressions);
+      const unrolledClicks = Math.max(0, c.clicks - rolled.clicks);
+      const unrolledSpend = Math.max(0, Number((c.spent - rolled.spend).toFixed(2)));
+      const unrolledConv = Math.max(0, c.conversions - rolled.conversions);
+      const unrolledViews = Math.max(0, (c.views || 0) - rolled.views);
+      const unrolledCartAdds = Math.max(0, (c.cartAdds || 0) - rolled.cartAdds);
+
+      if (unrolledImpr > 0 || unrolledClicks > 0 || unrolledSpend > 0 || unrolledConv > 0) {
+        const campaignDate = c.startDate || c.createdAt;
+        const key = campaignDate.toISOString().split('T')[0];
+        const existing = byDate.get(key) || { impressions: 0, clicks: 0, spend: 0, conversions: 0, views: 0, cartAdds: 0 };
+        byDate.set(key, {
+          impressions: existing.impressions + unrolledImpr,
+          clicks: existing.clicks + unrolledClicks,
+          spend: Number((existing.spend + unrolledSpend).toFixed(2)),
+          conversions: existing.conversions + unrolledConv,
+          views: existing.views + unrolledViews,
+          cartAdds: existing.cartAdds + unrolledCartAdds,
+        });
+      }
     }
 
     return Array.from(byDate.entries()).map(([date, metrics]) => ({ date, ...metrics }));

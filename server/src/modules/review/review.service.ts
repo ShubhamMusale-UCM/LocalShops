@@ -204,8 +204,8 @@ export class ReviewService {
   /**
    * Simple keyword-based sentiment analysis
    */
-  private analyzeSentiment(text: string): { label: string; score: number; keywords: string[] } {
-    const lower = text.toLowerCase();
+  private analyzeSentiment(text: string = ''): { label: string; score: number; keywords: string[] } {
+    const lower = (text || '').toLowerCase();
     const positiveWords = ['excellent', 'amazing', 'great', 'love', 'best', 'perfect', 'awesome',
       'accha', 'zabardast', 'badhiya', 'superb', 'fantastic', 'recommended', 'fresh', 'quality'];
     const negativeWords = ['terrible', 'worst', 'bad', 'horrible', 'poor', 'waste', 'fraud',

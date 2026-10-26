@@ -370,7 +370,7 @@ export const AdsController = {
         keywords = recentSearches.map((s: any) => s.keyword).filter(Boolean);
       }
 
-      const products = await adsService.serveAds({
+      const rawAds = await adsService.serveAds({
         limit: parseInt(limit as string), 
         query: q as string, 
         keywords: keywords,
@@ -381,6 +381,17 @@ export const AdsController = {
         userId: user?.id,
         userGender: user?.gender,
       });
+
+      const products = (rawAds || []).map((ad: any) => ({
+        ...(ad.product || {}),
+        id: ad.product?.id || ad.productId || ad.id,
+        productId: ad.product?.id || ad.productId,
+        campaignId: ad.id,
+        sponsoredListingId: ad.id,
+        isBoosted: true,
+        isSponsored: true,
+        shop: ad.product?.shop || ad.shop,
+      }));
 
       res.json({
         status: 'success',
