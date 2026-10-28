@@ -12,7 +12,7 @@ export class ReviewService {
     shopId: string; productId?: string; orderId?: string;
     rating: number; title?: string; comment: string; photos?: string[];
   }) {
-    // Prevent duplicate reviews per user per shop/product
+    // Prevent duplicate reviews per user per shop/product by updating existing review
     const existing = await prisma.review.findFirst({
       where: {
         userId,
@@ -20,15 +20,48 @@ export class ReviewService {
         ...(data.productId ? { productId: data.productId } : {}),
       },
     });
-    if (existing) throw new AppError('You have already reviewed this item.', 409);
+
+    // Simple sentiment analysis based on keywords
+    const sentiment = this.analyzeSentiment(data.comment);
+
+    if (existing) {
+      const updated = await prisma.review.update({
+        where: { id: existing.id },
+        data: {
+          rating: data.rating,
+          title: data.title || null,
+          comment: data.comment,
+          photos: data.photos && data.photos.length > 0 ? data.photos : existing.photos,
+          sentiment: sentiment.label as SentimentType,
+          sentimentScore: sentiment.score,
+          sentimentKeywords: sentiment.keywords,
+          updatedAt: new Date(),
+        },
+        include: {
+          user: { select: { id: true, name: true, avatar: true } },
+        },
+      });
+
+      // Update shop average rating
+      await this.updateShopRating(data.shopId);
+      if (data.productId) await this.updateProductRating(data.productId);
+
+      await cacheDelete(`shop:${data.shopId}`);
+      await cacheDeletePattern(`cache:*/api/products/shop/${data.shopId}*`);
+      await cacheDeletePattern(`cache:*/api/shops/${data.shopId}*`);
+      
+      if (data.productId) {
+        await cacheDelete(`product:${data.productId}`);
+        await cacheDeletePattern(`cache:*/api/products/${data.productId}*`);
+      }
+
+      return updated;
+    }
 
     // Check if user has ordered from this shop (verified purchase)
     const hasOrdered = await prisma.order.findFirst({
       where: { userId, shopId: data.shopId, status: 'DELIVERED' },
     });
-
-    // Simple sentiment analysis based on keywords
-    const sentiment = this.analyzeSentiment(data.comment);
 
     const review = await prisma.review.create({
       data: {
