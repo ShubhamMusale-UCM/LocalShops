@@ -1,21 +1,11 @@
 # Project: CityLocalShop
 
-Hyperlocal Shop Discovery & Commerce Platform (Monorepo).
+Hyperlocal Shop Discovery & Commerce Platform.
 
-## Stack
-- **Mobile App (`/apps/mobile`)**: React Native 0.73 / Expo SDK 50, TypeScript strict, Zustand 4.5 for global state, TanStack Query 5.17 for server state, React Navigation 6 (Native & Tabs), Axios, Reanimated, Safe Area Context.
-- **Server (`/server`)**: Node.js, Express, Prisma ORM, PostgreSQL, Redis, Socket.io, BullMQ.
-- **Web Admin (`/apps/web-admin`)**: React, Vite, TypeScript, TailwindCSS / Vanilla CSS.
-- **Shared (`/packages`)**: Shared types, utils, UI tokens.
-
-## File & Directory Conventions
-- **Mobile Screens**: PascalCase in `/apps/mobile/src/screens/[role]/` (e.g. `buyer/HomeScreen.tsx`, `auth/OTPVerificationScreen.tsx`).
-- **Mobile Components**: PascalCase in `/apps/mobile/src/components/` (e.g. `common/`, `buyer/`, `seller/`).
-- **Mobile Hooks**: camelCase starting with `use` in `/apps/mobile/src/hooks/`.
-- **Mobile Services**: camelCase ending with `Service.ts` in `/apps/mobile/src/services/`.
-- **Mobile Stores**: camelCase ending with `Store.ts` in `/apps/mobile/src/store/` or `/src/stores/`.
-- **Server Controllers**: camelCase ending with `Controller.ts` in `/server/src/controllers/`.
-- **Server Routes**: camelCase ending with `Routes.ts` in `/server/src/routes/`.
+## Stack & Target Architecture
+- **Active Mobile / Web Frontend (`temp_github_repo`)**: Capacitor hybrid application (React 18, Vite, TypeScript, Tailwind CSS, Framer Motion, Capacitor Android shell). ALL active UI development, mobile features, shop/buyer screens, and data syncing target THIS codebase.
+- **Backend Server (`/server`)**: Node.js, Express, Prisma ORM, PostgreSQL, Redis, Socket.io, BullMQ.
+- **DEPRECATED / IGNORED (`/apps/mobile`)**: Legacy React Native / Expo app. STRICT RULE: DO NOT modify, update, test, or commit to `/apps/mobile`.
 
 ## Code Rules & Quality Standards
 - **Component States**: Every UI screen/component must gracefully handle:
@@ -23,9 +13,8 @@ Hyperlocal Shop Discovery & Commerce Platform (Monorepo).
   2. Error state (User-friendly message with Retry trigger)
   3. Empty state (Informative graphic or placeholder message)
   4. Success/Content state
-- **Safety**: Wrap all screen contents in `SafeAreaView`. Wrap all async handlers in `try/catch`.
+- **Safety**: Wrap all async handlers in `try/catch`.
 - **Data Validation**: Validate external API data with TypeScript types or Zod schemas before consumption.
-- **Lists**: Use `FlatList` or `FlashList` for lists. Never use `ScrollView` with `.map()` for unbounded data arrays.
 - **Clean Code**: No `console.log` in committed production code. Clean up unhandled promise rejections.
 - **Style Rules**: Use existing design tokens and unified color theme. Never hardcode random hex colors without fallback tokens.
 
@@ -62,45 +51,7 @@ Hyperlocal Shop Discovery & Commerce Platform (Monorepo).
 - **Animation Specs**: Spring (damping 12-14, stiffness 100-200), Active press scale (0.95-0.98), Staggered entry delay (60-100ms)
 - **Touch Targets**: Minimum 44x44px for all pressable elements.
 
-
-## Multi-Agent Domain Division
-When running multiple agents in parallel, respect folder boundaries strictly:
-- **UIAgent**: Owns `/apps/mobile/src/screens/`, `/apps/mobile/src/components/`, `/apps/web-admin/src/`
-- **DataAgent**: Owns `/apps/mobile/src/services/`, `/apps/mobile/src/store/`
-- **ServerAgent**: Owns `/server/src/`
-- **TestAgent**: Owns `/apps/mobile/__tests__/`, `/server/src/__tests__/`
-*Rule*: No agent may mutate another agent's assigned directories. Inter-module wiring happens after domain tasks complete.
-
-## Execution Modes & Risk Policy
-- **Auto-continue Mode**: Default for general UI creation, refactoring, and feature work.
-- **Review-Driven Mode**: MANDATORY for authentication flows (`auth/`), payment gateway integrations (Razorpay), Prisma database migrations, native code (`/android/`, `/ios/`), and environment configuration (`.env`).
-
-## Terminal Permissions Policy
-
-### Allow List (Safe commands - run without prompt when in Turbo):
-- `npm run mobile:start`
-- `npm run server:dev`
-- `npm run prisma:generate`
-- `npm test`
-- `npx prettier --write`
-- `npx eslint --fix`
-
-### Deny List (Forbidden without explicit user confirmation):
-- `rm -rf` or `Remove-Item -Recurse -Force`
-- `git push --force` / `git reset --hard`
-- `npx prisma migrate reset` or database drop commands
-- Any command containing `production` or `eas submit`
-- Direct editing of native build files inside `/android` or `/ios`
-
-## Overview of Setup Files Created
-
-| File | Purpose |
-|------|---------|
-| `AGENTS.md` | Central brain file for CityLocalShop (stack, Dark Sky Blue / Neon design tokens, conventions, domain splits, permissions). |
-| `AGENTS.md` (Root) | Global workspace pointer to `CityLocalShop/.agents/AGENTS.md`. |
-| `new-screen` SKILL | Skill for building standard React Native Expo screens with 4 UI states, Dark Sky Blue design tokens, & SafeAreaView. |
-| `api-service` SKILL | Skill for building typed Axios API services with Zod validation & standard error handling. |
-| `write-tests` SKILL | Skill for generating Jest + React Native Testing Library test suites. |
-| `/newfeature` Workflow | Custom macro command for building full feature skeletons. |
-| `/review` Workflow | Custom macro command for automated code and design system compliance reviews. |
-| `/optimize` Workflow | Custom macro command for performance & re-render optimizations. |
+## Repositories & Execution Roles
+- **Backend API Server**: `CityLocalShop/server/` (Repo: `LocalShops`, branch `main`)
+- **Active Frontend / Hybrid App**: `temp_github_repo/` (Repo: `UI-design-lCS`, branch `main`)
+- **Legacy Mobile App**: `CityLocalShop/apps/mobile/` (IGNORED)
