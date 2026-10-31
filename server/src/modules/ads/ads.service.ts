@@ -417,16 +417,24 @@ export class AdsService {
         include: { product: { select: { category: true } } }
       });
 
+      if (!campaigns || campaigns.length === 0) {
+        return;
+      }
+
+      const validCampaignIds = new Set(campaigns.map(c => c.id));
+
       const today = new Date();
       today.setUTCHours(0, 0, 0, 0);
 
-      // Process unique reach
+      // Process unique reach for verified existing campaigns only
       const uniqueReachMap = new Map<string, number>();
-      if (newImpressionLogs.length > 0) {
+      const validImpressionLogs = newImpressionLogs.filter(log => validCampaignIds.has(log.promotedListingId));
+
+      if (validImpressionLogs.length > 0) {
         // Find existing logs for these campaign+device combinations to filter out duplicates
         const existingLogs = await prisma.adImpressionLog.findMany({
           where: {
-            OR: newImpressionLogs.map(log => ({
+            OR: validImpressionLogs.map(log => ({
               promotedListingId: log.promotedListingId,
               deviceId: log.deviceId
             }))
@@ -435,7 +443,7 @@ export class AdsService {
         });
 
         const existingSet = new Set(existingLogs.map(l => `${l.promotedListingId}::${l.deviceId}`));
-        const newUniqueLogs = newImpressionLogs.filter(log => !existingSet.has(`${log.promotedListingId}::${log.deviceId}`));
+        const newUniqueLogs = validImpressionLogs.filter(log => !existingSet.has(`${log.promotedListingId}::${log.deviceId}`));
 
         // Deduplicate the new logs array itself so we don't count the same device twice in one batch
         const uniqueToInsert = Array.from(new Set(newUniqueLogs.map(l => `${l.promotedListingId}::${l.deviceId}`)))
@@ -445,15 +453,19 @@ export class AdsService {
           });
 
         if (uniqueToInsert.length > 0) {
-          await prisma.adImpressionLog.createMany({
-            data: uniqueToInsert,
-            skipDuplicates: true
-          });
+          try {
+            await prisma.adImpressionLog.createMany({
+              data: uniqueToInsert,
+              skipDuplicates: true
+            });
 
-          // Aggregate reach counts
-          uniqueToInsert.forEach(log => {
-            uniqueReachMap.set(log.promotedListingId, (uniqueReachMap.get(log.promotedListingId) || 0) + 1);
-          });
+            // Aggregate reach counts
+            uniqueToInsert.forEach(log => {
+              uniqueReachMap.set(log.promotedListingId, (uniqueReachMap.get(log.promotedListingId) || 0) + 1);
+            });
+          } catch (err) {
+            console.warn("[AdsService] createMany AdImpressionLog skipped:", err.message);
+          }
         }
       }
 
