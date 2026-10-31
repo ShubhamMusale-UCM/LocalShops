@@ -75,9 +75,21 @@ export class OrderService {
       throw new AppError('Some products are unavailable or do not belong to this shop.', 400);
     }
 
-    const outOfStock = products.filter(p => !p.inStock);
+    const outOfStock = products.filter(p => !p.inStock || (typeof p.quantity === 'number' && p.quantity <= 0));
     if (outOfStock.length > 0) {
       throw new AppError(`Out of stock: ${outOfStock.map(p => p.name).join(', ')}`, 400);
+    }
+
+    const insufficientStock = data.items.filter(item => {
+      const p = products.find(prod => prod.id === item.productId);
+      return p && typeof p.quantity === 'number' && p.quantity < item.quantity;
+    });
+    if (insufficientStock.length > 0) {
+      const names = insufficientStock.map(item => {
+        const p = products.find(prod => prod.id === item.productId)!;
+        return `${p.name} (only ${p.quantity} left)`;
+      });
+      throw new AppError(`Insufficient stock for: ${names.join(', ')}`, 400);
     }
 
     // Calculate totals using actual DB prices (not client-submitted prices)
@@ -424,8 +436,8 @@ export class OrderService {
       PLACED: ['CONFIRMED', 'CANCELLED'],
       CONFIRMED: ['PREPARING', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'],
       PREPARING: ['READY_FOR_PICKUP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'],
-      READY_FOR_PICKUP: ['DELIVERED'],
-      OUT_FOR_DELIVERY: ['DELIVERED'],
+      READY_FOR_PICKUP: ['DELIVERED', 'CANCELLED'],
+      OUT_FOR_DELIVERY: ['DELIVERED', 'CANCELLED'],
       DELIVERED: ['REFUNDED'],
       CANCELLED: [],
       REFUNDED: [],
@@ -439,7 +451,11 @@ export class OrderService {
     const updateData: any = {
       status,
       statusHistory: [...toStatusHistory(order.statusHistory), {
-        status, note, updatedAt: new Date().toISOString(), updatedBy: userId,
+        status,
+        note: note || (status === 'CANCELLED' ? 'Declined by seller' : undefined),
+        cancelledBy: status === 'CANCELLED' ? 'SELLER' : undefined,
+        updatedAt: new Date().toISOString(),
+        updatedBy: userId,
       }],
     };
 
@@ -485,7 +501,7 @@ export class OrderService {
       }
 
       // Restore stock when cancelling an already confirmed order
-      if (status === 'CANCELLED' && ['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP'].includes(order.status)) {
+      if (status === 'CANCELLED' && ['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY'].includes(order.status)) {
         for (const item of updatedOrder.items) {
           const product = await tx.product.findUnique({ where: { id: item.productId } });
           if (product && typeof product.quantity === 'number') {
@@ -502,6 +518,18 @@ export class OrderService {
       }
 
       if (status === 'CANCELLED' && order.status !== 'CANCELLED') {
+        // Decrement product orderCounts and shop totalOrders
+        for (const item of updatedOrder.items) {
+          await tx.product.updateMany({
+            where: { id: item.productId, orderCount: { gt: 0 } },
+            data: { orderCount: { decrement: 1 } },
+          });
+        }
+        await tx.shop.updateMany({
+          where: { id: order.shopId, totalOrders: { gt: 0 } },
+          data: { totalOrders: { decrement: 1 } },
+        });
+
         const orderDate = new Date(order.createdAt);
         orderDate.setUTCHours(0, 0, 0, 0);
         await tx.shopAnalytics.upsert({
@@ -510,8 +538,7 @@ export class OrderService {
           create: { shopId: order.shopId, date: orderDate, views: 0, uniqueViews: 0, orders: 0, revenue: 0, calls: 0, whatsappClicks: 0, directions: 0 }
         });
 
-        // REVERSE AD ATTRIBUTION
-        // If this order was attributed to an ad campaign, we must remove the revenue and conversions
+        // REVERSE AD ATTRIBUTION (PromotedListing + AdDailyMetricRollup)
         if (updatedOrder.adCampaignId) {
           const reversedConversions = updatedOrder.items.reduce((sum, item) => sum + item.quantity, 0);
           const reversedRevenue = updatedOrder.items.reduce((sum, item) => sum + item.total, 0);
@@ -521,6 +548,18 @@ export class OrderService {
             data: {
               revenue: { decrement: reversedRevenue },
               conversions: { decrement: reversedConversions }
+            }
+          });
+
+          await tx.adDailyMetricRollup.updateMany({
+            where: {
+              promotedListingId: updatedOrder.adCampaignId,
+              date: orderDate,
+              hour: 0,
+            },
+            data: {
+              conversions: { decrement: reversedConversions },
+              revenue: { decrement: reversedRevenue },
             }
           });
         }
@@ -548,8 +587,8 @@ export class OrderService {
     try {
       const { orderSocket } = require('../../app');
       if (orderSocket) {
-        orderSocket.notifyCustomerOrderUpdate(orderId, status);
-        orderSocket.notifySellerOrderUpdate(updated.shopId, orderId, status);
+        orderSocket.notifyCustomerOrderUpdate(orderId, status, note);
+        orderSocket.notifySellerOrderUpdate(updated.shopId, orderId, status, note);
       }
     } catch (e) {
       console.warn('Socket emit failed for order update:', e);
@@ -625,7 +664,7 @@ export class OrderService {
     if (!order) throw new AppError('Order not found.', 404);
     if (order.userId !== userId) throw new AppError('Not authorized.', 403);
 
-    const cancellableStatuses = ['PLACED', 'CONFIRMED'];
+    const cancellableStatuses = ['PLACED', 'CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP'];
     if (!cancellableStatuses.includes(order.status)) {
       throw new AppError('Order cannot be cancelled at this stage.', 400);
     }
@@ -635,15 +674,20 @@ export class OrderService {
         where: { id: orderId },
         data: {
           status: 'CANCELLED',
+          ...(order.paymentStatus === 'COMPLETED' ? { paymentStatus: 'REFUND_PENDING' } : {}),
           statusHistory: [...toStatusHistory(order.statusHistory), {
-            status: 'CANCELLED', note: reason || 'Cancelled by buyer', updatedAt: new Date().toISOString(), updatedBy: userId,
+            status: 'CANCELLED',
+            note: reason || 'Cancelled by buyer',
+            cancelledBy: 'BUYER',
+            updatedAt: new Date().toISOString(),
+            updatedBy: userId,
           }],
         },
         include: { items: true },
       });
 
-      // Restore stock if it was confirmed
-      if (order.status === 'CONFIRMED') {
+      // Restore stock if stock was already deducted (CONFIRMED, PREPARING, READY_FOR_PICKUP)
+      if (['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP'].includes(order.status)) {
         for (const item of updatedOrder.items) {
           const product = await tx.product.findUnique({ where: { id: item.productId } });
           if (product && typeof (product as any).quantity === 'number') {
@@ -659,6 +703,18 @@ export class OrderService {
         }
       }
 
+      // Decrement product orderCounts and shop totalOrders
+      for (const item of updatedOrder.items) {
+        await tx.product.updateMany({
+          where: { id: item.productId, orderCount: { gt: 0 } },
+          data: { orderCount: { decrement: 1 } },
+        });
+      }
+      await tx.shop.updateMany({
+        where: { id: order.shopId, totalOrders: { gt: 0 } },
+        data: { totalOrders: { decrement: 1 } },
+      });
+
       // Real-time ShopAnalytics update (decrement)
       const today = new Date(order.createdAt);
       today.setUTCHours(0, 0, 0, 0);
@@ -667,6 +723,32 @@ export class OrderService {
         update: { orders: { decrement: 1 }, revenue: { decrement: order.total } },
         create: { shopId: order.shopId, date: today, views: 0, uniqueViews: 0, orders: 0, revenue: 0, calls: 0, whatsappClicks: 0, directions: 0 }
       });
+
+      // Reverse Ad Attribution if order was attributed to a campaign
+      if (updatedOrder.adCampaignId) {
+        const reversedConversions = updatedOrder.items.reduce((sum, item) => sum + item.quantity, 0);
+        const reversedRevenue = updatedOrder.items.reduce((sum, item) => sum + item.total, 0);
+
+        await tx.promotedListing.updateMany({
+          where: { id: updatedOrder.adCampaignId },
+          data: {
+            revenue: { decrement: reversedRevenue },
+            conversions: { decrement: reversedConversions }
+          }
+        });
+
+        await tx.adDailyMetricRollup.updateMany({
+          where: {
+            promotedListingId: updatedOrder.adCampaignId,
+            date: today,
+            hour: 0,
+          },
+          data: {
+            conversions: { decrement: reversedConversions },
+            revenue: { decrement: reversedRevenue },
+          }
+        });
+      }
 
       return updatedOrder;
     });
@@ -694,7 +776,7 @@ export class OrderService {
     }
 
     // Invalidate product caches when stock is restored
-    if (order.status === 'CONFIRMED') {
+    if (['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP'].includes(order.status)) {
       try {
         for (const item of result.items) {
           await cacheDelete(`product:${item.productId}`);
@@ -709,7 +791,8 @@ export class OrderService {
     try {
       const { orderSocket } = require('../../app');
       if (orderSocket) {
-        orderSocket.notifySellerOrderUpdate(result.shopId, orderId, 'CANCELLED');
+        orderSocket.notifySellerOrderUpdate(result.shopId, orderId, 'CANCELLED', reason || 'Cancelled by buyer');
+        orderSocket.notifyCustomerOrderUpdate(orderId, 'CANCELLED', reason || 'Cancelled by buyer');
       }
     } catch (e) {
       console.warn('Socket emit failed for order cancellation:', e);
