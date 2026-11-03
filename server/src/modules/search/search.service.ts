@@ -2,6 +2,7 @@ import adsService from '../ads/ads.service';
 import prisma from '../../config/database';
 import { AppError } from '../../middleware/errorHandler.middleware';
 import { cacheGet, cacheSet } from '../../config/redis';
+import { haversineDistance } from '../../utils/geoUtils';
 
 export class SearchService {
   /**
@@ -87,6 +88,8 @@ export class SearchService {
         isSponsored: true,
         campaignId: ad.id,
         sponsoredListingId: ad.id,
+        shopDistance_km: (ad as any).geo?.distanceKm != null ? Number((ad as any).geo.distanceKm.toFixed(1)) : null,
+        distance_km: (ad as any).geo?.distanceKm != null ? Number((ad as any).geo.distanceKm.toFixed(1)) : null,
       }));
     }
 
@@ -99,7 +102,7 @@ export class SearchService {
     const products = await prisma.product.findMany({
       where: organicWhereClause,
       include: {
-        shop: { select: { id: true, name: true, slug: true, logo: true, coverImage: true, averageRating: true, address: true, city: true } },
+        shop: { select: { id: true, name: true, slug: true, logo: true, coverImage: true, averageRating: true, address: true, city: true, latitude: true, longitude: true } },
       },
       skip: offset,
       take: limit,
@@ -111,11 +114,19 @@ export class SearchService {
       filtered = products.filter((p) => (p.averageRating || 0) >= filters.minRating!);
     }
 
-    const mappedOrganic = filtered.map((p) => ({
-      ...p,
-      isBoosted: false,
-      isSponsored: false,
-    }));
+    const mappedOrganic = filtered.map((p) => {
+      let shopDistance_km: number | null = null;
+      if (lat != null && lng != null && p.shop?.latitude != null && p.shop?.longitude != null && (p.shop.latitude !== 0 || p.shop.longitude !== 0)) {
+        shopDistance_km = Number(haversineDistance(lat, lng, p.shop.latitude, p.shop.longitude).toFixed(1));
+      }
+      return {
+        ...p,
+        isBoosted: false,
+        isSponsored: false,
+        shopDistance_km,
+        distance_km: shopDistance_km,
+      };
+    });
 
     const finalProducts = offset === 0 ? [...sponsoredProducts, ...mappedOrganic] : mappedOrganic;
     const total = await prisma.product.count({ where: whereClause });
@@ -133,30 +144,35 @@ export class SearchService {
     keyword?: string,
     limit: number = 20
   ) {
-    // Using PostGIS distance calculation
-    const shops = await prisma.$queryRaw<any[]>`
-      SELECT 
-        s.*,
-        u."latitude",
-        u."longitude",
-        ST_Distance(
-          ST_MakePoint(u."longitude", u."latitude")::geography,
-          ST_MakePoint(${longitude}, ${latitude})::geography
-        ) as distance
-      FROM "Shop" s
-      JOIN "User" u ON s."ownerId" = u."id"
-      WHERE u.role = 'SELLER'
-        AND s."isActive" = true
-        ${keyword ? `AND (s.name ILIKE ${'%' + keyword + '%'} OR s.description ILIKE ${'%' + keyword + '%'})` : ''}
-        AND ST_Distance(
-          ST_MakePoint(u."longitude", u."latitude")::geography,
-          ST_MakePoint(${longitude}, ${latitude})::geography
-        ) <= ${maxDistance}
-      ORDER BY distance ASC
-      LIMIT ${limit}
-    `;
+    const maxDistKm = maxDistance / 1000;
+    const shops = await prisma.shop.findMany({
+      where: {
+        isActive: true,
+        NOT: { AND: [{ latitude: 0 }, { longitude: 0 }] },
+        ...(keyword
+          ? {
+              OR: [
+                { name: { contains: keyword, mode: 'insensitive' } },
+                { description: { contains: keyword, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      },
+      take: limit * 5,
+    });
 
-    return shops;
+    return shops
+      .map((shop) => {
+        const distKm = haversineDistance(latitude, longitude, shop.latitude, shop.longitude);
+        return {
+          ...shop,
+          distance: Math.round(distKm * 1000),
+          distance_km: Number(distKm.toFixed(1)),
+        };
+      })
+      .filter((shop) => shop.distance_km <= maxDistKm)
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, limit);
   }
 
   /**
@@ -169,34 +185,49 @@ export class SearchService {
     category?: string,
     limit: number = 20
   ) {
-    const products = await prisma.$queryRaw<any[]>`
-      SELECT 
-        p.*,
-        s.name as "shopName",
-        s.id as "shopId",
-        u."latitude" as "shopLatitude",
-        u."longitude" as "shopLongitude",
-        ST_Distance(
-          ST_MakePoint(u."longitude", u."latitude")::geography,
-          ST_MakePoint(${longitude}, ${latitude})::geography
-        ) as distance
-      FROM "Product" p
-      JOIN "Shop" s ON p."shopId" = s."id"
-      JOIN "User" u ON s."ownerId" = u."id"
-      WHERE u.role = 'SELLER'
-        AND s."isActive" = true
-        AND p."isActive" = true
-        ${category ? `AND p.category = '${category}'` : ''}
-        AND p."inStock" = true
-        AND ST_Distance(
-          ST_MakePoint(u."longitude", u."latitude")::geography,
-          ST_MakePoint(${longitude}, ${latitude})::geography
-        ) <= ${maxDistance}
-      ORDER BY distance ASC, p."price" ASC
-      LIMIT ${limit}
-    `;
+    const maxDistKm = maxDistance / 1000;
+    const products = await prisma.product.findMany({
+      where: {
+        isActive: true,
+        inStock: true,
+        ...(category ? { category } : {}),
+        shop: {
+          isActive: true,
+          NOT: { AND: [{ latitude: 0 }, { longitude: 0 }] },
+        },
+      },
+      include: {
+        shop: {
+          select: {
+            id: true,
+            name: true,
+            latitude: true,
+            longitude: true,
+            city: true,
+            address: true,
+            logo: true,
+          },
+        },
+      },
+      take: limit * 5,
+    });
 
-    return products;
+    return products
+      .map((p) => {
+        const distKm = haversineDistance(latitude, longitude, p.shop.latitude, p.shop.longitude);
+        return {
+          ...p,
+          shopName: p.shop.name,
+          shopLatitude: p.shop.latitude,
+          shopLongitude: p.shop.longitude,
+          distance: Math.round(distKm * 1000),
+          shopDistance_km: Number(distKm.toFixed(1)),
+          distance_km: Number(distKm.toFixed(1)),
+        };
+      })
+      .filter((p) => p.distance_km <= maxDistKm)
+      .sort((a, b) => a.distance - b.distance || a.price - b.price)
+      .slice(0, limit);
   }
 
   /**

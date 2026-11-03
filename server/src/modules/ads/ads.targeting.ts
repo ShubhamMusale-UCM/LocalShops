@@ -32,8 +32,8 @@ export const evaluateGeoTarget = (
   shop: { latitude?: number | null; longitude?: number | null; city?: string | null },
   buyer: BuyerContext
 ): { eligible: boolean; distanceKm: number | null } => {
-  const hasBuyerGeo = typeof buyer.lat === 'number' && typeof buyer.lng === 'number';
-  const hasShopGeo = typeof shop.latitude === 'number' && typeof shop.longitude === 'number';
+  const hasBuyerGeo = typeof buyer.lat === 'number' && typeof buyer.lng === 'number' && !Number.isNaN(buyer.lat) && !Number.isNaN(buyer.lng) && (buyer.lat !== 0 || buyer.lng !== 0);
+  const hasShopGeo = typeof shop.latitude === 'number' && typeof shop.longitude === 'number' && !Number.isNaN(shop.latitude) && !Number.isNaN(shop.longitude) && (shop.latitude !== 0 || shop.longitude !== 0);
   const distanceKm =
     hasBuyerGeo && hasShopGeo
       ? haversineDistance(buyer.lat as number, buyer.lng as number, shop.latitude as number, shop.longitude as number)

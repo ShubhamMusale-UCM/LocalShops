@@ -234,15 +234,22 @@ export const searchProducts = async (params: SearchParams) => {
       return true;
     });
     const isSponsored = Boolean(liveListing);
+    const hasShopCoords =
+      typeof product.shop?.latitude === 'number' &&
+      typeof product.shop?.longitude === 'number' &&
+      (product.shop.latitude !== 0 || product.shop.longitude !== 0);
+    const computedDist =
+      hasGeo && hasShopCoords
+        ? Number(haversineDistance(latitude, longitude, product.shop.latitude, product.shop.longitude).toFixed(1))
+        : undefined;
 
     return {
       ...normalized,
       isSponsored,
       sponsoredListingId: isSponsored ? liveListing.id : null,
       sponsoredPriority: isSponsored ? 1 : 0,
-      shopDistance_km: hasGeo
-        ? haversineDistance(latitude, longitude, product.shop.latitude, product.shop.longitude)
-        : undefined,
+      shopDistance_km: computedDist,
+      distance_km: computedDist,
     };
   });
 
@@ -257,7 +264,7 @@ export const searchProducts = async (params: SearchParams) => {
     results.sort((a, b) => {
       const sponsoredDiff = (b.sponsoredPriority || 0) - (a.sponsoredPriority || 0);
       if (sponsoredDiff !== 0) return sponsoredDiff;
-      return (a.shopDistance_km || 0) - (b.shopDistance_km || 0);
+      return (a.shopDistance_km ?? Number.MAX_SAFE_INTEGER) - (b.shopDistance_km ?? Number.MAX_SAFE_INTEGER);
     });
   }
 

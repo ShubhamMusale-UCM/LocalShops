@@ -41,8 +41,18 @@ export const cacheDelete = async (key: string): Promise<void> => {
 
 export const cacheDeletePattern = async (pattern: string): Promise<void> => {
   try {
-    const keys = await redis.keys(pattern);
-    if (keys.length > 0) await redis.del(...keys);
+    let cursor = '0';
+    do {
+      const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+      cursor = nextCursor;
+      if (keys.length > 0) {
+        if (typeof (redis as any).unlink === 'function') {
+          await (redis as any).unlink(...keys);
+        } else {
+          await redis.del(...keys);
+        }
+      }
+    } while (cursor !== '0');
   } catch (err) {
     console.error('Cache delete pattern error:', err);
   }

@@ -2,7 +2,8 @@ import redis from '../../config/redis';
 import prisma from '../../config/database';
 import { TargetGender } from '@prisma/client';
 import { AppError } from '../../middleware/errorHandler.middleware';
-import { cacheDelete, cacheGet, cacheSet } from '../../config/redis';
+import { cacheDelete, cacheDeletePattern, cacheGet, cacheSet } from '../../config/redis';
+import { runTelemetrySyncNow } from '../../jobs/telemetrySync.job';
 import { getBoundingBox, haversineDistance } from '../../utils/geoUtils';
 import { evaluateGeoTarget, bidForObjective, normalizeCity, MAX_TARGET_RADIUS_KM, MIN_DAILY_BUDGET } from './ads.targeting';
 
@@ -149,7 +150,7 @@ export class AdsService {
 
     await Promise.all([
       cacheDelete(`shop:${shopId}:ads`),
-      cacheDelete(`shop:${shopId}:analytics`),
+      cacheDeletePattern(`shop:${shopId}:analytics*`),
       cacheDelete(`shop:${shopId}:daily-metrics`),
       cacheDelete(`product:${productId}`),
     ]).catch(() => {});
@@ -227,7 +228,7 @@ export class AdsService {
 
     await Promise.all([
       cacheDelete(`shop:${updated.shopId}:ads`),
-      cacheDelete(`shop:${updated.shopId}:analytics`),
+      cacheDeletePattern(`shop:${updated.shopId}:analytics*`),
       cacheDelete(`shop:${updated.shopId}:daily-metrics`),
       cacheDelete(`product:${updated.productId}`),
     ]).catch(() => {});
@@ -264,7 +265,7 @@ export class AdsService {
 
     await Promise.all([
       cacheDelete(`shop:${updated.shopId}:ads`),
-      cacheDelete(`shop:${updated.shopId}:analytics`),
+      cacheDeletePattern(`shop:${updated.shopId}:analytics*`),
       cacheDelete(`shop:${updated.shopId}:daily-metrics`),
       cacheDelete(`product:${updated.productId}`),
     ]).catch(() => {});
@@ -347,8 +348,12 @@ export class AdsService {
     return { success: true, count: uniqueAdIds.length };
   }
 
-  async processBatchTelemetry(events: { campaignId: string; productId: string; type: 'impression' | 'click' | 'view' | 'cart_add' | 'conversion'; keyword?: string; productPrice?: number; timestamp: number; deviceId?: string }[]) {
+  async processBatchTelemetry(events: { campaignId?: string; productId: string; shopId?: string; type: 'impression' | 'click' | 'view' | 'cart_add' | 'conversion'; keyword?: string; productPrice?: number; timestamp: number; deviceId?: string }[]) {
     if (!events || events.length === 0) return;
+
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const dateKey = today.toISOString().slice(0, 10);
 
     const impressionsMap = new Map<string, number>();
     const clicksMap = new Map<string, number>();
@@ -359,41 +364,94 @@ export class AdsService {
     
     // Map of CampaignId_Keyword -> { impressions, clicks }
     const keywordStatsMap = new Map<string, { impressions: number; clicks: number }>();
-    const newImpressionLogs: { promotedListingId: string; deviceId: string }[] = [];
 
-    // FRAUD PROTECTION: Cross-request click deduplication using Redis
-    // A legitimate user can only generate 1 meaningful click per campaign per 1-hour window.
+    // 1. Process Product & Shop Telemetry (Organic + Sponsored) + Ad Telemetry
     await Promise.all(events.map(async (e) => {
       const deviceId = e.deviceId || (e as any).deviceId || 'device-anon';
-      if (e.type === 'impression') {
-        impressionsMap.set(e.campaignId, (impressionsMap.get(e.campaignId) || 0) + 1);
-        newImpressionLogs.push({ promotedListingId: e.campaignId, deviceId });
-      }
-      let clickAcquired = false;
-      if (e.type === 'click') {
-        const clickKey = `adclick:${e.campaignId}:${deviceId}`;
-        // SETNX with 1-hour expiration
-        const acquired = await redis.set(clickKey, '1', 'EX', 3600, 'NX');
-        if (acquired) {
-          clickAcquired = true;
-          clicksMap.set(e.campaignId, (clicksMap.get(e.campaignId) || 0) + 1);
+      const productId = e.productId;
+      const shopId = (e as any).shopId;
+
+      // Product-level telemetry
+      if (productId) {
+        if (e.type === 'impression') {
+          // 30-min sliding window deduplication for feed card impressions
+          const dedupKey = `dedup:imp:${dateKey}:${productId}:${deviceId}`;
+          const isNew = await redis.set(dedupKey, '1', 'EX', 1800, 'NX');
+          if (isNew) {
+            await Promise.all([
+              redis.hincrby(`telemetry:prod:imp:${dateKey}`, productId, 1),
+              redis.pfadd(`hll:prod:imp:${dateKey}:${productId}`, deviceId),
+              redis.expire(`hll:prod:imp:${dateKey}:${productId}`, 172800),
+              ...(shopId ? [
+                redis.hincrby(`telemetry:shop:prod_imp:${dateKey}`, shopId, 1),
+                redis.pfadd(`hll:shop:view:${dateKey}:${shopId}`, deviceId),
+                redis.expire(`hll:shop:view:${dateKey}:${shopId}`, 172800),
+              ] : []),
+            ]);
+          }
+        } else if (e.type === 'view') {
+          // 15-min sliding window deduplication for verified detail modal opens
+          const dedupKey = `dedup:view:${dateKey}:${productId}:${deviceId}`;
+          const isNew = await redis.set(dedupKey, '1', 'EX', 900, 'NX');
+          if (isNew) {
+            await Promise.all([
+              redis.hincrby(`telemetry:prod:view:${dateKey}`, productId, 1),
+              redis.pfadd(`hll:prod:view:${dateKey}:${productId}`, deviceId),
+              redis.expire(`hll:prod:view:${dateKey}:${productId}`, 172800),
+              ...(shopId ? [
+                redis.hincrby(`telemetry:shop:prod_view:${dateKey}`, shopId, 1),
+                redis.pfadd(`hll:shop:view:${dateKey}:${shopId}`, deviceId),
+                redis.expire(`hll:shop:view:${dateKey}:${shopId}`, 172800),
+                ...((e as any).isOutOfStock ? [
+                  redis.hincrby(`telemetry:shop:oos_views:${dateKey}`, shopId, 1),
+                  redis.expire(`telemetry:shop:oos_views:${dateKey}`, 172800),
+                ] : []),
+              ] : []),
+            ]);
+          }
+        } else if (e.type === 'cart_add') {
+          await Promise.all([
+            redis.hincrby(`telemetry:prod:cart:${dateKey}`, productId, 1),
+            ...(shopId ? [redis.hincrby(`telemetry:shop:cart:${dateKey}`, shopId, 1)] : []),
+          ]);
         }
       }
-      if (e.type === 'view') viewsMap.set(e.campaignId, (viewsMap.get(e.campaignId) || 0) + 1);
-      if (e.type === 'cart_add') cartAddsMap.set(e.campaignId, (cartAddsMap.get(e.campaignId) || 0) + 1);
-      if (e.type === 'conversion') {
-        conversionsMap.set(e.campaignId, (conversionsMap.get(e.campaignId) || 0) + 1);
-        if (typeof e.productPrice === 'number' && e.productPrice > 0) {
-          revenueMap.set(e.campaignId, (revenueMap.get(e.campaignId) || 0) + e.productPrice);
+
+      // Campaign-specific telemetry (Sponsored Ads)
+      if (e.campaignId) {
+        let clickAcquired = false;
+        if (e.type === 'impression') {
+          const adDedupKey = `dedup:ad:imp:${dateKey}:${e.campaignId}:${deviceId}`;
+          const isNew = await redis.set(adDedupKey, '1', 'EX', 1800, 'NX');
+          if (isNew) {
+            impressionsMap.set(e.campaignId, (impressionsMap.get(e.campaignId) || 0) + 1);
+            await Promise.all([
+              redis.pfadd(`hll:ad:reach:${dateKey}:${e.campaignId}`, deviceId),
+              redis.expire(`hll:ad:reach:${dateKey}:${e.campaignId}`, 172800),
+            ]);
+          }
+        } else if (e.type === 'click') {
+          const clickKey = `adclick:${e.campaignId}:${deviceId}`;
+          // 1-hour anti-fraud deduplication window
+          const acquired = await redis.set(clickKey, '1', 'EX', 3600, 'NX');
+          if (acquired) {
+            clickAcquired = true;
+            clicksMap.set(e.campaignId, (clicksMap.get(e.campaignId) || 0) + 1);
+          }
+        } else if (e.type === 'view') {
+          viewsMap.set(e.campaignId, (viewsMap.get(e.campaignId) || 0) + 1);
+        } else if (e.type === 'cart_add') {
+          cartAddsMap.set(e.campaignId, (cartAddsMap.get(e.campaignId) || 0) + 1);
         }
-      }
-      if (e.keyword && e.keyword.trim().length > 0) {
-        const kw = e.keyword.trim().toLowerCase();
-        const key = `${e.campaignId}::${kw}`;
-        const existing = keywordStatsMap.get(key) || { impressions: 0, clicks: 0 };
-        if (e.type === 'impression') existing.impressions += 1;
-        if (e.type === 'click' && clickAcquired) existing.clicks += 1;
-        keywordStatsMap.set(key, existing);
+
+        if (e.keyword && e.keyword.trim().length > 0) {
+          const kw = e.keyword.trim().toLowerCase();
+          const key = `${e.campaignId}::${kw}`;
+          const existing = keywordStatsMap.get(key) || { impressions: 0, clicks: 0 };
+          if (e.type === 'impression') existing.impressions += 1;
+          if (e.type === 'click' && clickAcquired) existing.clicks += 1;
+          keywordStatsMap.set(key, existing);
+        }
       }
     }));
 
@@ -401,6 +459,10 @@ export class AdsService {
     clicksMap.forEach((count, id) => {
       if (count > 50) clicksMap.set(id, 50);
     });
+
+    // Flush product & shop telemetry immediately so organic and promoted views/impressions
+    // reflect in PostgreSQL and trigger live socket updates without waiting for the 60s worker
+    await runTelemetrySyncNow().catch(() => {});
 
     // Collect all unique campaign IDs across all event types
     const allCampaignIds = Array.from(new Set([
@@ -410,6 +472,10 @@ export class AdsService {
       ...cartAddsMap.keys(),
       ...conversionsMap.keys(),
     ]));
+
+    if (allCampaignIds.length === 0) {
+      return;
+    }
 
     try {
       const campaigns = await prisma.promotedListing.findMany({
@@ -423,63 +489,18 @@ export class AdsService {
 
       const validCampaignIds = new Set(campaigns.map(c => c.id));
 
-      const today = new Date();
-      today.setUTCHours(0, 0, 0, 0);
-
-      // Process unique reach for verified existing campaigns only
-      const uniqueReachMap = new Map<string, number>();
-      const validImpressionLogs = newImpressionLogs.filter(log => validCampaignIds.has(log.promotedListingId));
-
-      if (validImpressionLogs.length > 0) {
-        // Find existing logs for these campaign+device combinations to filter out duplicates
-        const existingLogs = await prisma.adImpressionLog.findMany({
-          where: {
-            OR: validImpressionLogs.map(log => ({
-              promotedListingId: log.promotedListingId,
-              deviceId: log.deviceId
-            }))
-          },
-          select: { promotedListingId: true, deviceId: true }
-        });
-
-        const existingSet = new Set(existingLogs.map(l => `${l.promotedListingId}::${l.deviceId}`));
-        const newUniqueLogs = validImpressionLogs.filter(log => !existingSet.has(`${log.promotedListingId}::${log.deviceId}`));
-
-        // Deduplicate the new logs array itself so we don't count the same device twice in one batch
-        const uniqueToInsert = Array.from(new Set(newUniqueLogs.map(l => `${l.promotedListingId}::${l.deviceId}`)))
-          .map(str => {
-            const [promotedListingId, deviceId] = str.split('::');
-            return { promotedListingId, deviceId };
-          });
-
-        if (uniqueToInsert.length > 0) {
-          try {
-            await prisma.adImpressionLog.createMany({
-              data: uniqueToInsert,
-              skipDuplicates: true
-            });
-
-            // Aggregate reach counts
-            uniqueToInsert.forEach(log => {
-              uniqueReachMap.set(log.promotedListingId, (uniqueReachMap.get(log.promotedListingId) || 0) + 1);
-            });
-          } catch (err) {
-            console.warn("[AdsService] createMany AdImpressionLog skipped:", err.message);
-          }
-        }
-      }
-
       const ops: any[] = [];
 
       for (const campaign of campaigns) {
-        const rawImpCount = impressionsMap.get(campaign.id) || 0;
+        const impCount = impressionsMap.get(campaign.id) || 0;
         const clickCount = clicksMap.get(campaign.id) || 0;
-        const impCount = Math.max(rawImpCount, clickCount);
         const viewCount = viewsMap.get(campaign.id) || 0;
         const cartAddCount = cartAddsMap.get(campaign.id) || 0;
         const conversionCount = conversionsMap.get(campaign.id) || 0;
         const revenueAmount = revenueMap.get(campaign.id) || 0;
-        const uniqueReachCount = uniqueReachMap.get(campaign.id) || 0;
+
+        // HyperLogLog gives true deduplicated unique reach in O(1) time without DB table explosion
+        const uniqueReachCount = await redis.pfcount(`hll:ad:reach:${dateKey}:${campaign.id}`).catch(() => 0);
 
         if (impCount > 0 || clickCount > 0 || viewCount > 0 || cartAddCount > 0 || conversionCount > 0 || revenueAmount > 0 || uniqueReachCount > 0) {
           try {
@@ -530,6 +551,20 @@ export class AdsService {
               const newSpent = lockedSpent + totalCost;
               const shouldDeactivate = newSpent >= budget;
 
+              // Check existing daily reach for today to compute only new delta for lifetime gauge
+              const existingRollup = await tx.adDailyMetricRollup.findUnique({
+                where: {
+                  promotedListingId_date_hour: {
+                    promotedListingId: campaign.id,
+                    date: today,
+                    hour: 0,
+                  }
+                },
+                select: { uniqueReach: true }
+              });
+              const prevDailyReach = existingRollup?.uniqueReach ?? 0;
+              const newUniqueReachGain = Math.max(0, uniqueReachCount - prevDailyReach);
+
               await tx.promotedListing.update({
                 where: { id: campaign.id },
                 data: {
@@ -538,7 +573,7 @@ export class AdsService {
                   ...(cartAddCount > 0 && { cartAdds: { increment: cartAddCount } }),
                   ...(conversionCount > 0 && { conversions: { increment: conversionCount } }),
                   ...(revenueAmount > 0 && { revenue: { increment: revenueAmount } }),
-                  ...(uniqueReachCount > 0 && { uniqueReach: { increment: uniqueReachCount } }),
+                  ...(newUniqueReachGain > 0 && { uniqueReach: { increment: newUniqueReachGain } }),
                   ...(clickCount > 0 && {
                     clicks: { increment: clickCount },
                     spent: { increment: totalCost },
@@ -563,7 +598,7 @@ export class AdsService {
                   cartAdds: { increment: cartAddCount },
                   conversions: { increment: conversionCount },
                   revenue: { increment: revenueAmount },
-                  uniqueReach: { increment: uniqueReachCount },
+                  uniqueReach: Math.max(prevDailyReach, uniqueReachCount),
                 },
                 create: {
                   promotedListingId: campaign.id,
@@ -624,7 +659,7 @@ export class AdsService {
       await Promise.all([
         ...shopIds.flatMap(id => [
           cacheDelete(`shop:${id}:ads`),
-          cacheDelete(`shop:${id}:analytics`),
+          cacheDeletePattern(`shop:${id}:analytics*`),
           cacheDelete(`shop:${id}:daily-metrics`),
         ]),
         ...productIds.map(pid => redis.del(`product:${pid}`)),
@@ -658,7 +693,7 @@ export class AdsService {
   }
 
   async getShopPromotionAnalytics(shopId: string) {
-    const cacheKey = `shop:${shopId}:analytics`;
+    const cacheKey = `shop:${shopId}:ads`;
     const cached = await cacheGet(cacheKey);
     if (cached) return cached;
 
@@ -676,16 +711,33 @@ export class AdsService {
             isActive: true,
           },
         },
-        keywordStats: {
-          select: {
-            keyword: true,
-            impressions: true,
-            clicks: true,
-          },
-        },
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    const campaignIds = campaigns.map((c) => c.id);
+    const keywordGroups =
+      campaignIds.length > 0
+        ? await prisma.campaignKeywordStat.groupBy({
+            by: ['promotedListingId', 'keyword'],
+            where: { promotedListingId: { in: campaignIds } },
+            _sum: { impressions: true, clicks: true },
+            orderBy: { _sum: { impressions: 'desc' } },
+          })
+        : [];
+
+    const kwByCampaign = new Map<string, { keyword: string; impressions: number; clicks: number }[]>();
+    for (const row of keywordGroups) {
+      const list = kwByCampaign.get(row.promotedListingId) || [];
+      if (list.length < 15) {
+        list.push({
+          keyword: row.keyword,
+          impressions: row._sum.impressions || 0,
+          clicks: row._sum.clicks || 0,
+        });
+        kwByCampaign.set(row.promotedListingId, list);
+      }
+    }
 
     const campaignAnalytics = campaigns.map((campaign) => {
       const safeImpressions = Math.max(campaign.impressions || 0, campaign.clicks || 0);
@@ -696,10 +748,8 @@ export class AdsService {
       const isDeletedProduct = !campaign.product.isActive;
       const isLive = !isDeletedProduct && isCampaignLive(campaign);
       
-      // Only return real DB keyword stats — never fabricate dummy fallback keywords
-      const topKeywords = (campaign.keywordStats || [])
-        .sort((a, b) => b.impressions - a.impressions)
-        .map(kw => ({ keyword: kw.keyword, impressions: kw.impressions, clicks: kw.clicks }));
+      // Only return real DB keyword stats aggregated across dates via SQL groupBy
+      const topKeywords = kwByCampaign.get(campaign.id) || [];
 
       const cpa = campaign.conversions ? campaign.spent / campaign.conversions : 0;
       const cvr = campaign.clicks ? (campaign.conversions || 0) / campaign.clicks * 100 : 0;
@@ -869,7 +919,7 @@ export class AdsService {
 
     await Promise.all([
       cacheDelete(`shop:${updated.shopId}:ads`),
-      cacheDelete(`shop:${updated.shopId}:analytics`),
+      cacheDeletePattern(`shop:${updated.shopId}:analytics*`),
       cacheDelete(`shop:${updated.shopId}:daily-metrics`),
       cacheDelete(`product:${updated.productId}`),
     ]).catch(() => {});
@@ -910,36 +960,39 @@ export class AdsService {
         clicks: true,
         spend: true,
         conversions: true,
+        revenue: true,
         views: true,
         cartAdds: true,
       },
     });
 
     // Aggregate by date across all campaigns
-    const byDate = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number; views: number; cartAdds: number; }>();
-    const campaignRollupTotals = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number; views: number; cartAdds: number; }>();
+    const byDate = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number; revenue: number; views: number; cartAdds: number; }>();
+    const campaignRollupTotals = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number; revenue: number; views: number; cartAdds: number; }>();
 
     for (const r of rollups) {
       const campId = r.promotedListingId;
       if (campId) {
-        const prev = campaignRollupTotals.get(campId) || { impressions: 0, clicks: 0, spend: 0, conversions: 0, views: 0, cartAdds: 0 };
+        const prev = campaignRollupTotals.get(campId) || { impressions: 0, clicks: 0, spend: 0, conversions: 0, revenue: 0, views: 0, cartAdds: 0 };
         campaignRollupTotals.set(campId, {
           impressions: prev.impressions + r.impressions,
           clicks: prev.clicks + r.clicks,
           spend: prev.spend + r.spend,
           conversions: prev.conversions + r.conversions,
+          revenue: prev.revenue + (r.revenue || 0),
           views: prev.views + (r.views || 0),
           cartAdds: prev.cartAdds + (r.cartAdds || 0),
         });
       }
 
       const key = r.date.toISOString().split('T')[0];
-      const existing = byDate.get(key) || { impressions: 0, clicks: 0, spend: 0, conversions: 0, views: 0, cartAdds: 0 };
+      const existing = byDate.get(key) || { impressions: 0, clicks: 0, spend: 0, conversions: 0, revenue: 0, views: 0, cartAdds: 0 };
       byDate.set(key, {
         impressions: existing.impressions + r.impressions,
         clicks: existing.clicks + r.clicks,
         spend: Number((existing.spend + r.spend).toFixed(2)),
         conversions: existing.conversions + r.conversions,
+        revenue: Number((existing.revenue + (r.revenue || 0)).toFixed(2)),
         views: existing.views + (r.views || 0),
         cartAdds: existing.cartAdds + (r.cartAdds || 0),
       });
@@ -959,29 +1012,32 @@ export class AdsService {
         clicks: true,
         spent: true,
         conversions: true,
+        revenue: true,
         views: true,
         cartAdds: true,
       },
     });
 
     for (const c of campaigns) {
-      const rolled = campaignRollupTotals.get(c.id) || { impressions: 0, clicks: 0, spend: 0, conversions: 0, views: 0, cartAdds: 0 };
+      const rolled = campaignRollupTotals.get(c.id) || { impressions: 0, clicks: 0, spend: 0, conversions: 0, revenue: 0, views: 0, cartAdds: 0 };
       const unrolledImpr = Math.max(0, c.impressions - rolled.impressions);
       const unrolledClicks = Math.max(0, c.clicks - rolled.clicks);
       const unrolledSpend = Math.max(0, Number((c.spent - rolled.spend).toFixed(2)));
       const unrolledConv = Math.max(0, c.conversions - rolled.conversions);
+      const unrolledRevenue = Math.max(0, Number(((c.revenue || 0) - rolled.revenue).toFixed(2)));
       const unrolledViews = Math.max(0, (c.views || 0) - rolled.views);
       const unrolledCartAdds = Math.max(0, (c.cartAdds || 0) - rolled.cartAdds);
 
       if (unrolledImpr > 0 || unrolledClicks > 0 || unrolledSpend > 0 || unrolledConv > 0) {
         const campaignDate = c.startDate || c.createdAt;
         const key = campaignDate.toISOString().split('T')[0];
-        const existing = byDate.get(key) || { impressions: 0, clicks: 0, spend: 0, conversions: 0, views: 0, cartAdds: 0 };
+        const existing = byDate.get(key) || { impressions: 0, clicks: 0, spend: 0, conversions: 0, revenue: 0, views: 0, cartAdds: 0 };
         byDate.set(key, {
           impressions: existing.impressions + unrolledImpr,
           clicks: existing.clicks + unrolledClicks,
           spend: Number((existing.spend + unrolledSpend).toFixed(2)),
           conversions: existing.conversions + unrolledConv,
+          revenue: Number((existing.revenue + unrolledRevenue).toFixed(2)),
           views: existing.views + unrolledViews,
           cartAdds: existing.cartAdds + unrolledCartAdds,
         });
@@ -1004,10 +1060,12 @@ export class AdsService {
   }) {
     const { limit = 10, query, keywords, category, lat, lng, city, userId, userGender } = params;
     
-    if (lat === undefined || lng === undefined) {
+    const hasCoords = typeof lat === 'number' && typeof lng === 'number' && !Number.isNaN(lat) && !Number.isNaN(lng) && (lat !== 0 || lng !== 0);
+    if (!hasCoords && !city) {
       return [];
     }
 
+    const andConditions: any[] = [];
     const whereClause: any = {
       isActive: true,
       startDate: { lte: new Date() },
@@ -1040,22 +1098,44 @@ export class AdsService {
     whereClause.product = productQuery;
 
     if (userGender && userGender !== 'OTHER') {
-      whereClause.OR = [
-        { targetGender: 'ALL' },
-        { targetGender: userGender }
-      ];
+      andConditions.push({
+        OR: [
+          { targetGender: 'ALL' },
+          { targetGender: userGender }
+        ]
+      });
     } else {
       whereClause.targetGender = 'ALL';
     }
 
-    whereClause.shop = {};
-    // Coarse prefilter only (widest allowed campaign radius). Exact radius/city targeting
-    // is evaluated per-campaign below.
-    const bbox = getBoundingBox(lat, lng, MAX_TARGET_RADIUS_KM);
-    whereClause.shop = {
-      latitude: { gte: bbox.minLat, lte: bbox.maxLat },
-      longitude: { gte: bbox.minLng, lte: bbox.maxLng },
-    };
+    // Coarse prefilter: allow shops within bounding box, shops without GPS (0,0), or CITIES-targeted ads.
+    // Exact radius/city eligibility is enforced per-campaign by evaluateGeoTarget below.
+    if (hasCoords) {
+      const bbox = getBoundingBox(lat!, lng!, MAX_TARGET_RADIUS_KM);
+      andConditions.push({
+        OR: [
+          {
+            shop: {
+              latitude: { gte: bbox.minLat, lte: bbox.maxLat },
+              longitude: { gte: bbox.minLng, lte: bbox.maxLng },
+            },
+          },
+          {
+            shop: {
+              latitude: 0,
+              longitude: 0,
+            },
+          },
+          {
+            geoMode: 'CITIES',
+          },
+        ],
+      });
+    }
+
+    if (andConditions.length > 0) {
+      whereClause.AND = andConditions;
+    }
 
     const listings = await prisma.promotedListing.findMany({
       where: whereClause,
@@ -1159,7 +1239,14 @@ export class AdsService {
             finalScore = adRank * (1 + smoothedCtr * 5) + proximity * 5;
             break;
         }
-        return { ...l, finalScore };
+        const distRounded = geo.distanceKm != null ? Number(geo.distanceKm.toFixed(1)) : null;
+        return {
+          ...l,
+          geo,
+          shopDistance_km: distRounded,
+          distance_km: distRounded,
+          finalScore,
+        };
       })
       .sort((a, b) => b.finalScore - a.finalScore)
       .slice(0, limit);

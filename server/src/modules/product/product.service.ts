@@ -65,22 +65,6 @@ export class ProductService {
   async getProductById(productId: string) {
     const cacheKey = `product:${productId}`;
     const cached: any = await cacheGet(cacheKey);
-
-    // Fire and forget logging (outside cache block to capture all views)
-    let shopId = cached?.shop?.id;
-
-    if (!cached) {
-      const product = await prisma.product.findUnique({
-        where: { id: productId },
-        include: { shop: { select: { id: true } } }
-      });
-      if (product) shopId = product.shop.id;
-    }
-
-    if (shopId) {
-      this.logProductView(productId, shopId).catch(() => {});
-    }
-
     if (cached) return cached;
 
     const product = await prisma.product.findUnique({
@@ -117,10 +101,11 @@ export class ProductService {
   /**
    * Log product view asynchronously
    */
-  async logProductView(productId: string, shopId: string) {
+  async logProductView(productId: string, shopId?: string) {
     try {
       await redis.hincrby('telemetry:views:product', productId, 1);
-      await redis.hincrby('telemetry:views:shop', shopId, 1);
+      // NOTE: Storefront visits (telemetry:views:shop) must ONLY be recorded when the shop profile
+      // is actually visited, never inflated merely by fetching a product detail.
     } catch (e) {
       console.error('Failed to buffer product view in redis:', e);
     }

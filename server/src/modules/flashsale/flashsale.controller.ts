@@ -50,7 +50,9 @@ export const FlashSaleController = {
   getLiveFlashSales: async (req: Request, res: Response, next: NextFunction) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
-      const sales = await flashSaleService.getLiveFlashSales(limit);
+      const lat = req.query.lat ? parseFloat(req.query.lat as string) : undefined;
+      const lng = req.query.lng ? parseFloat(req.query.lng as string) : undefined;
+      const sales = await flashSaleService.getLiveFlashSales(limit, lat, lng);
       res.json({ status: "success", data: sales });
     } catch (e) { next(e); }
   },

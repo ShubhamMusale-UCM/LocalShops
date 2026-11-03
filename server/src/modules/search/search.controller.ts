@@ -33,22 +33,11 @@ const trackKeywordStats = (keyword: string, products: any[]) => {
   )).catch(() => {});
 };
 
-// Fire-and-forget impression tracking — never blocks the response
-const trackProductImpressions = (products: any[]) => {
-  if (!products || products.length === 0) return;
-
-  const productIds = products.map((p: any) => p.id).filter(Boolean);
-  const campaignIds = products.filter((p: any) => p.isSponsored && p.campaignId).map((p: any) => p.campaignId);
-
-  if (productIds.length > 0) {
-    prisma.product.updateMany({
-      where: { id: { in: productIds } },
-      data: { viewCount: { increment: 1 } },
-    }).catch(() => {}); // Silently ignore DB errors
-  }
-
-  // Ad impressions are tracked securely via client-side telemetry when the ad becomes viewable,
-  // so we do not increment promotedListing.impressions here to prevent double counting.
+// Impressions and detail views are tracked via verified client-side IAB viewability
+// (50% pixels >= 1s -> impression) and ProductDetailModal dwell (>= 400ms -> view).
+// Do NOT increment Product.viewCount on raw search/feed responses.
+const trackProductImpressions = (_products: any[]) => {
+  // No-op: handled by POST /api/ads/telemetry/batch
 };
 
 export const SearchController = {

@@ -12,6 +12,7 @@ router.get('/nearby', cacheMiddleware(300), shopController.getNearbyShops.bind(s
 router.get('/slug/:slug', cacheMiddleware(300), shopController.getShopBySlug.bind(shopController));
 router.get('/me/saved', authenticate, shopController.getSavedShops.bind(shopController));
 router.get('/:id', cacheMiddleware(300), shopController.getShopById.bind(shopController));
+router.post('/:id/intent', shopController.logShopIntent.bind(shopController));
 
 // Authenticated routes
 router.post(

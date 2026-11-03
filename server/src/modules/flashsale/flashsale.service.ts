@@ -1,4 +1,5 @@
 ﻿import prisma from "../../config/database";
+import { haversineDistance } from "../../utils/geoUtils";
 import { AppError } from "../../middleware/errorHandler.middleware";
 
 export class FlashSaleService {
@@ -47,22 +48,30 @@ export class FlashSaleService {
     return prisma.flashSale.update({ where: { id: saleId }, data: { isActive: false } });
   }
 
-  async getLiveFlashSales(limit = 20) {
+  async getLiveFlashSales(limit = 20, lat?: number, lng?: number) {
     const now = new Date();
     const sales = await prisma.flashSale.findMany({
       where: { isActive: true, startTime: { lte: now }, endTime: { gte: now }, product: { isActive: true } },
       include: {
         product: { select: { id: true, name: true, price: true, images: true, category: true } },
-        shop: { select: { id: true, name: true, logo: true } },
+        shop: { select: { id: true, name: true, logo: true, latitude: true, longitude: true, city: true, address: true } },
       },
       orderBy: { endTime: "asc" },
       take: limit,
     });
-    return sales.map(s => ({
-      ...s,
-      msRemaining: Math.max(0, s.endTime.getTime() - now.getTime()),
-      discountedPrice: +(s.product.price * (1 - s.discount / 100)).toFixed(2),
-    }));
+    return sales.map(s => {
+      const hasShopCoords = s.shop?.latitude != null && s.shop?.longitude != null && (s.shop.latitude !== 0 || s.shop.longitude !== 0);
+      const dist = (lat != null && lng != null && hasShopCoords)
+        ? Number(haversineDistance(lat, lng, s.shop.latitude, s.shop.longitude).toFixed(1))
+        : null;
+      return {
+        ...s,
+        msRemaining: Math.max(0, s.endTime.getTime() - now.getTime()),
+        discountedPrice: +(s.product.price * (1 - s.discount / 100)).toFixed(2),
+        distance_km: dist,
+        shopDistance_km: dist,
+      };
+    });
   }
 }
 

@@ -159,6 +159,7 @@ model Shop {
   promotedListings PromotedListing[]
   savedBy          SavedShop[]
   analytics        ShopAnalytics[]
+  productDailyAnalytics ProductDailyAnalytics[]
   flashSales       FlashSale[]
   searchKeywordStats SearchKeywordStat[]
   adWalletTransactions SellerAdWalletTransaction[]
@@ -216,6 +217,7 @@ model Product {
   promotedListings PromotedListing[]
   variants        ProductVariant[]
   wishlistedBy    Wishlist[]
+  dailyAnalytics  ProductDailyAnalytics[]
   flashSales      FlashSale[]
 
   isActive  Boolean  @default(true)
@@ -223,6 +225,8 @@ model Product {
   updatedAt DateTime @updatedAt
 
   @@index([shopId, category])
+  @@index([shopId, orderCount, viewCount])
+  @@index([shopId, isActive])
   @@index([name])
   @@index([price])
 }
@@ -282,6 +286,9 @@ model Order {
   @@index([userId])
   @@index([shopId])
   @@index([status])
+  @@index([shopId, createdAt, status])
+  @@index([shopId, userId, status])
+  @@index([shopId, adCampaignId, createdAt])
 }
 
 model OrderItem {
@@ -293,6 +300,9 @@ model OrderItem {
   quantity  Int
   price     Float
   total     Float
+
+  @@index([productId])
+  @@index([orderId])
 }
 
 model Review {
@@ -413,6 +423,7 @@ model SearchKeywordStat {
   date      DateTime @db.Date
 
   @@unique([shopId, keyword, date])
+  @@index([shopId, date])
   @@index([shopId])
 }
 
@@ -428,6 +439,7 @@ model CartItem {
   updatedAt DateTime        @updatedAt
 
   @@index([userId, productId])
+  @@index([productId])
 }
 
 model SavedShop {
@@ -439,6 +451,7 @@ model SavedShop {
   createdAt DateTime @default(now())
 
   @@unique([userId, shopId])
+  @@index([shopId, createdAt])
 }
 
 model Subscription {
@@ -463,6 +476,8 @@ model Notification {
   data      Json?
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
 }
 
 model ReferralEarning {
@@ -479,19 +494,59 @@ model ReferralEarning {
 }
 
 model ShopAnalytics {
-  id             String   @id @default(uuid())
-  shopId         String
-  shop           Shop     @relation(fields: [shopId], references: [id])
-  date           DateTime @db.Date
-  views          Int      @default(0)
-  uniqueViews    Int      @default(0)
-  calls          Int      @default(0)
-  whatsappClicks Int      @default(0)
-  directions     Int      @default(0)
-  orders         Int      @default(0)
-  revenue        Float    @default(0)
+  id                 String   @id @default(uuid())
+  shopId             String
+  shop               Shop     @relation(fields: [shopId], references: [id])
+  date               DateTime @db.Date
+  views              Int      @default(0) // Storefront visits
+  uniqueViews        Int      @default(0)
+  productImpressions Int      @default(0)
+  productDetailViews Int      @default(0)
+  cartAdds           Int      @default(0)
+  calls              Int      @default(0)
+  whatsappClicks     Int      @default(0)
+  directions         Int      @default(0)
+  orders             Int      @default(0)
+  revenue            Float    @default(0)
 
   @@unique([shopId, date])
+  @@index([shopId, date])
+}
+
+model ProductDailyAnalytics {
+  id                String   @id @default(uuid())
+  productId         String
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  shopId            String
+  shop              Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  date              DateTime @db.Date
+
+  // Organic + Total Feed Impressions
+  impressions       Int      @default(0)
+  uniqueImpressions Int      @default(0)
+  adImpressions     Int      @default(0)
+
+  // Product Detail Modal / Page Views
+  detailViews       Int      @default(0)
+  uniqueDetailViews Int      @default(0)
+  adClicks          Int      @default(0)
+
+  // Micro-conversions
+  cartAdds          Int      @default(0)
+  wishlistAdds      Int      @default(0)
+  shareClicks       Int      @default(0)
+
+  // Orders & Sales
+  ordersCount       Int      @default(0)
+  unitsSold         Int      @default(0)
+  revenue           Float    @default(0)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([productId, date])
+  @@index([shopId, date])
+  @@index([productId, date])
 }
 
 model AdDailyMetricRollup {

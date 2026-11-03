@@ -158,14 +158,38 @@ export class ShopController {
         return;
       }
       
-      const { title, body, type, city, imageUrl } = req.body;
+      const { title, body, type, city, corridor, productId, imageUrl } = req.body;
       if (!title || !body || !type) {
         res.status(400).json({ error: 'Missing required fields' });
         return;
       }
 
-      const result = await shopService.broadcastToFollowers(req.params.id, { title, body, type, city, imageUrl });
+      const result = await shopService.broadcastToFollowers(req.params.id, {
+        title,
+        body,
+        type,
+        city,
+        corridor,
+        productId,
+        imageUrl,
+      });
       res.json({ status: 'success', data: result });
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async logShopIntent(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { type, deviceId } = req.body;
+      if (!['call', 'whatsapp', 'direction'].includes(type)) {
+        res.status(400).json({ error: 'Invalid intent type. Expected call, whatsapp, or direction.' });
+        return;
+      }
+      const userOrDevice = (req as any).user?.id || deviceId || req.ip || 'anon';
+      await shopService.logShopIntent(id, type, userOrDevice);
+      res.json({ success: true });
     } catch (error: any) {
       res.status(error.statusCode || 500).json({ error: error.message });
     }

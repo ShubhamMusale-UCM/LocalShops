@@ -391,6 +391,8 @@ export const AdsController = {
         isBoosted: true,
         isSponsored: true,
         shop: ad.product?.shop || ad.shop,
+        shopDistance_km: (ad as any).geo?.distanceKm != null ? Number((ad as any).geo.distanceKm.toFixed(1)) : null,
+        distance_km: (ad as any).geo?.distanceKm != null ? Number((ad as any).geo.distanceKm.toFixed(1)) : null,
       }));
 
       res.json({

@@ -24,49 +24,62 @@ const dailyAnalyticsWorker = new Worker(
     const end = new Date(start);
     end.setHours(23, 59, 59, 999);
 
-    const shops = await prisma.shop.findMany({ select: { id: true } });
+    const [shops, orderAggs, reviewAggs] = await Promise.all([
+      prisma.shop.findMany({ select: { id: true } }),
+      prisma.order.groupBy({
+        by: ['shopId'],
+        where: {
+          createdAt: { gte: start, lte: end },
+          status: { notIn: ['CANCELLED', 'REFUNDED'] },
+        },
+        _count: { id: true },
+        _sum: { total: true },
+      }),
+      prisma.review.groupBy({
+        by: ['shopId'],
+        _count: { id: true },
+      }),
+    ]);
+
+    const orderMap = new Map(orderAggs.map(o => [o.shopId, { count: o._count.id, revenue: o._sum.total || 0 }]));
+    const reviewMap = new Map(reviewAggs.map(r => [r.shopId, r._count.id]));
+
     let processed = 0;
+    const CHUNK_SIZE = 25;
+    for (let i = 0; i < shops.length; i += CHUNK_SIZE) {
+      const chunk = shops.slice(i, i + CHUNK_SIZE);
+      await Promise.all(
+        chunk.map(async (shop) => {
+          const ord = orderMap.get(shop.id) || { count: 0, revenue: 0 };
+          const totalReviews = reviewMap.get(shop.id) || 0;
 
-    for (const shop of shops) {
-      const [orders, totalReviews] = await Promise.all([
-        prisma.order.findMany({
-          where: {
-            shopId: shop.id,
-            createdAt: { gte: start, lte: end },
-            status: { not: 'CANCELLED' },
-          },
-          select: { total: true },
-        }),
-        prisma.review.count({ where: { shopId: shop.id } }),
-      ]);
-
-      const revenue = orders.reduce((sum, order) => sum + order.total, 0);
-
-      await prisma.shopAnalytics.upsert({
-        where: { shopId_date: { shopId: shop.id, date: start } },
-        update: {
-          orders: orders.length,
-          revenue,
-        },
-        create: {
-          shopId: shop.id,
-          date: start,
-          orders: orders.length,
-          revenue,
-          views: 0,
-          uniqueViews: 0,
-          calls: 0,
-          whatsappClicks: 0,
-          directions: 0,
-        },
-      });
-
-      await prisma.shop.update({
-        where: { id: shop.id },
-        data: { totalReviews },
-      });
-
-      processed += 1;
+          await Promise.all([
+            prisma.shopAnalytics.upsert({
+              where: { shopId_date: { shopId: shop.id, date: start } },
+              update: {
+                orders: ord.count,
+                revenue: ord.revenue,
+              },
+              create: {
+                shopId: shop.id,
+                date: start,
+                orders: ord.count,
+                revenue: ord.revenue,
+                views: 0,
+                uniqueViews: 0,
+                calls: 0,
+                whatsappClicks: 0,
+                directions: 0,
+              },
+            }),
+            prisma.shop.update({
+              where: { id: shop.id },
+              data: { totalReviews },
+            }),
+          ]);
+        })
+      );
+      processed += chunk.length;
     }
 
     return { processed, total: shops.length };

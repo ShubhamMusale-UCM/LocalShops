@@ -5,7 +5,9 @@ import wishlistService from './wishlist.service';
 export const WishlistController = {
   getWishlist: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const items = await wishlistService.getWishlist(req.user!.id);
+      const lat = req.query.lat ? parseFloat(req.query.lat as string) : undefined;
+      const lng = req.query.lng ? parseFloat(req.query.lng as string) : undefined;
+      const items = await wishlistService.getWishlist(req.user!.id, lat, lng);
       res.json({
         status: 'success',
         data: items

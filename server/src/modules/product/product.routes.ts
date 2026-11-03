@@ -12,7 +12,7 @@ router.get('/search', searchLimiter, cacheMiddleware(180), productController.sea
 router.get('/trending', cacheMiddleware(180), productController.getTrending.bind(productController));
 router.get('/shop/:shopId', cacheMiddleware(180), productController.getShopProducts.bind(productController));
 router.post('/:id/click', productController.logProductClick.bind(productController));
-router.get('/:id', cacheMiddleware(300), productController.getProduct.bind(productController));
+router.get('/:id', productController.getProduct.bind(productController));
 router.get('/:id/compare', cacheMiddleware(300), productController.compareProducts.bind(productController));
 
 // Authenticated seller routes

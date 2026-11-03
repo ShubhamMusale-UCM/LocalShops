@@ -301,7 +301,7 @@ export class OrderService {
     // Invalidate Redis caches for real-time fresh analytics
     await Promise.all([
       cacheDelete(`shop:${data.shopId}:ads`),
-      cacheDelete(`shop:${data.shopId}:analytics`),
+      cacheDeletePattern(`shop:${data.shopId}:analytics*`),
       cacheDelete(`shop:${data.shopId}:daily-metrics`),
     ]).catch(() => {});
 
@@ -568,19 +568,22 @@ export class OrderService {
       return updatedOrder;
     });
 
-    // Invalidate product caches when stock changes
-    if (
-      (status === 'CONFIRMED' && order.status === 'PLACED') ||
-      (status === 'CANCELLED' && ['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP'].includes(order.status))
-    ) {
-      try {
+    // Always invalidate shop analytics & ads cache on any status change (PLACED -> CONFIRMED -> DELIVERED -> CANCELLED)
+    try {
+      if (
+        (status === 'CONFIRMED' && order.status === 'PLACED') ||
+        (status === 'CANCELLED' && ['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY'].includes(order.status))
+      ) {
         for (const item of updated.items) {
           await cacheDelete(`product:${item.productId}`);
         }
-        await cacheDeletePattern(`shop:${updated.shopId}*`);
-      } catch (err) {
-        console.error('Failed to invalidate product cache on order status update:', err);
       }
+      await Promise.all([
+        cacheDeletePattern(`shop:${updated.shopId}*`),
+        cacheDelete(`shop:${updated.shopId}:ads`),
+      ]);
+    } catch (err) {
+      console.error('Failed to invalidate cache on order status update:', err);
     }
 
     // Notify buyer and seller in real-time
@@ -589,6 +592,10 @@ export class OrderService {
       if (orderSocket) {
         orderSocket.notifyCustomerOrderUpdate(orderId, status, note);
         orderSocket.notifySellerOrderUpdate(updated.shopId, orderId, status, note);
+        orderSocket.getIO().to(`shop:${updated.shopId}`).emit('shop:ad-analytics-updated', {
+          shopId: updated.shopId,
+          timestamp: new Date(),
+        });
       }
     } catch (e) {
       console.warn('Socket emit failed for order update:', e);
@@ -775,16 +782,19 @@ export class OrderService {
       }
     }
 
-    // Invalidate product caches when stock is restored
-    if (['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP'].includes(order.status)) {
-      try {
+    // Always invalidate shop analytics & ads cache when buyer cancels order (including PLACED status)
+    try {
+      if (['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP'].includes(order.status)) {
         for (const item of result.items) {
           await cacheDelete(`product:${item.productId}`);
         }
-        await cacheDeletePattern(`shop:${result.shopId}*`);
-      } catch (err) {
-        console.error('Failed to invalidate product cache on order cancellation:', err);
       }
+      await Promise.all([
+        cacheDeletePattern(`shop:${result.shopId}*`),
+        cacheDelete(`shop:${result.shopId}:ads`),
+      ]);
+    } catch (err) {
+      console.error('Failed to invalidate cache on order cancellation:', err);
     }
 
     // Notify seller in real-time
@@ -793,6 +803,10 @@ export class OrderService {
       if (orderSocket) {
         orderSocket.notifySellerOrderUpdate(result.shopId, orderId, 'CANCELLED', reason || 'Cancelled by buyer');
         orderSocket.notifyCustomerOrderUpdate(orderId, 'CANCELLED', reason || 'Cancelled by buyer');
+        orderSocket.getIO().to(`shop:${result.shopId}`).emit('shop:ad-analytics-updated', {
+          shopId: result.shopId,
+          timestamp: new Date(),
+        });
       }
     } catch (e) {
       console.warn('Socket emit failed for order cancellation:', e);
@@ -897,6 +911,11 @@ export class OrderService {
           statusHistory: history,
         }
       });
+
+      await Promise.all([
+        cacheDeletePattern(`shop:${returnReq.order.shopId}*`),
+        cacheDelete(`shop:${returnReq.order.shopId}:ads`),
+      ]).catch(() => {});
 
       // Reverse seller ad wallet credit if coins were credited
       if (returnReq.order.coinsCredited > 0) {

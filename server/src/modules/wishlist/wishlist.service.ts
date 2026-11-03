@@ -1,8 +1,9 @@
 import prisma from '../../config/database';
 import { AppError } from '../../middleware/errorHandler.middleware';
+import { haversineDistance } from '../../utils/geoUtils';
 
 class WishlistService {
-  async getWishlist(userId: string) {
+  async getWishlist(userId: string, lat?: number, lng?: number) {
     const items = await prisma.wishlist.findMany({
       where: { userId },
       include: {
@@ -12,7 +13,7 @@ class WishlistService {
             name: true,
             price: true,
             images: true,
-            shop: { select: { id: true, name: true } }
+            shop: { select: { id: true, name: true, latitude: true, longitude: true, city: true, address: true } }
           }
         }
       },
@@ -21,17 +22,25 @@ class WishlistService {
     
     return items
       .filter(item => Boolean(item.product))
-      .map(item => ({
-        id: item.id,
-        productId: item.productId,
-        name: item.product.name,
-        price: item.product.price,
-        image: item.product.images?.[0] || null,
-        images: item.product.images || [],
-        shopId: item.product.shop?.id || null,
-        shopName: item.product.shop?.name || '',
-        addedAt: item.createdAt
-      }));
+      .map(item => {
+        const shop = item.product.shop;
+        const dist = (lat != null && lng != null && shop?.latitude != null && shop?.longitude != null)
+          ? Number(haversineDistance(lat, lng, shop.latitude, shop.longitude).toFixed(1))
+          : null;
+        return {
+          id: item.id,
+          productId: item.productId,
+          name: item.product.name,
+          price: item.product.price,
+          image: item.product.images?.[0] || null,
+          images: item.product.images || [],
+          shopId: shop?.id || null,
+          shopName: shop?.name || '',
+          shopDistance_km: dist,
+          distance_km: dist,
+          addedAt: item.createdAt
+        };
+      });
   }
 
   async toggleWishlist(userId: string, productId: string) {

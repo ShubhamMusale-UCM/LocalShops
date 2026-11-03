@@ -1,9 +1,10 @@
 # CityLocalShop Build Status & Ad Telemetry Audit Tracker
 
-## 📊 Overall Progress: 100% (14 Phases Completed & Cross-Verified)
+## 📊 Overall Progress: 100% (16 Phases Completed & Cross-Verified)
 
 | Phase | Description | Status | Completion % | Re-verified Perspective |
 | :--- | :--- | :--- | :--- | :--- |
+| **Phase 16: Complete Seller Metrics & Buyer Proximity Overhaul** | Audit 3 resolution: real GPS follower CRM, HLL reach gauge fix, monotonic funnel, dynamic profile SLA, server-side Haversine buyer distance, and showroom lead intent logging | 🟢 Completed | 100% | Full Audit 3 Matrix, Server & Client GPS Telemetry, Production End-to-End Suite |
 | **Phase 1: Diagnostic Audit** | Full codebase & database audit of telemetry, attribution, and realtime sync | 🟢 Completed | 100% | Database, Codebase & API Audit |
 | **Phase 2: Attribution & Telemetry Pipeline Fix** | Fix device ID race, cart campaign dropping, Redis product cache, and store visit promotion loss | 🟢 Completed | 100% | Cart Store, Redis, DB Queries |
 | **Phase 3: Discovery Feeds Normalization** | Normalize HomeScreen, SearchScreen, and ShopProfile ad data shapes & impression/click trackers | 🟢 Completed | 100% | TypeScript Compiler, Mobile Buyer Feeds |
@@ -18,6 +19,7 @@
 | **Phase 12: End-to-End Parameter Audit & Dynamic Peak Day Resolution** | Cross-checked all 12 seller parameters, eradicated hardcoded peak day, fixed UTC midnight drift and filter truncation, bound mobile & web charts dynamically, clamped CTR | 🟢 Completed | 100% | Production Mathematical Logic, Timezone Boundaries, Zero States, Chart Engines |
 | **Phase 13: User & Seller Data Scoping & Cross-Contamination Elimination** | Eradicated fake orders and hardcoded buyers, eliminated mock fallback shops, scoped caches by user/shop, purged session leaks on logout | 🟢 Completed | 100% | Multi-Tenant Data Isolation, Session Lifecycle, Zero Leakage |
 | **Phase 14: Hardening, Infinite Loop & Zero-Contamination Final Pass** | Fixed transaction scope in ads renewal, eradicated all remaining mock data & fallback statistics, purged seller storage on logout, verified zero uncleaned socket listeners | 🟢 Completed | 100% | Memory Leaks, Infinite Loops, Multi-Tenant Session Sanitization, Full Compilation |
+| **Phase 15: IAB Telemetry Pipeline & Seller Business Intelligence Overhaul** | IAB impression viewability, PDP dwell dedup, daily rollup schema, showroom leads (`/intent`), revenue realization breakdown, customer loyalty CRM, stock velocity, organic vs ad split, and Redis caching | 🟢 Completed | 100% | Audits 1 & 2, PostgreSQL Daily Rollup, Redis HyperLogLog, Capacitor UI |
 
 ---
 
@@ -353,5 +355,37 @@
    - **CTR Fallback Elimination**: Fixed `shop.service.ts` line 527 and frontend cards (`SellerDashboardScreen.tsx`, `SellerAnalyticsScreen.tsx`) where 0 ad clicks previously fell back to conversion rate, causing `100.00% CTR` and `14.71% CTR` with `0 Total Clicks`. Now strictly locked to `0.00%` whenever clicks = 0.
    - **Infinity ROAS (`∞x`) Elimination**: Removed unscientific fallback `realRevenue > 0 ? '∞' : '0.00'` in `shop.service.ts`. If ad spend = 0, ROAS is mathematically and safely capped to `0.00x` with contextual subtitle "No Ad Spend".
    - **Order Count Discrepancy Resolution**: Added `orderCount` (all-time lifetime sales) to `topProducts` and updated dashboard trends card to show `{product.units > 0 ? '${product.units} sold' : '${product.orderCount} total sold'}`, aligning with inventory card.
+
+---
+
+### 🟢 Phase 15: IAB Telemetry Pipeline & Seller Business Intelligence Overhaul (Completed & Verified)
+1. **Schema & Daily Analytics Model Upgrade:**
+   - Created [`ProductDailyAnalytics`](file:///e:/REACT%20PROJECTS/local_apps_&_services/CityLocalShop/server/prisma/schema.prisma#L499-L536) in PostgreSQL (`productId`, `shopId`, `date`, `impressions`, `uniqueImpressions`, `detailViews`, `uniqueDetailViews`, `cartAdds`, `wishlistAdds`, `ordersCount`, `unitsSold`, `revenue`).
+   - Enriched [`ShopAnalytics`](file:///e:/REACT%20PROJECTS/local_apps_&_services/CityLocalShop/server/prisma/schema.prisma#L483-L498) with `productImpressions`, `productDetailViews`, `cartAdds`, `calls`, `whatsappClicks`, and `directions`.
+   - Added high-performance composite indexes (`Order(shopId, createdAt, status)`, `Order(shopId, userId, status)`, `OrderItem(productId)`, `CartItem(productId)`) and pushed schema with Prisma.
+2. **Frontend Viewport & Telemetry Engine (Capacitor App):**
+   - Fixed DOM layout bug: removed `display: 'contents'` from `HomeScreen.tsx` and `SearchResultsScreen.tsx` cards, enabling IAB 50% / 1000ms `IntersectionObserver` ratio calculations.
+   - Enhanced `useAdViewability.ts` with 30-minute sliding window memory dedup map; tracks both organic and sponsored placements.
+   - Replaced instant `logClick` on modal mount in `ProductDetailModal.tsx` with a 400ms dwell timer logging `action: 'view'`.
+   - Added `isOutOfStock` tracking on product detail views.
+3. **Backend Telemetry Pipeline & Ingestion:**
+   - Removed Express route-level `cacheMiddleware(300)` from `GET /api/products/:id`.
+   - Removed storefront visits leakage (`redis.hincrby('telemetry:views:shop')`) on product fetches.
+   - Implemented Redis `SETNX` deduplication windows (30m impressions, 15m views, 60m clicks) and HyperLogLog (`PFADD`) for $O(1)$ unique visitor tracking.
+   - Rewrote `telemetrySync.job.ts` to atomically flush Redis hashes into `ProductDailyAnalytics` and `ShopAnalytics` with true dynamic `uniqueViews`.
+4. **Seller Business Intelligence & High-Impact Metrics:**
+   - **Offline Showroom Leads**: Added `POST /api/shops/:id/intent`, hooked Call/WhatsApp/Direction buttons in `ShopModal.tsx`, and rendered "Showroom & Walk-In Leads" in `SellerAnalyticsScreen.tsx`.
+   - **Revenue Realization Breakdown**: Segmented gross sales into `realizedRevenue` (`DELIVERED`), `pendingRevenue`, `lostRevenue`, and `cancellationRate`.
+   - **Follower Loyalty CRM**: Joined followers with true buyer order counts, lifetime spend, and dynamic loyalty tiers (`VIP Buyer`, `Regular Buyer`, `Follower`); eliminated fake formula and hardcoded `72%` open rate.
+   - **Inventory Velocity**: Calculated `daysOfStockLeft` and surfaced urgent restock alert banners with out-of-stock missed views.
+   - **Abandoned Carts**: Computed unpurchased cart count and GMV pipeline value.
+   - **Fulfillment SLA & Sales Split**: Calculated `avgAcceptanceMinutes` from `Order.statusHistory` and separated organic vs. promoted ad revenue with blended and promoted ROAS.
+   - **High-Demand Search Gaps**: Isolated local search queries with zero clicks and surfaced them as stock/tag opportunities.
+   - **Redis Caching**: Cached analytics payload in Redis for 60 seconds with automated TTL.
+5. **Compilation & End-to-End Verification:**
+   - Server build: `npm run build` in `CityLocalShop/server` compiles cleanly with Sucrase.
+   - Frontend build: `npm run build` in `temp_github_repo` compiles cleanly in 5.8s with Vite.
+   - End-to-end verified via `verify_telemetry_pipeline.js` and `verify_advanced_metrics.js`.
+
 
 
