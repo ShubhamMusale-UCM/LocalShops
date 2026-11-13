@@ -227,6 +227,8 @@ model Product {
   @@index([shopId, category])
   @@index([shopId, orderCount, viewCount])
   @@index([shopId, isActive])
+  @@index([isActive, createdAt])
+  @@index([isActive, category, createdAt])
   @@index([name])
   @@index([price])
 }
@@ -284,6 +286,8 @@ model Order {
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+  @@index([userId, createdAt])
+  @@index([userId, status, createdAt])
   @@index([shopId])
   @@index([status])
   @@index([shopId, createdAt, status])

@@ -112,6 +112,8 @@ export const searchProducts = async (params: SearchParams) => {
          OR p.description ILIKE ${'%' + query + '%'}
          OR p.brand ILIKE ${'%' + query + '%'}
          OR s.name ILIKE ${'%' + query + '%'}
+      ORDER BY p."createdAt" DESC
+      LIMIT 500
     `;
     const fuzzyIds = fuzzyMatches.map(m => m.id);
 

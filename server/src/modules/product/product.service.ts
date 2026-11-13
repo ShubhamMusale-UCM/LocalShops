@@ -3,6 +3,11 @@ import { AppError } from '../../middleware/errorHandler.middleware';
 import redis, { cacheGet, cacheSet, cacheDelete, cacheDeletePattern } from '../../config/redis';
 import { searchProducts, getComparableProducts } from './product.search';
 import adsService from '../ads/ads.service';
+import { persistImagesArray } from '../../utils/imageProcessor';
+
+async function compressImagesArray(images?: string[]): Promise<string[]> {
+  return persistImagesArray(images, 'products');
+}
 
 export class ProductService {
   /**
@@ -32,12 +37,14 @@ export class ProductService {
       data.inStock = data.quantity > 0;
     }
 
+    const compressedImages = await compressImagesArray(data.images || []);
+
     const product = await prisma.product.create({
       data: {
         ...data,
         shopId,
         tags: data.tags || [],
-        images: data.images || [],
+        images: compressedImages,
         searchVector: [data.name, data.description, data.brand, ...(data.tags || [])].filter(Boolean).join(' '),
       },
     });
@@ -146,6 +153,10 @@ export class ProductService {
       data.inStock = data.quantity > 0;
     }
 
+    if (Array.isArray(data.images)) {
+      data.images = await compressImagesArray(data.images);
+    }
+
     // Update search vector
     if (data.name || data.description || data.brand || data.tags) {
       const current = { name: product.name, description: product.description, brand: product.brand, tags: product.tags };
@@ -236,7 +247,7 @@ export class ProductService {
               startDate: { lte: new Date() },
               endDate: { gt: new Date() },
             },
-            select: { id: true, isActive: true, startDate: true, endDate: true, budget: true, spent: true },
+            select: { id: true, isActive: true, startDate: true, endDate: true, budget: true, spent: true, impressions: true, clicks: true },
           },
         },
         skip: (page - 1) * limit, take: limit,
@@ -244,20 +255,60 @@ export class ProductService {
       prisma.product.count({ where }),
     ]);
 
+    const productIds = products.map((p) => p.id);
+    let dailyAggMap = new Map<string, { impressions: number; detailViews: number }>();
+    if (productIds.length > 0) {
+      try {
+        const dailyAgg = await prisma.productDailyAnalytics.groupBy({
+          by: ['productId'],
+          where: { productId: { in: productIds } },
+          _sum: {
+            impressions: true,
+            detailViews: true,
+          },
+        });
+        dailyAggMap = new Map(
+          dailyAgg.map((d) => [
+            d.productId,
+            {
+              impressions: d._sum.impressions || 0,
+              detailViews: d._sum.detailViews || 0,
+            },
+          ])
+        );
+      } catch (err) {
+        // Safe fallback if analytics table is temporarily busy
+      }
+    }
+
     const now = new Date();
-    const enrichedProducts = products.map((p: any) => ({
-      ...p,
-      isBoosted: !!(
-        p.promotedListings &&
-        p.promotedListings.some(
-          (ad: any) =>
-            ad.isActive &&
-            new Date(ad.startDate) <= now &&
-            new Date(ad.endDate) > now &&
-            (ad.budget === undefined || ad.spent === undefined || ad.spent < ad.budget)
-        )
-      ),
-    }));
+    const enrichedProducts = products.map((p: any) => {
+      const agg = dailyAggMap.get(p.id) || { impressions: 0, detailViews: 0 };
+      const adImpressions = (p.promotedListings || []).reduce((a: number, l: any) => a + (l.impressions || 0), 0);
+      const adClicks = (p.promotedListings || []).reduce((a: number, l: any) => a + (l.clicks || 0), 0);
+      const totalImpressions = (agg.impressions || 0) + adImpressions;
+      const totalViews = Math.max(p.viewCount || 0, agg.detailViews || 0);
+
+      return {
+        ...p,
+        viewCount: totalViews,
+        views: totalViews,
+        impressions: totalImpressions,
+        feedImpressions: agg.impressions || 0,
+        adImpressions,
+        adClicks,
+        isBoosted: !!(
+          p.promotedListings &&
+          p.promotedListings.some(
+            (ad: any) =>
+              ad.isActive &&
+              new Date(ad.startDate) <= now &&
+              new Date(ad.endDate) > now &&
+              (ad.budget === undefined || ad.spent === undefined || ad.spent < ad.budget)
+          )
+        ),
+      };
+    });
 
     return {
       products: enrichedProducts,
@@ -336,6 +387,10 @@ export class ProductService {
         const inStock = quantity > 0 || row.inStock === 'true' || row.inStock === '1';
 
         const searchVector = [row.name, row.description, row.brand, ...tags].filter(Boolean).join(' ');
+        const rawRowImages = row.images || row.image
+          ? String(row.images || row.image).split(/[|,]/).map((s: string) => s.trim()).filter(Boolean)
+          : [];
+        const persistedRowImages = rawRowImages.length > 0 ? await compressImagesArray(rawRowImages) : [];
 
         successRows.push({
           shopId,
@@ -352,7 +407,7 @@ export class ProductService {
           tags,
           searchVector,
           isActive: true,
-          images: [] // Initially empty, users can upload later or via URLs
+          images: persistedRowImages
         });
       } catch (err: any) {
         errorRows.push({ row: i + 1, error: err.message });

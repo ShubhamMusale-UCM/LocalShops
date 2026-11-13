@@ -24,7 +24,7 @@ const hasValidAwsCredentials = () => {
 };
 
 const getServerBaseUrl = () => {
-  const base = (process.env.PUBLIC_BASE_URL || process.env.CDN_BASE_URL || 'http://localhost:5000').trim();
+  const base = (process.env.PUBLIC_BASE_URL || process.env.CDN_BASE_URL || '').trim();
   return base.replace(/\/+$/, '');
 };
 
@@ -34,7 +34,7 @@ export const uploadFile = async (
   key: string,
   body: Buffer,
   contentType: string,
-  publicBaseUrl?: string
+  _publicBaseUrl?: string
 ): Promise<string> => {
   if (!hasValidAwsCredentials()) {
     const normalizedKey = key.replace(/\\/g, '/').replace(/^\/+/, '');
@@ -44,8 +44,8 @@ export const uploadFile = async (
     await fsPromises.mkdir(outputDir, { recursive: true });
     await fsPromises.writeFile(outputPath, body);
 
-    const base = (publicBaseUrl || getServerBaseUrl()).replace(/\/+$/, '');
-    return `${base}/uploads/${normalizedKey}`;
+    const configuredBase = getServerBaseUrl();
+    return configuredBase ? `${configuredBase}/uploads/${normalizedKey}` : `/uploads/${normalizedKey}`;
   }
 
   await s3Client.send(new PutObjectCommand({

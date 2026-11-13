@@ -1,6 +1,60 @@
 import sharp from 'sharp';
+import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { uploadFile } from '../config/s3';
+
+const localUploadsRoot = path.resolve(__dirname, '../../uploads');
+
+/**
+ * Converts a base64 data:image URI into a compressed static WebP file on disk (/uploads/...)
+ * so JSON API responses and PostgreSQL rows store a 45-byte URL instead of multi-MB base64 strings.
+ */
+export const persistBase64Image = async (
+  imgStr: string,
+  folder: string = 'products',
+  maxDim: number = 800,
+  quality: number = 80
+): Promise<string> => {
+  if (!imgStr || typeof imgStr !== 'string') return imgStr;
+  if (!imgStr.startsWith('data:image/')) {
+    // Strip hardcoded localhost origin if present so stored path is portable across LAN/devices
+    return imgStr.replace(/^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):\d+\/uploads\//i, '/uploads/');
+  }
+
+  try {
+    const match = imgStr.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/);
+    if (!match) return imgStr;
+
+    const rawBuffer = Buffer.from(match[2], 'base64');
+    const hash = crypto.createHash('sha1').update(rawBuffer).digest('hex').slice(0, 24);
+    const relPath = `${folder}/${hash}.webp`;
+    const absPath = path.resolve(localUploadsRoot, relPath);
+
+    if (!fs.existsSync(absPath)) {
+      await fs.promises.mkdir(path.dirname(absPath), { recursive: true });
+      const webpBuffer = await sharp(rawBuffer)
+        .rotate()
+        .resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true })
+        .webp({ quality })
+        .toBuffer();
+      await fs.promises.writeFile(absPath, webpBuffer);
+    }
+
+    return `/uploads/${relPath}`;
+  } catch {
+    return imgStr;
+  }
+};
+
+export const persistImagesArray = async (
+  images?: string[],
+  folder: string = 'products'
+): Promise<string[]> => {
+  if (!Array.isArray(images)) return [];
+  return Promise.all(images.map((img) => persistBase64Image(img, folder)));
+};
 
 const getFileExtension = (mimeType: string): string => {
   const normalized = (mimeType || '').toLowerCase();

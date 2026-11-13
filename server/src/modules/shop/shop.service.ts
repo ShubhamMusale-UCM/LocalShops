@@ -5,6 +5,7 @@ import redis, { cacheGet, cacheSet, cacheDeletePattern } from '../../config/redi
 import slugify from 'slugify';
 import { nanoid } from 'nanoid';
 import { NotificationService } from '../notification/notification.service';
+import { persistBase64Image, persistImagesArray } from '../../utils/imageProcessor';
 
 const notificationService = new NotificationService();
 
@@ -20,14 +21,19 @@ export class ShopService {
     }
 
     const slug = slugify(data.name, { lower: true, strict: true }) + '-' + nanoid(4);
+    const logo = data.logo ? await persistBase64Image(data.logo, 'shops') : data.logo;
+    const coverImage = data.coverImage ? await persistBase64Image(data.coverImage, 'shops') : data.coverImage;
+    const photos = Array.isArray(data.photos) ? await persistImagesArray(data.photos, 'shops') : [];
 
     const shop = await prisma.shop.create({
       data: {
         ...data,
+        logo,
+        coverImage,
         ownerId,
         slug,
         subCategories: data.subCategories || [],
-        photos: data.photos || [],
+        photos,
       },
     });
 
@@ -129,7 +135,7 @@ export class ShopService {
         ]);
       }
       const { runTelemetrySyncNow } = require('../../jobs/telemetrySync.job');
-      await runTelemetrySyncNow().catch(() => {});
+      runTelemetrySyncNow().catch(() => {});
     } catch (e) {
       console.error('Failed to buffer shop view in redis:', e);
     }
@@ -278,7 +284,12 @@ export class ShopService {
     if (!shop) throw new AppError('Shop not found.', 404);
     if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
 
-    const updated = await prisma.shop.update({ where: { id: shopId }, data });
+    const nextData = { ...data };
+    if (nextData.logo) nextData.logo = await persistBase64Image(nextData.logo, 'shops');
+    if (nextData.coverImage) nextData.coverImage = await persistBase64Image(nextData.coverImage, 'shops');
+    if (Array.isArray(nextData.photos)) nextData.photos = await persistImagesArray(nextData.photos, 'shops');
+
+    const updated = await prisma.shop.update({ where: { id: shopId }, data: nextData });
     await Promise.all([
       cacheDeletePattern(`shop:${shopId}*`),
       cacheDeletePattern(`*${shopId}*`),
@@ -536,7 +547,7 @@ export class ShopService {
       return {
         id: p.id,
         name: p.name,
-        images: p.images || [],
+        images: Array.isArray(p.images) ? p.images.slice(0, 1) : [],
         price: p.price,
         category: p.category,
         inStock: p.inStock,

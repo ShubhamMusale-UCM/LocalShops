@@ -3,6 +3,7 @@ import { AuthRequest } from '../../middleware/auth.middleware';
 import productService from './product.service';
 import { createProductSchema, updateProductSchema, productSearchSchema } from './product.validator';
 import { processAndUploadImage } from '../../utils/imageProcessor';
+import { runTelemetrySyncNow } from '../../jobs/telemetrySync.job';
 
 export class ProductController {
   async uploadProductImages(req: AuthRequest, res: Response): Promise<void> {
@@ -175,6 +176,8 @@ export class ProductController {
     try {
       const { shopId } = req.params;
       const { category, sort, page, limit } = req.query;
+      // Non-blocking fire-and-forget sync to avoid delaying HTTP response
+      runTelemetrySyncNow().catch(() => {});
       const result = await productService.getShopProducts(shopId, {
         category: category as string,
         sort: sort as string,

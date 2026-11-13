@@ -331,7 +331,7 @@ export class OrderService {
     const where: any = { userId };
     if (status) where.status = status;
 
-    const [orders, total] = await Promise.all([
+    const [rawOrders, total] = await Promise.all([
       prisma.order.findMany({
         where,
         include: {
@@ -349,6 +349,17 @@ export class OrderService {
       }),
       prisma.order.count({ where }),
     ]);
+
+    const orders = rawOrders.map(o => ({
+      ...o,
+      items: (o.items || []).map(item => ({
+        ...item,
+        product: item.product ? {
+          ...item.product,
+          images: Array.isArray(item.product.images) ? item.product.images.slice(0, 1) : [],
+        } : item.product,
+      })),
+    }));
 
     return { orders, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
@@ -393,7 +404,7 @@ export class OrderService {
     const where: any = { shopId };
     if (status) where.status = status;
 
-    const [orders, total] = await Promise.all([
+    const [rawOrders, total] = await Promise.all([
       prisma.order.findMany({
         where,
         include: {
@@ -411,6 +422,17 @@ export class OrderService {
       }),
       prisma.order.count({ where }),
     ]);
+
+    const orders = rawOrders.map(o => ({
+      ...o,
+      items: (o.items || []).map(item => ({
+        ...item,
+        product: item.product ? {
+          ...item.product,
+          images: Array.isArray(item.product.images) ? item.product.images.slice(0, 1) : [],
+        } : item.product,
+      })),
+    }));
 
     return { orders, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
@@ -842,13 +864,17 @@ export class OrderService {
     const existing = await prisma.returnRequest.findFirst({ where: { orderId } });
     if (existing) throw new AppError('Return request already exists for this order', 400);
 
+    const persistedPhotos = Array.isArray(data.photos) && data.photos.length > 0
+      ? await (await import('../../utils/imageProcessor')).persistImagesArray(data.photos, 'returns')
+      : [];
+
     const returnReq = await prisma.returnRequest.create({
       data: {
         orderId,
         userId,
         reason: data.reason,
         description: data.description,
-        photos: data.photos || [],
+        photos: persistedPhotos,
         refundAmount: order.total
       }
     });

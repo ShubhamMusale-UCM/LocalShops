@@ -3,6 +3,7 @@ import { AppError } from '../../middleware/errorHandler.middleware';
 import { cacheDelete, cacheDeletePattern } from '../../config/redis';
 import { SentimentType } from '@prisma/client';
 import notificationService from '../notification/notification.service';
+import { persistImagesArray } from '../../utils/imageProcessor';
 
 export class ReviewService {
   /**
@@ -12,6 +13,10 @@ export class ReviewService {
     shopId: string; productId?: string; orderId?: string;
     rating: number; title?: string; comment: string; photos?: string[];
   }) {
+    const persistedPhotos = Array.isArray(data.photos) && data.photos.length > 0
+      ? await persistImagesArray(data.photos, 'reviews')
+      : [];
+
     // Prevent duplicate reviews per user per shop/product by updating existing review
     const existing = await prisma.review.findFirst({
       where: {
@@ -31,7 +36,7 @@ export class ReviewService {
           rating: data.rating,
           title: data.title || null,
           comment: data.comment,
-          photos: data.photos && data.photos.length > 0 ? data.photos : existing.photos,
+          photos: persistedPhotos.length > 0 ? persistedPhotos : existing.photos,
           sentiment: sentiment.label as SentimentType,
           sentimentScore: sentiment.score,
           sentimentKeywords: sentiment.keywords,
@@ -71,7 +76,7 @@ export class ReviewService {
         rating: data.rating,
         title: data.title || null,
         comment: data.comment,
-        photos: data.photos || [],
+        photos: persistedPhotos,
         isVerifiedPurchase: !!hasOrdered,
         sentiment: sentiment.label as SentimentType,
         sentimentScore: sentiment.score,

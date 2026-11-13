@@ -112,8 +112,15 @@ app.use('/api/system', systemRoutes);
 app.use('/api/flash-sales', flashSaleRoutes);
 app.use('/api/wallet', walletRoutes);
 
-// Expose uploaded media for local/dev storage fallback.
-app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
+// Expose uploaded media with immutable 1-year browser disk caching
+app.use('/uploads', express.static(path.resolve(__dirname, '../uploads'), {
+  maxAge: '365d',
+  immutable: true,
+  setHeaders: (res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  },
+}));
 
 // ============= ERROR HANDLING =============
 

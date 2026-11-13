@@ -1,5 +1,6 @@
 import prisma from '../../config/database';
 import { AppError } from '../../middleware/errorHandler.middleware';
+import { persistBase64Image } from '../../utils/imageProcessor';
 
 export class UserService {
   async getUserById(userId: string) {
@@ -20,7 +21,11 @@ export class UserService {
     fcmToken?: string; latitude?: number; longitude?: number;
     address?: string; city?: string; pincode?: string;
   }) {
-    return prisma.user.update({ where: { id: userId }, data });
+    const nextData = { ...data };
+    if (nextData.avatar) {
+      nextData.avatar = await persistBase64Image(nextData.avatar, 'avatars', 400, 82);
+    }
+    return prisma.user.update({ where: { id: userId }, data: nextData });
   }
 
   async upgradeToSeller(userId: string) {
