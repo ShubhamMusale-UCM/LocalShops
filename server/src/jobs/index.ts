@@ -14,7 +14,7 @@ import { imageProcessingQueue } from './imageProcessing.job';
 import notificationCampaignQueue, {
   scheduleDailyPromotionalNotifications,
 } from './notificationCampaign.job';
-import telemetrySyncQueue, { scheduleTelemetrySync } from './telemetrySync.job';
+import { telemetrySyncQueue, scheduleTelemetrySync } from './telemetrySync.job';
 import walletExpiryQueue, { scheduleWalletExpiry } from './walletExpiry.job';
 import holdExpiryQueue, { scheduleHoldExpiry } from './holdExpiry.job';
 

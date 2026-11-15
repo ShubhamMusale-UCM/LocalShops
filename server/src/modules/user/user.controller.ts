@@ -119,7 +119,7 @@ export class UserController {
   async requestAccountDeletion(req: AuthRequest, res: Response): Promise<void> {
     try {
       const result = await userService.requestAccountDeletion(req.user!.id);
-      res.json({ status: 'success', ...result });
+      res.json({ success: true, ...result });
     } catch (error: any) {
       res.status(error.statusCode || 500).json({ error: error.message });
     }
@@ -128,7 +128,7 @@ export class UserController {
   async cancelAccountDeletion(req: AuthRequest, res: Response): Promise<void> {
     try {
       const result = await userService.cancelAccountDeletion(req.user!.id);
-      res.json({ status: 'success', ...result });
+      res.json({ success: true, ...result });
     } catch (error: any) {
       res.status(error.statusCode || 500).json({ error: error.message });
     }

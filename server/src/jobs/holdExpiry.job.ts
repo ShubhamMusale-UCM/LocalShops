@@ -60,14 +60,14 @@ export async function processExpiredHolds(cutoffMinutes = 180): Promise<{ expire
           data: {
             status: 'CANCELLED',
             statusHistory: [
-              ...existingHistory,
+              ...(Array.isArray(order.statusHistory) ? (order.statusHistory as any[]) : []),
               {
                 status: 'CANCELLED',
                 note: 'Showroom hold window expired automatically',
                 cancelledBy: 'SYSTEM',
                 updatedAt: new Date().toISOString(),
               },
-            ],
+            ] as any,
           },
         });
 

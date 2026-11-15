@@ -7,6 +7,7 @@ import { createRazorpayRefund } from '../../config/razorpay';
 import walletService, { WALLET_CONFIG } from '../wallet/wallet.service';
 import notificationService from '../notification/notification.service';
 import { recordAuditLog } from '../../utils/auditLogger';
+import { persistImagesArray } from '../../utils/imageProcessor';
 
 let archivedTablesInitialized = false;
 
@@ -64,7 +65,7 @@ export class OrderService {
    */
   async createOrder(userId: string, data: {
     shopId: string;
-    items: { productId: string; quantity: number; price: number; name: string; campaignId?: string }[];
+    items: { productId: string; quantity: number; price?: number; name?: string; campaignId?: string }[];
     deliveryType: string;
     deliveryAddress?: any;
     paymentMethod: string;
@@ -974,7 +975,7 @@ export class OrderService {
     if (existing) throw new AppError('Return request already exists for this order', 400);
 
     const persistedPhotos = Array.isArray(data.photos) && data.photos.length > 0
-      ? await (await import('../../utils/imageProcessor')).persistImagesArray(data.photos, 'returns')
+      ? await persistImagesArray(data.photos, 'returns')
       : [];
 
     const returnReq = await prisma.returnRequest.create({
