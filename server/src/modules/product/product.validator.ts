@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const createProductSchema = z.object({
+const baseProductSchema = z.object({
   name: z.string().min(2, 'Product name must be at least 2 characters').max(200),
   description: z.string().min(2, 'Description must be at least 2 characters').max(5000),
   shortDescription: z.string().max(200).optional(),
@@ -18,10 +18,18 @@ export const createProductSchema = z.object({
   unit: z.string().max(20).optional(),
 });
 
-export const updateProductSchema = createProductSchema.partial().extend({
+export const createProductSchema = baseProductSchema.refine(
+  data => data.bookingAmount === undefined || data.bookingAmount <= data.price,
+  { message: 'Booking amount cannot exceed product price', path: ['bookingAmount'] }
+);
+
+export const updateProductSchema = baseProductSchema.partial().extend({
   inStock: z.boolean().optional(),
   isActive: z.boolean().optional(),
-});
+}).refine(
+  data => data.bookingAmount === undefined || data.price === undefined || data.bookingAmount <= data.price,
+  { message: 'Booking amount cannot exceed product price', path: ['bookingAmount'] }
+);
 
 export const productSearchSchema = z.object({
   q: z.string().optional(),

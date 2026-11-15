@@ -6,6 +6,7 @@ import adsService from '../ads/ads.service';
 import { persistImagesArray } from '../../utils/imageProcessor';
 import { getPlanLimits } from '../../config/plans';
 import { recordAuditLog } from '../../utils/auditLogger';
+import shopService, { PUBLIC_SHOP_SETTINGS_KEYS } from '../shop/shop.service';
 
 async function compressImagesArray(images?: string[]): Promise<string[]> {
   return persistImagesArray(images, 'products');
@@ -108,6 +109,15 @@ export class ProductService {
     });
 
     if (!product || !product.isActive) throw new AppError('Product not found.', 404);
+
+    if (product.shop) {
+      const extSettings = await shopService.getExtendedShopSettings(product.shop.id);
+      const publicExt: Record<string, any> = {};
+      for (const k of PUBLIC_SHOP_SETTINGS_KEYS) {
+        if (extSettings[k] !== undefined) publicExt[k] = extSettings[k];
+      }
+      (product as any).shop = { ...product.shop, ...publicExt, extendedSettings: publicExt };
+    }
 
     await cacheSet(cacheKey, product, 300); // 5 min cache
     return product;
