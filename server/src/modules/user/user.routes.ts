@@ -40,4 +40,14 @@ router.get('/alert-preferences', userController.getAlertPreferences.bind(userCon
 // PUT /api/users/alert-preferences
 router.put('/alert-preferences', userController.updateAlertPreferences.bind(userController));
 
+// Account Deletion & Data Portability (DPDP & Google Play Compliance)
+router.post('/delete-request', userController.requestAccountDeletion.bind(userController));
+router.post('/me/delete-request', userController.requestAccountDeletion.bind(userController));
+
+router.post('/cancel-deletion', userController.cancelAccountDeletion.bind(userController));
+router.post('/me/cancel-deletion', userController.cancelAccountDeletion.bind(userController));
+
+router.get('/export', userController.exportUserData.bind(userController));
+router.get('/me/export', userController.exportUserData.bind(userController));
+
 export default router;

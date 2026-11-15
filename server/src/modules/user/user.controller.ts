@@ -115,6 +115,33 @@ export class UserController {
       res.status(error.statusCode || 500).json({ error: error.message });
     }
   }
+
+  async requestAccountDeletion(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const result = await userService.requestAccountDeletion(req.user!.id);
+      res.json({ status: 'success', ...result });
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async cancelAccountDeletion(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const result = await userService.cancelAccountDeletion(req.user!.id);
+      res.json({ status: 'success', ...result });
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async exportUserData(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const data = await userService.exportUserData(req.user!.id);
+      res.json({ status: 'success', data });
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
 }
 
 export default new UserController();

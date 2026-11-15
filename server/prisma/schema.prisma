@@ -77,6 +77,10 @@ model User {
   city      String?
   pincode   String?
 
+  // Compliance & DPDP Erasure Lifecycle
+  deletionStatus      String?   // 'PENDING_DELETION' | 'DELETED'
+  deletionRequestedAt DateTime?
+
   // Relations
   shops            Shop[]
   orders           Order[]

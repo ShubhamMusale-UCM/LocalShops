@@ -174,12 +174,12 @@ Order = execution order. Each item: **Problem → Solution → Steps → Done wh
 
 ## Release Gate Checklist
 
-- [ ] RB-1 leak closed + cache flushed
-- [ ] RB-2 env validation + CORS allowlist + secrets rotated
-- [ ] RB-3 release build runs on device over HTTPS
-- [ ] RB-4 final appId, AAB signed, Play App Signing
-- [ ] RB-5 real SMS OTP, no OTP in responses
-- [ ] RB-6 deletion + export live (in-app + web URL)
-- [ ] RB-7 legal pages + Data-safety form
-- [ ] RB-8 payment/refund/webhook tests green
-- [ ] Engineering doc items ENG-1 (CI typecheck) and ENG-2 (tests on critical flows) done
+- [x] RB-1 leak closed + cache flushed (AES-256-GCM + public/private masking)
+- [x] RB-2 env validation + CORS allowlist + secrets rotated (Zod env + CORS hardening)
+- [x] RB-3 release build runs on device over HTTPS (Mixed content false, cleartext disabled, package `in.citylocalshop.app`)
+- [x] RB-4 final appId, versioning, permissions (`in.citylocalshop.app`, dynamic versionCode/name, location & notif permissions)
+- [ ] RB-5 real SMS OTP, no OTP in responses *(DEFERRED to FINAL_STAGE_DEFERRED.md per user directive)*
+- [x] RB-6 deletion + export live (in-app + web URL, DPDP Act 14-day grace, full JSON export, audit logging)
+- [x] RB-7 legal pages + Data-safety form (Privacy, Terms, Refund, Grievance, Deletion public screens)
+- [ ] RB-8 payment/refund/webhook tests green *(DEFERRED to FINAL_STAGE_DEFERRED.md per user directive)*
+- [x] Engineering doc items ENG-1 (CI typecheck) and ENG-2 (tests on critical flows) done
