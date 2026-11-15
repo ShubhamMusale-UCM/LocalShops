@@ -36,7 +36,15 @@ export const updateShopSchema = createShopSchema.partial().extend({
   phone: z.string().max(25).optional(),
   whatsapp: z.string().max(25).optional().nullable(),
   pincode: z.string().max(15).optional(),
-  gstNumber: z.string().max(30).optional().nullable(),
+  gstNumber: z
+    .string()
+    .max(30)
+    .refine(
+      (v) => !v || /^\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}[Z]{1}[A-Z\d]{1}$/i.test(v.trim()),
+      'Invalid GSTIN format (15 alphanumeric characters, e.g. 29AAAAA0000A1Z5)'
+    )
+    .optional()
+    .nullable(),
   razorpayAccountId: z.string().max(100).optional().nullable(),
   // Extended Compliance & Legal fields
   fssaiNumber: z
@@ -81,10 +89,10 @@ export const updateShopSchema = createShopSchema.partial().extend({
   closingTime: z.string().max(20).optional().nullable(),
   workingDays: z.array(z.string()).optional().nullable(),
   autoConfirmBookings: z.boolean().optional(),
-  slotDuration: z.string().max(20).optional(),
-  maxPerSlot: z.string().max(20).optional(),
+  slotDuration: z.union([z.string().max(20), z.number()]).optional().nullable(),
+  maxPerSlot: z.union([z.string().max(20), z.number()]).optional().nullable(),
   allowWalkIns: z.boolean().optional(),
-  advanceNotice: z.string().max(20).optional(),
+  advanceNotice: z.union([z.string().max(20), z.number()]).optional().nullable(),
   // Extended Notification & Alert Toggles
   soundAlerts: z.boolean().optional(),
   bookingAlerts: z.boolean().optional(),

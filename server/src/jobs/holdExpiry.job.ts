@@ -125,6 +125,24 @@ export async function processExpiredHolds(cutoffMinutes = 180): Promise<{ expire
           stockRestored: wasStockDeducted,
         },
       });
+
+      // Real-time socket notification to customer and seller
+      try {
+        const { orderSocket } = require('../app');
+        if (orderSocket) {
+          orderSocket.notifyCustomerOrderUpdate(
+            order.id,
+            'CANCELLED',
+            'Showroom hold window expired automatically'
+          );
+          orderSocket.notifySellerOrderUpdate(
+            order.shopId,
+            order.id,
+            'CANCELLED',
+            'Showroom hold window expired automatically'
+          );
+        }
+      } catch (_) {}
     } catch (err: any) {
       logger.error('Failed to expire hold order', { orderId: order.id, error: err.message });
     }

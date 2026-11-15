@@ -169,6 +169,38 @@ export class OrderService {
       }
     }
 
+    // Check if shop has autoConfirmBookings enabled (SEL-1)
+    let isAutoConfirm = false;
+    try {
+      const extRows = await prisma.$queryRawUnsafe<Array<{ settings: any }>>(
+        `SELECT settings FROM shop_extended_settings WHERE shop_id = $1`,
+        data.shopId
+      );
+      if (extRows && extRows[0] && extRows[0].settings) {
+        isAutoConfirm = Boolean(extRows[0].settings.autoConfirmBookings);
+      }
+    } catch (_) {}
+
+    const initialStatus = isAutoConfirm ? 'CONFIRMED' : 'PLACED';
+    const initialStatusHistory = [
+      {
+        status: 'PLACED',
+        note: 'Order placed',
+        updatedAt: new Date().toISOString(),
+        updatedBy: userId,
+      },
+      ...(isAutoConfirm
+        ? [
+            {
+              status: 'CONFIRMED',
+              note: 'Auto-confirmed by merchant booking settings',
+              updatedAt: new Date().toISOString(),
+              updatedBy: 'SYSTEM_AUTO_CONFIRM',
+            },
+          ]
+        : []),
+    ];
+
     // Create order with items in a transaction
     const order = await prisma.$transaction(async (tx) => {
       const newOrder = await tx.order.create({
@@ -176,12 +208,8 @@ export class OrderService {
           orderNumber,
           userId,
           shopId: data.shopId,
-          statusHistory: [{
-            status: 'PLACED',
-            note: 'Order placed',
-            updatedAt: new Date().toISOString(),
-            updatedBy: userId,
-          }],
+          status: initialStatus,
+          statusHistory: initialStatusHistory as any,
           subtotal,
           deliveryFee,
           discount,
@@ -209,6 +237,23 @@ export class OrderService {
           shop: { select: { id: true, name: true, phone: true } },
         },
       });
+
+      // Deduct stock immediately if auto-confirmed (atomic stock reservation)
+      if (isAutoConfirm) {
+        for (const item of orderItems) {
+          const product = await tx.product.findUnique({ where: { id: item.productId } });
+          if (product && typeof product.quantity === 'number') {
+            const newQuantity = Math.max(0, product.quantity - item.quantity);
+            await tx.product.update({
+              where: { id: item.productId },
+              data: {
+                quantity: newQuantity,
+                inStock: newQuantity > 0,
+              },
+            });
+          }
+        }
+      }
 
       const today = new Date();
       today.setUTCHours(0, 0, 0, 0);
@@ -352,11 +397,18 @@ export class OrderService {
       cacheDelete(`shop:${data.shopId}:daily-metrics`),
     ]).catch(() => {});
 
-    // Notify seller in real-time
+    // Notify seller and customer in real-time
     try {
       const { orderSocket } = require('../../app');
       if (orderSocket) {
-        orderSocket.notifyShopNewOrder(data.shopId, order);
+        orderSocket.notifyShopNewOrder(data.shopId, { ...order, autoConfirmed: isAutoConfirm });
+        if (isAutoConfirm) {
+          orderSocket.notifyCustomerOrderUpdate(
+            order.id,
+            'CONFIRMED',
+            'Auto-confirmed by merchant booking settings'
+          );
+        }
         orderSocket.getIO().to(`shop:${data.shopId}`).emit('shop:ad-analytics-updated', {
           shopId: data.shopId,
           timestamp: new Date(),

@@ -143,10 +143,11 @@ class OrderUpdatesSocket {
   /**
    * Notify seller of order update
    */
-  public notifySellerOrderUpdate(shopId: string, orderId: string, status: string) {
+  public notifySellerOrderUpdate(shopId: string, orderId: string, status: string, note?: string) {
     this.io.to(`shop:${shopId}`).emit('shop:order-update', {
       orderId,
       status,
+      note,
       timestamp: new Date(),
     });
   }
@@ -154,10 +155,11 @@ class OrderUpdatesSocket {
   /**
    * Notify customer of order update
    */
-  public notifyCustomerOrderUpdate(orderId: string, status: string) {
+  public notifyCustomerOrderUpdate(orderId: string, status: string, note?: string) {
     this.io.to(`order:${orderId}`).emit('customer:order-update', {
       orderId,
       status,
+      note,
       timestamp: new Date(),
     });
   }
