@@ -10,7 +10,10 @@ import path from 'path';
 // Load environment variables
 dotenv.config();
 
-import { connectDatabase } from './config/database';
+import prisma, { connectDatabase } from './config/database';
+import redis from './config/redis';
+import env from './config/env';
+import { randomUUID } from 'crypto';
 import { initializeFirebase } from './config/firebase';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.middleware';
 import { generalLimiter } from './middleware/rateLimiter.middleware';
@@ -44,13 +47,28 @@ app.set('trust proxy', 1);
 
 // ============= MIDDLEWARE =============
 
-// Security
+// Security & Request ID
+app.use((req, res, next) => {
+  const reqId = (req.headers['x-request-id'] as string) || randomUUID();
+  res.setHeader('x-request-id', reqId);
+  next();
+});
 app.use(helmet({
   crossOriginResourcePolicy: false,
   crossOriginEmbedderPolicy: false
 }));
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (
+      env.NODE_ENV !== 'production' ||
+      env.CORS_ORIGINS.includes('*') ||
+      env.CORS_ORIGINS.includes(origin)
+    ) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 
@@ -81,7 +99,7 @@ app.use('/api/', generalLimiter);
 
 // ============= ROUTES =============
 
-// Health check
+// Health check (liveness)
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
@@ -89,6 +107,32 @@ app.get('/api/health', (_req, res) => {
     version: '1.0.0',
     timestamp: new Date().toISOString(),
   });
+});
+
+// Readiness probe (verifies PostgreSQL + Redis connectivity)
+app.get('/api/ready', async (_req, res) => {
+  try {
+    await prisma.$queryRawUnsafe('SELECT 1');
+    let redisOk = true;
+    try {
+      await redis.ping();
+    } catch {
+      redisOk = false;
+    }
+    res.status(200).json({
+      status: 'ready',
+      database: 'connected',
+      redis: redisOk ? 'connected' : 'degraded',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    res.status(503).json({
+      status: 'not_ready',
+      database: 'disconnected',
+      error: err?.message || 'Database check failed',
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
 
 // API routes

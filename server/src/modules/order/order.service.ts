@@ -6,6 +6,34 @@ import { sendOrderConfirmationEmail } from '../../utils/emailService';
 import { createRazorpayRefund } from '../../config/razorpay';
 import walletService, { WALLET_CONFIG } from '../wallet/wallet.service';
 import notificationService from '../notification/notification.service';
+import { recordAuditLog } from '../../utils/auditLogger';
+
+let archivedTablesInitialized = false;
+
+async function ensureArchivedOrdersTables(): Promise<void> {
+  if (archivedTablesInitialized) return;
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS user_archived_orders (
+        user_id TEXT NOT NULL,
+        order_id TEXT NOT NULL,
+        archived_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (user_id, order_id)
+      );
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS shop_archived_orders (
+        shop_id TEXT NOT NULL,
+        order_id TEXT NOT NULL,
+        archived_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (shop_id, order_id)
+      );
+    `);
+    archivedTablesInitialized = true;
+  } catch (err) {
+    console.error('Failed to initialize archived orders tables:', err);
+  }
+}
 
 const toStatusHistory = (value: unknown): any[] => (Array.isArray(value) ? value : []);
 
@@ -123,7 +151,9 @@ export class OrderService {
 
     const total = subtotal + deliveryFee - discount;
     const orderNumber = `CLS${Date.now().toString(36).toUpperCase()}${nanoid(4).toUpperCase()}`;
-    const orderCampaignId = data.items.find(i => i.campaignId)?.campaignId;
+    const orderCampaignId =
+      data.items.find(i => i.campaignId)?.campaignId ||
+      products.find(p => p.promotedListings && p.promotedListings.length > 0)?.promotedListings?.[0]?.id;
 
     // ============= WALLET COIN USAGE =============
     let coinsUsed = 0;
@@ -179,11 +209,30 @@ export class OrderService {
         },
       });
 
-      // Update product order counts
-      for (const item of data.items) {
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+
+      // Update product order counts and ProductDailyAnalytics
+      for (const item of orderItems) {
         await tx.product.update({
           where: { id: item.productId },
-          data: { orderCount: { increment: 1 } },
+          data: { orderCount: { increment: item.quantity } },
+        });
+        await tx.productDailyAnalytics.upsert({
+          where: { productId_date: { productId: item.productId, date: today } },
+          update: {
+            ordersCount: { increment: 1 },
+            unitsSold: { increment: item.quantity },
+            revenue: { increment: item.total },
+          },
+          create: {
+            productId: item.productId,
+            shopId: data.shopId,
+            date: today,
+            ordersCount: 1,
+            unitsSold: item.quantity,
+            revenue: item.total,
+          },
         });
       }
 
@@ -212,9 +261,6 @@ export class OrderService {
             });
           }
         }
-
-        const today = new Date();
-        today.setUTCHours(0, 0, 0, 0);
 
         for (const [campaignId, stats] of campaignTotals.entries()) {
           await tx.promotedListing.update({
@@ -328,8 +374,23 @@ export class OrderService {
   async getUserOrders(userId: string, params: { status?: string; page?: number; limit?: number }) {
     const { status, page = 1, limit = 20 } = params;
 
+    let archivedIds: string[] = [];
+    try {
+      await ensureArchivedOrdersTables();
+      const rows = await prisma.$queryRawUnsafe<Array<{ order_id: string }>>(
+        `SELECT order_id FROM user_archived_orders WHERE user_id = $1`,
+        userId
+      );
+      if (Array.isArray(rows)) {
+        archivedIds = rows.map((r) => r.order_id);
+      }
+    } catch (_) {}
+
     const where: any = { userId };
     if (status) where.status = status;
+    if (archivedIds.length > 0) {
+      where.id = { notIn: archivedIds };
+    }
 
     const [rawOrders, total] = await Promise.all([
       prisma.order.findMany({
@@ -401,8 +462,24 @@ export class OrderService {
     if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
 
     const { status, page = 1, limit = 20 } = params;
+
+    let archivedIds: string[] = [];
+    try {
+      await ensureArchivedOrdersTables();
+      const rows = await prisma.$queryRawUnsafe<Array<{ order_id: string }>>(
+        `SELECT order_id FROM shop_archived_orders WHERE shop_id = $1`,
+        shopId
+      );
+      archivedIds = (rows || []).map((r) => r.order_id);
+    } catch (e) {
+      console.error('Failed to read shop_archived_orders:', e);
+    }
+
     const where: any = { shopId };
     if (status) where.status = status;
+    if (archivedIds.length > 0) {
+      where.id = { notIn: archivedIds };
+    }
 
     const [rawOrders, total] = await Promise.all([
       prisma.order.findMany({
@@ -540,11 +617,22 @@ export class OrderService {
       }
 
       if (status === 'CANCELLED' && order.status !== 'CANCELLED') {
-        // Decrement product orderCounts and shop totalOrders
+        const orderDate = new Date(order.createdAt);
+        orderDate.setUTCHours(0, 0, 0, 0);
+
+        // Decrement product orderCounts, ProductDailyAnalytics, and shop totalOrders
         for (const item of updatedOrder.items) {
           await tx.product.updateMany({
             where: { id: item.productId, orderCount: { gt: 0 } },
-            data: { orderCount: { decrement: 1 } },
+            data: { orderCount: { decrement: item.quantity } },
+          });
+          await tx.productDailyAnalytics.updateMany({
+            where: { productId: item.productId, date: orderDate },
+            data: {
+              ordersCount: { decrement: 1 },
+              unitsSold: { decrement: item.quantity },
+              revenue: { decrement: item.total },
+            },
           });
         }
         await tx.shop.updateMany({
@@ -552,8 +640,6 @@ export class OrderService {
           data: { totalOrders: { decrement: 1 } },
         });
 
-        const orderDate = new Date(order.createdAt);
-        orderDate.setUTCHours(0, 0, 0, 0);
         await tx.shopAnalytics.upsert({
           where: { shopId_date: { shopId: order.shopId, date: orderDate } },
           update: { orders: { decrement: 1 }, revenue: { decrement: order.total } },
@@ -590,6 +676,21 @@ export class OrderService {
       return updatedOrder;
     });
 
+    // Post-delivery: activate referral rewards and credit seller ad wallet BEFORE cache invalidation
+    if (status === 'DELIVERED') {
+      await this.processDeliveryReferral(order.userId).catch(() => {});
+      
+      if (order.coinsCredited > 0) {
+        await walletService.creditSellerAdWallet(
+          order.shopId,
+          order.coinsCredited,
+          `Ad credit from delivered order #${order.orderNumber}`,
+          orderId,
+          'ORDER'
+        ).catch((err) => console.error('Failed to credit seller ad wallet on delivery:', err));
+      }
+    }
+
     // Always invalidate shop analytics & ads cache on any status change (PLACED -> CONFIRMED -> DELIVERED -> CANCELLED)
     try {
       if (
@@ -623,21 +724,6 @@ export class OrderService {
       console.warn('Socket emit failed for order update:', e);
     }
 
-    // Post-delivery: activate referral rewards (non-blocking) and credit seller ad wallet
-    if (status === 'DELIVERED') {
-      this.processDeliveryReferral(order.userId).catch(() => {});
-      
-      if (order.coinsCredited > 0) {
-        walletService.creditSellerAdWallet(
-          order.shopId,
-          order.coinsCredited,
-          `Ad credit from delivered order #${order.orderNumber}`,
-          orderId,
-          'ORDER'
-        ).catch((err) => console.error('Failed to credit seller ad wallet on delivery:', err));
-      }
-    }
-
     // ============= REFUND COINS ON CANCELLATION =============
     if (status === 'CANCELLED' && order.coinsUsed > 0) {
       try {
@@ -657,6 +743,20 @@ export class OrderService {
         console.error('Wallet refund error on order status cancellation:', walletError);
       }
     }
+
+    await recordAuditLog({
+      actorId: userId,
+      actorRole: 'SELLER',
+      action: `ORDER_STATUS_${status}`,
+      entityType: 'ORDER',
+      entityId: orderId,
+      metadata: {
+        shopId: order.shopId,
+        previousStatus: order.status,
+        newStatus: status,
+        note: note || null,
+      },
+    });
 
     return updated;
   }
@@ -732,11 +832,23 @@ export class OrderService {
         }
       }
 
-      // Decrement product orderCounts and shop totalOrders
+      // Real-time ShopAnalytics and ProductDailyAnalytics update (decrement)
+      const today = new Date(order.createdAt);
+      today.setUTCHours(0, 0, 0, 0);
+
+      // Decrement product orderCounts, ProductDailyAnalytics, and shop totalOrders
       for (const item of updatedOrder.items) {
         await tx.product.updateMany({
           where: { id: item.productId, orderCount: { gt: 0 } },
-          data: { orderCount: { decrement: 1 } },
+          data: { orderCount: { decrement: item.quantity } },
+        });
+        await tx.productDailyAnalytics.updateMany({
+          where: { productId: item.productId, date: today },
+          data: {
+            ordersCount: { decrement: 1 },
+            unitsSold: { decrement: item.quantity },
+            revenue: { decrement: item.total },
+          },
         });
       }
       await tx.shop.updateMany({
@@ -744,9 +856,6 @@ export class OrderService {
         data: { totalOrders: { decrement: 1 } },
       });
 
-      // Real-time ShopAnalytics update (decrement)
-      const today = new Date(order.createdAt);
-      today.setUTCHours(0, 0, 0, 0);
       await tx.shopAnalytics.upsert({
         where: { shopId_date: { shopId: order.shopId, date: today } },
         update: { orders: { decrement: 1 }, revenue: { decrement: order.total } },
@@ -955,7 +1064,129 @@ export class OrderService {
       }
     }
 
+    await recordAuditLog({
+      actorId: userId,
+      actorRole: 'SELLER',
+      action: `RETURN_STATUS_${status}`,
+      entityType: 'ORDER',
+      entityId: returnReq.orderId,
+      metadata: {
+        returnId,
+        shopId: returnReq.order.shopId,
+        previousStatus: returnReq.status,
+        newStatus: status,
+        note: note || null,
+      },
+    });
+
     return updated;
+  }
+
+  /**
+   * Archive / clear cancelled and refunded orders for a buyer
+   */
+  async clearCancelledOrders(userId: string) {
+    await ensureArchivedOrdersTables();
+
+    const cancelledOrders = await prisma.order.findMany({
+      where: {
+        userId,
+        status: { in: ['CANCELLED', 'REFUNDED'] },
+      },
+      select: { id: true },
+    });
+
+    const archivedIds = cancelledOrders.map((o) => o.id);
+    if (archivedIds.length > 0) {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO user_archived_orders (user_id, order_id, archived_at)
+         SELECT $1, unnest($2::text[]), NOW()
+         ON CONFLICT (user_id, order_id) DO NOTHING`,
+        userId,
+        archivedIds
+      );
+    }
+
+    return {
+      success: true,
+      clearedCount: archivedIds.length,
+      archivedIds,
+    };
+  }
+
+  /**
+   * Archive a single rejected/cancelled order for a shop (seller view)
+   */
+  async archiveShopOrder(shopId: string, ownerId: string, orderId: string) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
+
+    await ensureArchivedOrdersTables();
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO shop_archived_orders (shop_id, order_id, archived_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (shop_id, order_id) DO NOTHING`,
+      shopId,
+      orderId
+    );
+
+    await recordAuditLog({
+      actorId: ownerId,
+      actorRole: 'SELLER',
+      action: 'ORDER_ARCHIVED_BY_SHOP',
+      entityType: 'SHOP',
+      entityId: shopId,
+      metadata: { orderId },
+    });
+
+    return { success: true, archivedOrderId: orderId };
+  }
+
+  /**
+   * Archive / clear all cancelled and refunded orders for a shop (seller view)
+   */
+  async clearShopRejectedOrders(shopId: string, ownerId: string) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
+
+    await ensureArchivedOrdersTables();
+
+    const rejectedOrders = await prisma.order.findMany({
+      where: {
+        shopId,
+        status: { in: ['CANCELLED', 'REFUNDED'] },
+      },
+      select: { id: true },
+    });
+
+    const archivedIds = rejectedOrders.map((o) => o.id);
+    if (archivedIds.length > 0) {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO shop_archived_orders (shop_id, order_id, archived_at)
+         SELECT $1, unnest($2::text[]), NOW()
+         ON CONFLICT (shop_id, order_id) DO NOTHING`,
+        shopId,
+        archivedIds
+      );
+    }
+
+    await recordAuditLog({
+      actorId: ownerId,
+      actorRole: 'SELLER',
+      action: 'REJECTED_ORDERS_CLEARED_BY_SHOP',
+      entityType: 'SHOP',
+      entityId: shopId,
+      metadata: { clearedCount: archivedIds.length },
+    });
+
+    return {
+      success: true,
+      clearedCount: archivedIds.length,
+      archivedIds,
+    };
   }
 }
 

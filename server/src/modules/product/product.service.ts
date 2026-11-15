@@ -4,6 +4,8 @@ import redis, { cacheGet, cacheSet, cacheDelete, cacheDeletePattern } from '../.
 import { searchProducts, getComparableProducts } from './product.search';
 import adsService from '../ads/ads.service';
 import { persistImagesArray } from '../../utils/imageProcessor';
+import { getPlanLimits } from '../../config/plans';
+import { recordAuditLog } from '../../utils/auditLogger';
 
 async function compressImagesArray(images?: string[]): Promise<string[]> {
   return persistImagesArray(images, 'products');
@@ -19,13 +21,11 @@ export class ProductService {
     if (!shop) throw new AppError('Shop not found.', 404);
     if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
 
-    // Check product limit based on subscription
+    // Check product limit based on centralized subscription plan config
     const productCount = await prisma.product.count({ where: { shopId, isActive: true } });
-    const limits: Record<string, number> = {
-      FREE: 10, STARTER: 50, PROFESSIONAL: 999999, PREMIUM: 999999,
-    };
-    if (productCount >= (limits[shop.subscriptionPlan] || 10)) {
-      throw new AppError(`Product limit reached for ${shop.subscriptionPlan} plan. Upgrade to add more products.`, 400);
+    const planLimits = getPlanLimits(shop.subscriptionPlan);
+    if (productCount >= planLimits.maxProducts) {
+      throw new AppError(`Product limit (${planLimits.maxProducts}) reached for ${shop.subscriptionPlan} plan. Upgrade to add more products.`, 400);
     }
 
     // Auto-calculate discount if MRP provided
@@ -242,12 +242,18 @@ export class ProductService {
             },
           },
           promotedListings: {
-            where: {
+            select: {
+              id: true,
               isActive: true,
-              startDate: { lte: new Date() },
-              endDate: { gt: new Date() },
+              startDate: true,
+              endDate: true,
+              budget: true,
+              spent: true,
+              impressions: true,
+              clicks: true,
+              conversions: true,
+              revenue: true,
             },
-            select: { id: true, isActive: true, startDate: true, endDate: true, budget: true, spent: true, impressions: true, clicks: true },
           },
         },
         skip: (page - 1) * limit, take: limit,
@@ -256,7 +262,7 @@ export class ProductService {
     ]);
 
     const productIds = products.map((p) => p.id);
-    let dailyAggMap = new Map<string, { impressions: number; detailViews: number }>();
+    let dailyAggMap = new Map<string, { impressions: number; detailViews: number; cartAdds: number; adImpressions: number; adClicks: number }>();
     if (productIds.length > 0) {
       try {
         const dailyAgg = await prisma.productDailyAnalytics.groupBy({
@@ -265,6 +271,9 @@ export class ProductService {
           _sum: {
             impressions: true,
             detailViews: true,
+            cartAdds: true,
+            adImpressions: true,
+            adClicks: true,
           },
         });
         dailyAggMap = new Map(
@@ -273,6 +282,9 @@ export class ProductService {
             {
               impressions: d._sum.impressions || 0,
               detailViews: d._sum.detailViews || 0,
+              cartAdds: d._sum.cartAdds || 0,
+              adImpressions: d._sum.adImpressions || 0,
+              adClicks: d._sum.adClicks || 0,
             },
           ])
         );
@@ -283,9 +295,13 @@ export class ProductService {
 
     const now = new Date();
     const enrichedProducts = products.map((p: any) => {
-      const agg = dailyAggMap.get(p.id) || { impressions: 0, detailViews: 0 };
-      const adImpressions = (p.promotedListings || []).reduce((a: number, l: any) => a + (l.impressions || 0), 0);
-      const adClicks = (p.promotedListings || []).reduce((a: number, l: any) => a + (l.clicks || 0), 0);
+      const agg = dailyAggMap.get(p.id) || { impressions: 0, detailViews: 0, cartAdds: 0, adImpressions: 0, adClicks: 0 };
+      const campaignAdImpressions = (p.promotedListings || []).reduce((a: number, l: any) => a + (l.impressions || 0), 0);
+      const campaignAdClicks = (p.promotedListings || []).reduce((a: number, l: any) => a + (l.clicks || 0), 0);
+      const adConversions = (p.promotedListings || []).reduce((a: number, l: any) => a + (l.conversions || 0), 0);
+      const adRevenue = (p.promotedListings || []).reduce((a: number, l: any) => a + (l.revenue || 0), 0);
+      const adImpressions = Math.max(campaignAdImpressions, agg.adImpressions || 0);
+      const adClicks = Math.max(campaignAdClicks, agg.adClicks || 0);
       const totalImpressions = (agg.impressions || 0) + adImpressions;
       const totalViews = Math.max(p.viewCount || 0, agg.detailViews || 0);
 
@@ -295,8 +311,11 @@ export class ProductService {
         views: totalViews,
         impressions: totalImpressions,
         feedImpressions: agg.impressions || 0,
+        cartAdds: agg.cartAdds || 0,
         adImpressions,
         adClicks,
+        adConversions,
+        adRevenue,
         isBoosted: !!(
           p.promotedListings &&
           p.promotedListings.some(
@@ -354,13 +373,15 @@ export class ProductService {
     const successRows: any[] = [];
     const errorRows: { row: number; error: string }[] = [];
 
-    // Optional limits check
+    // Centralized limits check
     const productCount = await prisma.product.count({ where: { shopId, isActive: true } });
-    const limits: Record<string, number> = {
-      FREE: 10, STARTER: 50, PROFESSIONAL: 999999, PREMIUM: 999999,
-    };
-    const maxAllowed = limits[shop.subscriptionPlan] || 10;
-    
+    const planLimits = getPlanLimits(shop.subscriptionPlan);
+    const maxAllowed = planLimits.maxProducts;
+
+    if (records.length > planLimits.maxCsvBatchRows) {
+      throw new AppError(`CSV batch size (${records.length}) exceeds maximum ${planLimits.maxCsvBatchRows} rows for ${shop.subscriptionPlan} plan.`, 400);
+    }
+
     if (productCount + records.length > maxAllowed) {
       throw new AppError(`Bulk import exceeds product limit for ${shop.subscriptionPlan} plan. Available slots: ${Math.max(0, maxAllowed - productCount)}`, 400);
     }
@@ -369,40 +390,55 @@ export class ProductService {
     for (let i = 0; i < records.length; i++) {
       const row = records[i] as any;
       try {
-        if (!row.name || !row.price || !row.description) {
-          throw new Error('Missing required fields: name, price, description');
+        const itemName = (row.name || row.title || row.Name || row.Title || '').trim();
+        const rawPrice = row.price || row.Price || row.selling_price;
+        const itemDescription = (row.description || row.Description || `${itemName} — available in store for immediate pickup.`).trim();
+
+        if (!itemName || !rawPrice) {
+          throw new Error('Missing required fields: name, price');
         }
 
-        const price = parseFloat(row.price);
-        const mrp = row.mrp ? parseFloat(row.mrp) : undefined;
+        const price = parseFloat(String(rawPrice).replace(/[^0-9.]/g, ''));
+        if (isNaN(price) || price <= 0) {
+          throw new Error('Invalid price value');
+        }
+        const rawMrp = row.mrp || row.MRP || row.originalPrice;
+        const mrp = rawMrp ? parseFloat(String(rawMrp).replace(/[^0-9.]/g, '')) : undefined;
         let discount = 0;
-        if (mrp && price && !row.discount) {
+        if (mrp && price && mrp > price && !row.discount) {
           discount = Math.round(((mrp - price) / mrp) * 100);
         } else if (row.discount) {
-          discount = parseInt(row.discount, 10);
+          discount = parseInt(row.discount, 10) || 0;
         }
 
-        const tags = row.tags ? row.tags.split(',').map((t: string) => t.trim()) : [];
-        const quantity = row.quantity ? parseInt(row.quantity, 10) : 0;
+        const rawTags = row.tags || row.Tags;
+        const tags = rawTags ? String(rawTags).split(',').map((t: string) => t.trim()).filter(Boolean) : [];
+        const rawQty = row.quantity ?? row.stock ?? row.Quantity ?? row.Stock;
+        const quantity = rawQty !== undefined && rawQty !== '' ? parseInt(String(rawQty), 10) : 5;
         const inStock = quantity > 0 || row.inStock === 'true' || row.inStock === '1';
+        const category = (row.category || row.Category || shop.category || 'General').trim();
+        const subCategory = (row.subCategory || row.SubCategory || '').trim() || null;
+        const brand = (row.brand || row.Brand || '').trim() || null;
+        const unit = (row.unit || row.Unit || 'pcs').trim();
 
-        const searchVector = [row.name, row.description, row.brand, ...tags].filter(Boolean).join(' ');
-        const rawRowImages = row.images || row.image
-          ? String(row.images || row.image).split(/[|,]/).map((s: string) => s.trim()).filter(Boolean)
+        const searchVector = [itemName, itemDescription, brand, ...tags].filter(Boolean).join(' ');
+        const rawRowImages = row.images || row.image || row.Images || row.Image
+          ? String(row.images || row.image || row.Images || row.Image).split(/[|,]/).map((s: string) => s.trim()).filter(Boolean)
           : [];
         const persistedRowImages = rawRowImages.length > 0 ? await compressImagesArray(rawRowImages) : [];
 
         successRows.push({
           shopId,
-          name: row.name,
-          description: row.description,
+          name: itemName,
+          description: itemDescription,
           price,
-          mrp,
+          mrp: mrp && !isNaN(mrp) ? mrp : undefined,
           discount,
-          category: row.category || 'Uncategorized',
-          subCategory: row.subCategory || null,
-          brand: row.brand || null,
-          quantity,
+          category,
+          subCategory,
+          brand,
+          quantity: isNaN(quantity) ? 5 : quantity,
+          unit,
           inStock,
           tags,
           searchVector,

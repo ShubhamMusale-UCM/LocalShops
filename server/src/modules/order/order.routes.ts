@@ -12,6 +12,7 @@ router.use(authenticate);
 // Buyer routes
 router.post('/', orderLimiter, orderController.create.bind(orderController));
 router.get('/', orderController.getMyOrders.bind(orderController));
+router.post('/clear-cancelled', orderController.clearCancelled.bind(orderController));
 router.get('/:id', orderController.getById.bind(orderController));
 router.post('/:id/cancel', orderController.cancel.bind(orderController));
 router.post('/:id/return', orderController.requestReturn.bind(orderController));
@@ -19,6 +20,8 @@ router.post('/:id/review', uploadPhotos, orderController.addReview.bind(orderCon
 
 // Seller routes
 router.get('/shop/:shopId', authorize('SELLER', 'ADMIN'), orderController.getShopOrders.bind(orderController));
+router.post('/shop/:shopId/clear-rejected', authorize('SELLER', 'ADMIN'), orderController.clearShopRejected.bind(orderController));
+router.delete('/shop/:shopId/:orderId', authorize('SELLER', 'ADMIN'), orderController.archiveShopOrder.bind(orderController));
 router.put('/:id/status', authorize('SELLER', 'ADMIN'), orderController.updateStatus.bind(orderController));
 router.put('/return/:returnId/status', authorize('SELLER', 'ADMIN'), orderController.updateReturnStatus.bind(orderController));
 

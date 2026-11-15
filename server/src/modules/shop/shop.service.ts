@@ -6,10 +6,200 @@ import slugify from 'slugify';
 import { nanoid } from 'nanoid';
 import { NotificationService } from '../notification/notification.service';
 import { persistBase64Image, persistImagesArray } from '../../utils/imageProcessor';
+import {
+  encryptSensitiveField,
+  decryptSensitiveField,
+  maskAccountNumber,
+  maskPanNumber,
+} from '../../utils/cryptoVault';
+import { recordAuditLog, getEntityAuditLogs } from '../../utils/auditLogger';
 
 const notificationService = new NotificationService();
 
+const ENCRYPTED_SETTINGS_KEYS = new Set(['accountNumber', 'ifscCode', 'panNumber', 'upiId']);
+
+export const PUBLIC_SHOP_SETTINGS_KEYS = new Set([
+  'openingTime',
+  'closingTime',
+  'workingDays',
+  'allowWalkIns',
+  'slotDuration',
+  'advanceNotice',
+]);
+
+export const PRIVATE_SHOP_SETTINGS_KEYS = new Set([
+  'bankName',
+  'accountHolder',
+  'accountNumber',
+  'accountNumberMasked',
+  'ifscCode',
+  'upiId',
+  'razorpayAccountId',
+  'panNumber',
+  'panNumberMasked',
+  'gstNumber',
+  'fssaiNumber',
+  'legalEntityName',
+  'grievanceOfficerName',
+  'grievanceEmail',
+  'grievancePhone',
+]);
+
+const PRISMA_SHOP_UPDATE_KEYS = new Set([
+  'name',
+  'description',
+  'logo',
+  'coverImage',
+  'photos',
+  'phone',
+  'whatsapp',
+  'email',
+  'website',
+  'address',
+  'landmark',
+  'city',
+  'state',
+  'pincode',
+  'latitude',
+  'longitude',
+  'category',
+  'subCategories',
+  'gstNumber',
+  'operatingHours',
+  'isOpen',
+  'razorpayAccountId',
+  'deliveryEnabled',
+  'deliveryRadius',
+  'minOrderDelivery',
+]);
+
+const EXTENDED_SHOP_SETTINGS_KEYS = new Set([
+  'fssaiNumber',
+  'panNumber',
+  'legalEntityName',
+  'grievanceOfficerName',
+  'grievanceEmail',
+  'grievancePhone',
+  'bankName',
+  'accountHolder',
+  'accountNumber',
+  'ifscCode',
+  'upiId',
+  'openingTime',
+  'closingTime',
+  'workingDays',
+  'autoConfirmBookings',
+  'slotDuration',
+  'maxPerSlot',
+  'allowWalkIns',
+  'advanceNotice',
+  'soundAlerts',
+  'bookingAlerts',
+  'dailyDigest',
+]);
+
 export class ShopService {
+  private extTableInitialized = false;
+
+  private async ensureExtendedSettingsTable() {
+    if (this.extTableInitialized) return;
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS shop_extended_settings (
+        shop_id TEXT PRIMARY KEY,
+        settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    this.extTableInitialized = true;
+  }
+
+  private decryptSettingsRow(raw: Record<string, any>): Record<string, any> {
+    if (!raw || typeof raw !== 'object') return {};
+    const out: Record<string, any> = { ...raw };
+    for (const k of ENCRYPTED_SETTINGS_KEYS) {
+      if (out[k]) {
+        out[k] = decryptSensitiveField(out[k]);
+      }
+    }
+    if (out.accountNumber) {
+      out.accountNumberMasked = maskAccountNumber(out.accountNumber);
+    }
+    if (out.panNumber) {
+      out.panNumberMasked = maskPanNumber(out.panNumber);
+    }
+    return out;
+  }
+
+  private pickPublicSettings(settings: Record<string, any>): Record<string, any> {
+    const pub: Record<string, any> = {};
+    for (const k of PUBLIC_SHOP_SETTINGS_KEYS) {
+      if (settings[k] !== undefined) pub[k] = settings[k];
+    }
+    return pub;
+  }
+
+  async getExtendedShopSettings(shopId: string): Promise<Record<string, any>> {
+    try {
+      await this.ensureExtendedSettingsTable();
+      const rows = await prisma.$queryRawUnsafe<Array<{ settings: any }>>(
+        `SELECT settings FROM shop_extended_settings WHERE shop_id = $1 LIMIT 1`,
+        shopId
+      );
+      if (rows && rows.length > 0 && rows[0].settings && typeof rows[0].settings === 'object') {
+        return this.decryptSettingsRow(rows[0].settings);
+      }
+    } catch (e) {
+      console.error('Failed to read shop_extended_settings:', e);
+    }
+    return {};
+  }
+
+  async getExtendedShopSettingsBatch(shopIds: string[]): Promise<Map<string, Record<string, any>>> {
+    const map = new Map<string, Record<string, any>>();
+    if (!shopIds.length) return map;
+    try {
+      await this.ensureExtendedSettingsTable();
+      const rows = await prisma.$queryRawUnsafe<Array<{ shop_id: string; settings: any }>>(
+        `SELECT shop_id, settings FROM shop_extended_settings WHERE shop_id = ANY($1::text[])`,
+        shopIds
+      );
+      for (const r of rows || []) {
+        if (r.settings && typeof r.settings === 'object') {
+          map.set(r.shop_id, this.decryptSettingsRow(r.settings));
+        }
+      }
+    } catch (e) {
+      console.error('Failed to batch-read shop_extended_settings:', e);
+    }
+    return map;
+  }
+
+  async saveExtendedShopSettings(shopId: string, patch: Record<string, any>): Promise<Record<string, any>> {
+    await this.ensureExtendedSettingsTable();
+    const current = await this.getExtendedShopSettings(shopId);
+    const mergedPlain = { ...current, ...patch };
+    delete mergedPlain.accountNumberMasked;
+    delete mergedPlain.panNumberMasked;
+
+    // Encrypt sensitive banking & PAN fields at rest in PostgreSQL
+    const toStore: Record<string, any> = { ...mergedPlain };
+    for (const k of ENCRYPTED_SETTINGS_KEYS) {
+      if (toStore[k]) {
+        toStore[k] = encryptSensitiveField(String(toStore[k]));
+      }
+    }
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO shop_extended_settings (shop_id, settings, updated_at)
+       VALUES ($1, $2::jsonb, NOW())
+       ON CONFLICT (shop_id) DO UPDATE SET
+         settings = EXCLUDED.settings,
+         updated_at = NOW()`,
+      shopId,
+      JSON.stringify(toStore)
+    );
+    return this.decryptSettingsRow(toStore);
+  }
   /**
    * Create a new shop
    */
@@ -80,8 +270,15 @@ export class ShopService {
 
     if (!shop) throw new AppError('Shop not found.', 404);
 
-    await cacheSet(cacheKey, shop, 600); // 10 min cache
-    return shop;
+    const extSettings = await this.getExtendedShopSettings(shopId);
+    const publicExt = this.pickPublicSettings(extSettings);
+
+    // Strip private payout/tax fields from public GET /api/shops/:id response
+    const { gstNumber: _gst, razorpayAccountId: _rzp, ...publicShopFields } = shop as any;
+    const mergedPublicShop = { ...publicExt, ...publicShopFields, extendedSettings: publicExt };
+
+    await cacheSet(cacheKey, mergedPublicShop, 600); // 10 min cache
+    return mergedPublicShop;
   }
 
   /**
@@ -277,7 +474,7 @@ export class ShopService {
   }
 
   /**
-   * Update shop
+   * Update shop (supports both core Prisma columns and extended compliance/payout/booking/alert settings)
    */
   async updateShop(shopId: string, ownerId: string, data: any) {
     const shop = await prisma.shop.findUnique({ where: { id: shopId } });
@@ -289,26 +486,172 @@ export class ShopService {
     if (nextData.coverImage) nextData.coverImage = await persistBase64Image(nextData.coverImage, 'shops');
     if (Array.isArray(nextData.photos)) nextData.photos = await persistImagesArray(nextData.photos, 'shops');
 
-    const updated = await prisma.shop.update({ where: { id: shopId }, data: nextData });
+    const prismaPayload: Record<string, any> = {};
+    const extendedPayload: Record<string, any> = {};
+
+    for (const [key, value] of Object.entries(nextData)) {
+      if (value === undefined) continue;
+      if (PRISMA_SHOP_UPDATE_KEYS.has(key)) {
+        prismaPayload[key] = value;
+      }
+      if (EXTENDED_SHOP_SETTINGS_KEYS.has(key)) {
+        extendedPayload[key] = value;
+      }
+    }
+
+    let updatedShopRecord = shop;
+    if (Object.keys(prismaPayload).length > 0) {
+      updatedShopRecord = await prisma.shop.update({ where: { id: shopId }, data: prismaPayload });
+    }
+
+    let extSettings = await this.getExtendedShopSettings(shopId);
+    if (Object.keys(extendedPayload).length > 0) {
+      extSettings = await this.saveExtendedShopSettings(shopId, extendedPayload);
+    }
+
     await Promise.all([
       cacheDeletePattern(`shop:${shopId}*`),
       cacheDeletePattern(`*${shopId}*`),
       cacheDeletePattern('shops:nearby:*'),
     ]);
-    return updated;
+
+    recordAuditLog({
+      actorId: ownerId,
+      actorRole: 'SELLER',
+      action: 'SHOP_UPDATED',
+      entityType: 'SHOP',
+      entityId: shopId,
+      changes: { ...prismaPayload, ...extendedPayload },
+    }).catch(() => {});
+
+    return { ...extSettings, ...updatedShopRecord, extendedSettings: extSettings };
   }
 
   /**
-   * Get shops owned by a user
+   * Get shops owned by a user (hydrated with extended seller settings via single batch query — zero N+1)
    */
   async getMyShops(ownerId: string) {
-    return prisma.shop.findMany({
+    const shops = await prisma.shop.findMany({
       where: { ownerId, isActive: true },
       include: {
         _count: { select: { products: true, orders: true, reviews: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    const settingsByShop = await this.getExtendedShopSettingsBatch(shops.map((s) => s.id));
+    return shops.map((s) => {
+      const ext = settingsByShop.get(s.id) || {};
+      return { ...ext, ...s, extendedSettings: ext };
+    });
+  }
+
+  /**
+   * Get private compliance, payout, and operational settings for shop owner/admin
+   */
+  async getPrivateShopSettings(shopId: string, requesterId: string, requesterRole?: string) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== requesterId && requesterRole !== 'ADMIN') {
+      throw new AppError('Not authorized.', 403);
+    }
+    const settings = await this.getExtendedShopSettings(shopId);
+    return {
+      gstNumber: shop.gstNumber || '',
+      razorpayAccountId: shop.razorpayAccountId || '',
+      ...settings,
+    };
+  }
+
+  /**
+   * Get audit trail for a shop (owner or admin only)
+   */
+  async getShopAuditLogs(shopId: string, ownerId: string) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
+    return getEntityAuditLogs('SHOP', shopId, 50);
+  }
+
+  /**
+   * Generate a real-time Daily Schedule Digest report for a shop
+   */
+  async getDailyDigestReport(shopId: string, ownerId: string) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
+
+    const extSettings = await this.getExtendedShopSettings(shopId);
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const [todayOrders, activeHolds, lowStockCount] = await Promise.all([
+      prisma.order.findMany({
+        where: { shopId, createdAt: { gte: startOfToday } },
+        include: { items: true, user: { select: { name: true, phone: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.order.findMany({
+        where: {
+          shopId,
+          status: { in: ['PLACED', 'CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP'] },
+        },
+        include: { items: true, user: { select: { name: true, phone: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.product.count({
+        where: { shopId, isActive: true, quantity: { lte: 3 } },
+      }),
+    ]);
+
+    const todayRevenue = todayOrders
+      .filter((o) => o.status !== 'CANCELLED' && o.status !== 'REFUNDED')
+      .reduce((sum, o) => sum + Number(o.total || 0), 0);
+
+    const pendingApprovalCount = activeHolds.filter((o) => o.status === 'PLACED').length;
+    const readyForPickupCount = activeHolds.filter((o) =>
+      ['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP'].includes(o.status)
+    ).length;
+
+    const dateLabel = new Date().toLocaleDateString('en-IN', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+
+    const whatsappSummary = [
+      `📊 *${shop.name} — Daily Showroom Digest* (${dateLabel})`,
+      `• Active Showroom Holds: *${activeHolds.length}* (${pendingApprovalCount} awaiting approval, ${readyForPickupCount} ready for pickup)`,
+      `• Today's Bookings: *${todayOrders.length}*`,
+      `• Today's Value: *₹${todayRevenue.toLocaleString('en-IN')}*`,
+      `• Low Stock Alerts: *${lowStockCount} items*`,
+      `• Store Hours: ${extSettings.openingTime || '09:00'} – ${extSettings.closingTime || '21:00'}`,
+    ].join('\n');
+
+    return {
+      shopId: shop.id,
+      shopName: shop.name,
+      whatsapp: shop.whatsapp || shop.phone,
+      dateLabel,
+      todayBookingsCount: todayOrders.length,
+      todayRevenue,
+      activeHoldsCount: activeHolds.length,
+      pendingApprovalCount,
+      readyForPickupCount,
+      lowStockCount,
+      activeHolds: activeHolds.slice(0, 10).map((o) => ({
+        id: o.id,
+        orderNumber: o.orderNumber,
+        status: o.status,
+        total: o.total,
+        buyerName: o.user?.name || 'Customer',
+        buyerPhone: o.user?.phone || '',
+        itemCount: o.items?.length || 0,
+        createdAt: o.createdAt,
+      })),
+      whatsappSummary,
+    };
   }
 
   /**

@@ -802,3 +802,77 @@ model SellerAdWalletTransaction {
   @@index([expiresAt])
 }
 
+// ============= EXTENDED SCHEMA MODELS (ENG-4 & ENG-8) =============
+
+model ShopExtendedSetting {
+  shopId    String   @id @map("shop_id")
+  settings  Json     @default("{}")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("shop_extended_settings")
+}
+
+model ShopArchivedOrder {
+  shopId     String   @map("shop_id")
+  orderId    String   @map("order_id")
+  archivedAt DateTime @default(now()) @map("archived_at")
+
+  @@id([shopId, orderId])
+  @@map("shop_archived_orders")
+}
+
+model UserArchivedOrder {
+  userId     String   @map("user_id")
+  orderId    String   @map("order_id")
+  archivedAt DateTime @default(now()) @map("archived_at")
+
+  @@id([userId, orderId])
+  @@map("user_archived_orders")
+}
+
+model UserAlertPreference {
+  userId        String   @id @map("user_id")
+  smsAlerts     Boolean  @default(true) @map("sms_alerts")
+  holdCountdown Boolean  @default(true) @map("hold_countdown")
+  flashSales    Boolean  @default(false) @map("flash_sales")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("user_alert_preferences")
+}
+
+model UserCategoryVisit {
+  userId     String   @map("user_id")
+  category   String
+  visitCount Int      @default(0) @map("visit_count")
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@id([userId, category])
+  @@map("user_category_visits")
+}
+
+model ReviewHelpfulVote {
+  reviewId  String   @map("review_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([reviewId, userId])
+  @@map("review_helpful_votes")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?  @map("actor_id")
+  actorRole  String?  @map("actor_role")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  metadata   Json     @default("{}")
+  ipAddress  String?  @map("ip_address")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId, createdAt(sort: Desc)], map: "idx_audit_logs_entity")
+  @@index([actorId, createdAt(sort: Desc)], map: "idx_audit_logs_actor")
+  @@map("audit_logs")
+}
+
+

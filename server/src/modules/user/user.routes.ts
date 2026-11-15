@@ -28,4 +28,16 @@ router.post('/support', userController.createSupportTicket.bind(userController))
 // GET /api/users/support
 router.get('/support', userController.getSupportTickets.bind(userController));
 
+// GET /api/users/category-visits
+router.get('/category-visits', userController.getCategoryVisits.bind(userController));
+
+// POST /api/users/category-visits
+router.post('/category-visits', userController.recordCategoryVisit.bind(userController));
+
+// GET /api/users/alert-preferences
+router.get('/alert-preferences', userController.getAlertPreferences.bind(userController));
+
+// PUT /api/users/alert-preferences
+router.put('/alert-preferences', userController.updateAlertPreferences.bind(userController));
+
 export default router;

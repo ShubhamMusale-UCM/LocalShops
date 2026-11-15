@@ -74,6 +74,47 @@ export class UserController {
       res.status(error.statusCode || 500).json({ error: error.message });
     }
   }
+
+  async getCategoryVisits(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const data = await userService.getCategoryVisits(req.user!.id);
+      res.json({ status: 'success', data });
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async recordCategoryVisit(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { category } = req.body;
+      if (!category || typeof category !== 'string') {
+        res.status(400).json({ error: 'Category is required.' });
+        return;
+      }
+      const data = await userService.recordCategoryVisit(req.user!.id, category);
+      res.json({ status: 'success', data });
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async getAlertPreferences(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const prefs = await userService.getAlertPreferences(req.user!.id);
+      res.json({ status: 'success', data: prefs, ...prefs });
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async updateAlertPreferences(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const prefs = await userService.updateAlertPreferences(req.user!.id, req.body || {});
+      res.json({ status: 'success', data: prefs, ...prefs });
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
 }
 
 export default new UserController();

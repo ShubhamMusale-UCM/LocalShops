@@ -5,6 +5,21 @@ import { SentimentType } from '@prisma/client';
 import notificationService from '../notification/notification.service';
 import { persistImagesArray } from '../../utils/imageProcessor';
 
+let reviewHelpfulTableReady = false;
+
+async function ensureReviewHelpfulTable(): Promise<void> {
+  if (reviewHelpfulTableReady) return;
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS review_helpful_votes (
+      review_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (review_id, user_id)
+    );
+  `);
+  reviewHelpfulTableReady = true;
+}
+
 export class ReviewService {
   /**
    * Create a review
@@ -169,19 +184,47 @@ export class ReviewService {
   }
 
   /**
-   * Mark a review as helpful
+   * Mark a review as helpful (toggle per user with persistence)
    */
   async markHelpful(reviewId: string, userId: string) {
     const review = await prisma.review.findUnique({ where: { id: reviewId } });
     if (!review) throw new AppError('Review not found.', 404);
-    if (review.userId === userId) throw new AppError('Cannot mark your own review as helpful.', 400);
 
-    await prisma.review.update({
+    await ensureReviewHelpfulTable();
+
+    const existing = await prisma.$queryRawUnsafe<Array<{ review_id: string }>>(
+      `SELECT review_id FROM review_helpful_votes WHERE review_id = $1 AND user_id = $2`,
+      reviewId,
+      userId
+    );
+
+    let voted = true;
+    let nextCount = (review.helpfulCount || 0) + 1;
+
+    if (existing && existing.length > 0) {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM review_helpful_votes WHERE review_id = $1 AND user_id = $2`,
+        reviewId,
+        userId
+      );
+      voted = false;
+      nextCount = Math.max(0, (review.helpfulCount || 0) - 1);
+    } else {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO review_helpful_votes (review_id, user_id, created_at) VALUES ($1, $2, NOW()) ON CONFLICT DO NOTHING`,
+        reviewId,
+        userId
+      );
+      voted = true;
+      nextCount = (review.helpfulCount || 0) + 1;
+    }
+
+    const updated = await prisma.review.update({
       where: { id: reviewId },
-      data: { helpfulCount: { increment: 1 } },
+      data: { helpfulCount: nextCount },
     });
 
-    return { success: true };
+    return { success: true, voted, helpfulCount: updated.helpfulCount };
   }
 
   /**

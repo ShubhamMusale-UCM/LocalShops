@@ -27,6 +27,7 @@ export const AdsController = {
         geoMode: z.enum(['RADIUS', 'CITIES']).default('RADIUS'),
         targetRadiusKm: z.number().min(1).max(MAX_TARGET_RADIUS_KM).optional(),
         targetCities: z.array(z.string().trim().min(2).max(50)).max(10).optional(),
+        useWalletBalance: z.boolean().optional().default(true),
         razorpay_order_id: z.string().optional(),
         razorpay_payment_id: z.string().optional(),
         razorpay_signature: z.string().optional(),
@@ -40,7 +41,7 @@ export const AdsController = {
       });
 
       const validated = schema.parse(req.body);
-      const { productId, shopId, budgetPerDay, duration, targetGender, objective, geoMode, targetRadiusKm, targetCities, razorpay_order_id, razorpay_payment_id, razorpay_signature } = validated;
+      const { productId, shopId, budgetPerDay, duration, targetGender, objective, geoMode, targetRadiusKm, targetCities, useWalletBalance, razorpay_order_id, razorpay_payment_id, razorpay_signature } = validated;
       const bidPerClick = bidForObjective(objective);
 
       if (bidPerClick > budgetPerDay) {
@@ -59,12 +60,12 @@ export const AdsController = {
       const totalBudget = Number(budgetPerDay) * Number(duration);
 
       // --- SPLIT PAYMENT LOGIC ---
-      const split = await walletService.calculateAdPaymentSplit(shopId, totalBudget);
+      const split = await walletService.calculateAdPaymentSplit(shopId, totalBudget, useWalletBalance);
 
       const bypassSellerPayment = process.env.BYPASS_SELLER_PAYMENT === 'true' || process.env.NODE_ENV !== 'production';
       if (!split.isFullWalletPayment && !bypassSellerPayment) {
         if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-          throw new AppError(`Insufficient wallet balance. Need ₹${totalBudget}, have ₹${split.walletBalance}. Please provide Razorpay payment details for the remaining ₹${split.razorpayAmount}.`, 402);
+          throw new AppError(`Payment required for ₹${split.razorpayAmount} (Total: ₹${totalBudget}, Wallet deduction: ₹${split.walletDeduction}). Please provide Razorpay payment details.`, 402);
         }
 
         const SKIP_PAYMENT_VERIFICATION = process.env.NODE_ENV !== 'production' && process.env.SKIP_PAYMENT_VERIFICATION === 'true';
@@ -72,16 +73,6 @@ export const AdsController = {
           const isValid = verifyPaymentSignature(razorpay_order_id, razorpay_payment_id, razorpay_signature);
           if (!isValid) throw new AppError('Invalid payment signature', 400);
         }
-
-        // Auto-top-up the wallet with the Razorpay amount so the creation can succeed
-        // Using walletService provides idempotency (replay protection) via razorpay_payment_id
-        await walletService.creditSellerAdWallet(
-          shopId,
-          split.razorpayAmount,
-          `Ad payment split top-up (Razorpay ID: ${razorpay_payment_id})`,
-          razorpay_payment_id,
-          'AD_CAMPAIGN'
-        );
       }
       // ---------------------------
 
@@ -93,7 +84,7 @@ export const AdsController = {
         new Date(),
         Number(duration),
         targetGender,
-        { objective, geoMode, targetRadiusKm, targetCities }
+        { objective, geoMode, targetRadiusKm, targetCities, useWalletBalance }
       );
 
       res.status(201).json({
@@ -270,9 +261,10 @@ export const AdsController = {
       const { adId } = req.params;
       const schema = z.object({
         additionalBudget: z.number().positive().min(100).max(1000000),
-        durationDays: z.number().int().positive().min(1).max(365).default(30)
+        durationDays: z.number().int().positive().min(1).max(365).default(30),
+        useWalletBalance: z.boolean().optional().default(true),
       });
-      const { additionalBudget, durationDays } = schema.parse(req.body);
+      const { additionalBudget, durationDays, useWalletBalance } = schema.parse(req.body);
 
       const existing = await prisma.promotedListing.findUnique({
         where: { id: adId },
@@ -282,7 +274,7 @@ export const AdsController = {
         throw new AppError('Unauthorized', 403);
       }
 
-      const ad = await adsService.renewAdBudget(adId, additionalBudget, durationDays);
+      const ad = await adsService.renewAdBudget(adId, additionalBudget, durationDays, useWalletBalance);
 
       res.json({
         status: 'success',
@@ -302,12 +294,13 @@ export const AdsController = {
     next: NextFunction
   ) => {
     try {
-      const { limit = 10, lat, lng, city } = req.query;
+      const { limit = 10, lat, lng, city, gender } = req.query;
       const user = req.user as any;
       const parsedLimit = parseInt(limit as string);
-      const parsedLat = lat ? parseFloat(lat as string) : undefined;
-      const parsedLng = lng ? parseFloat(lng as string) : undefined;
+      const parsedLat = lat !== undefined ? parseFloat(lat as string) : (user?.latitude ?? undefined);
+      const parsedLng = lng !== undefined ? parseFloat(lng as string) : (user?.longitude ?? undefined);
       const buyerCity = (city as string) || user?.city || undefined;
+      const resolvedGender = ((gender as string) || user?.gender || undefined)?.toString().toUpperCase();
 
       let products;
       if (!user) {
@@ -315,7 +308,8 @@ export const AdsController = {
           limit: parsedLimit,
           lat: parsedLat,
           lng: parsedLng,
-          city: buyerCity
+          city: buyerCity,
+          userGender: resolvedGender,
         });
       } else {
         
@@ -334,7 +328,7 @@ export const AdsController = {
           lng: parsedLng,
           city: buyerCity,
           userId: user.id,
-          userGender: user?.gender
+          userGender: resolvedGender
         });
       }
 
@@ -356,7 +350,7 @@ export const AdsController = {
     next: NextFunction
   ) => {
     try {
-      const { limit = 10, q, category, lat, lng, city } = req.query;
+      const { limit = 10, q, category, lat, lng, city, gender } = req.query;
       const user = req.user as any;
 
       let keywords: string[] | undefined;
@@ -370,16 +364,20 @@ export const AdsController = {
         keywords = recentSearches.map((s: any) => s.keyword).filter(Boolean);
       }
 
+      const parsedLat = lat !== undefined ? parseFloat(lat as string) : (user?.latitude ?? undefined);
+      const parsedLng = lng !== undefined ? parseFloat(lng as string) : (user?.longitude ?? undefined);
+      const resolvedGender = ((gender as string) || user?.gender || undefined)?.toString().toUpperCase();
+
       const rawAds = await adsService.serveAds({
         limit: parseInt(limit as string), 
         query: q as string, 
         keywords: keywords,
         category: category as string,
-        lat: lat ? parseFloat(lat as string) : undefined,
-        lng: lng ? parseFloat(lng as string) : undefined,
+        lat: parsedLat,
+        lng: parsedLng,
         city: (city as string) || user?.city || undefined,
         userId: user?.id,
-        userGender: user?.gender,
+        userGender: resolvedGender,
       });
 
       const products = (rawAds || []).map((ad: any) => ({
@@ -388,6 +386,12 @@ export const AdsController = {
         productId: ad.product?.id || ad.productId,
         campaignId: ad.id,
         sponsoredListingId: ad.id,
+        promotedListingId: ad.id,
+        adObjective: ad.objective,
+        targetGender: ad.targetGender,
+        geoMode: ad.geoMode,
+        targetRadiusKm: ad.targetRadiusKm,
+        targetCities: ad.targetCities,
         isBoosted: true,
         isSponsored: true,
         shop: ad.product?.shop || ad.shop,
@@ -623,7 +627,7 @@ export const AdsController = {
    */
   calculatePayment: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const { shopId, budgetPerDay, duration } = req.body;
+      const { shopId, budgetPerDay, duration, useWalletBalance = true } = req.body;
       if (!shopId || !budgetPerDay || !duration) throw new AppError('Missing required fields', 400);
 
       const shop = await prisma.shop.findUnique({ where: { id: shopId } });
@@ -631,7 +635,7 @@ export const AdsController = {
 
       
       const budget = Number(budgetPerDay) * Number(duration);
-      const split = await walletService.calculateAdPaymentSplit(shopId, budget);
+      const split = await walletService.calculateAdPaymentSplit(shopId, budget, Boolean(useWalletBalance));
       
       res.json({ status: 'success', data: split });
     } catch (error) {

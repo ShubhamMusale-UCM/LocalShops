@@ -37,7 +37,7 @@ export class AuthController {
     async register(req: Request, res: Response): Promise<void> {
     try {
       const { phone, name, role, email, referralCode, idToken, city, deviceId: bodyDeviceId } = req.body;
-      const deviceId = bodyDeviceId || req.headers['x-device-id'] || req.ip || 'unknown';
+      const deviceId = bodyDeviceId || req.headers['x-device-id'] || 'unknown';
 
       if (!phone || !name) {
         res.status(400).json({ error: 'Phone and name are required.' });

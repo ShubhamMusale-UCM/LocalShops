@@ -78,7 +78,12 @@ export class PaymentController {
           id: order.id,
           orderId: order.id,
           orderNumber: order.orderNumber,
-          amount: order.total,
+          subtotal: order.subtotal,
+          total: order.total,
+          coinsUsed: order.coinsUsed || 0,
+          coinsCredited: order.coinsCredited || 0,
+          netPayable: Math.max(0, order.total - (order.coinsUsed || 0)),
+          amount: Math.max(0, order.total - (order.coinsUsed || 0)),
           bypassed: paymentMethod !== 'COD' && skipPaymentVerification,
           message:
             paymentMethod === 'COD'

@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { logger } from '../utils/logger';
 
 export class AppError extends Error {
   statusCode: number;
@@ -12,15 +13,25 @@ export class AppError extends Error {
   }
 }
 
-export const notFoundHandler = (_req: Request, res: Response): void => {
-  res.status(404).json({ error: 'Route not found.' });
+export const notFoundHandler = (req: Request, res: Response): void => {
+  res.status(404).json({
+    error: 'Route not found.',
+    requestId: req.headers['x-request-id'] || undefined,
+  });
 };
 
-export const errorHandler = (err: Error | AppError, _req: Request, res: Response, _next: NextFunction): void => {
-  console.error('Error:', err);
+export const errorHandler = (err: Error | AppError, req: Request, res: Response, _next: NextFunction): void => {
+  const requestId = (req.headers['x-request-id'] as string) || undefined;
+  logger.error('Unhandled request error', {
+    requestId,
+    method: req.method,
+    path: req.originalUrl,
+    errorName: err.name,
+    message: err.message,
+  });
 
   if (err instanceof AppError) {
-    res.status(err.statusCode).json({ error: err.message });
+    res.status(err.statusCode).json({ error: err.message, requestId });
     return;
   }
 
@@ -31,13 +42,14 @@ export const errorHandler = (err: Error | AppError, _req: Request, res: Response
       case 'P2002':
         res.status(409).json({
           error: `Duplicate value for field: ${prismaError.meta?.target?.join(', ')}`,
+          requestId,
         });
         return;
       case 'P2025':
-        res.status(404).json({ error: 'Record not found.' });
+        res.status(404).json({ error: 'Record not found.', requestId });
         return;
       default:
-        res.status(400).json({ error: 'Database error.' });
+        res.status(400).json({ error: 'Database error.', requestId });
         return;
     }
   }
@@ -51,13 +63,14 @@ export const errorHandler = (err: Error | AppError, _req: Request, res: Response
         field: e.path.join('.'),
         message: e.message,
       })),
+      requestId,
     });
     return;
   }
 
   // JWT errors
   if (err.name === 'JsonWebTokenError') {
-    res.status(401).json({ error: 'Invalid token.' });
+    res.status(401).json({ error: 'Invalid token.', requestId });
     return;
   }
 
@@ -66,5 +79,6 @@ export const errorHandler = (err: Error | AppError, _req: Request, res: Response
     error: process.env.NODE_ENV === 'production'
       ? 'Internal server error.'
       : err.message,
+    requestId,
   });
 };

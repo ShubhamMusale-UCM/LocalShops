@@ -5,6 +5,8 @@ import otpHandler from './otp.handler';
 import { nanoid } from 'nanoid';
 import { AppError } from '../../middleware/errorHandler.middleware';
 import slugify from 'slugify';
+import walletService from '../wallet/wallet.service';
+import notificationService from '../notification/notification.service';
 
 const normalizeIndianPhone = (input: string): string => {
   const digits = input.replace(/\D/g, '');
@@ -103,11 +105,12 @@ export class AuthService {
     // Generate unique referral code
     const referralCode = `CLS${nanoid(6).toUpperCase()}`;
 
-    // Handle referral (with device abuse protection)
+    // Handle referral (case-insensitive trim + device abuse protection)
     let referredBy: string | null = null;
-    if (data.referralCode) {
+    if (data.referralCode && data.referralCode.trim().length > 0) {
+      const normalizedRefCode = data.referralCode.trim().toUpperCase();
       const referrer = await prisma.user.findUnique({
-        where: { referralCode: data.referralCode },
+        where: { referralCode: normalizedRefCode },
       });
       
       if (referrer) {
@@ -195,6 +198,23 @@ export class AuthService {
 
       return createdUser;
     });
+
+    // Immediately activate referral & credit ₹50 to referrer's BuyerWallet upon registration with new number
+    if (referredBy) {
+      try {
+        const activation = await walletService.activateReferralIfEligible(user.id);
+        if (activation && activation.amountCredited > 0) {
+          await notificationService.createNotification(activation.referrerId, {
+            title: '🎉 ₹50 Referral Reward Credited!',
+            body: `${user.name} registered using your referral code! ₹${activation.amountCredited} has been added to your wallet.`,
+            type: 'REFERRAL_REWARD',
+            relatedId: user.id,
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.error('Failed to credit referral reward on registration:', err);
+      }
+    }
 
     const tokens = generateTokenPair({
       userId: user.id,

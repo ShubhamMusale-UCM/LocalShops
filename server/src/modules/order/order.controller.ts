@@ -22,8 +22,6 @@ export class OrderController {
       const result = await orderService.getUserOrders(req.user!.id, params);
       res.json(result);
     } catch (error: any) {
-      console.error('Error in getMyOrders:', error);
-      require('fs').writeFileSync('last_error.log', JSON.stringify({ message: error.message, stack: error.stack, error }));
       res.status(error.statusCode || 500).json({ error: error.message });
     }
   }
@@ -126,6 +124,33 @@ export class OrderController {
       res.status(201).json(review);
     } catch (error: any) {
       res.status(error.statusCode || 400).json({ error: error.message });
+    }
+  }
+
+  async clearCancelled(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const result = await orderService.clearCancelledOrders(req.user!.id);
+      res.json(result);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async archiveShopOrder(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const result = await orderService.archiveShopOrder(req.params.shopId, req.user!.id, req.params.orderId);
+      res.json(result);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async clearShopRejected(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const result = await orderService.clearShopRejectedOrders(req.params.shopId, req.user!.id);
+      res.json(result);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
     }
   }
 }

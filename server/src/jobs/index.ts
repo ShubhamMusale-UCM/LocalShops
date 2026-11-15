@@ -16,6 +16,7 @@ import notificationCampaignQueue, {
 } from './notificationCampaign.job';
 import telemetrySyncQueue, { scheduleTelemetrySync } from './telemetrySync.job';
 import walletExpiryQueue, { scheduleWalletExpiry } from './walletExpiry.job';
+import holdExpiryQueue, { scheduleHoldExpiry } from './holdExpiry.job';
 
 /**
  * Initialize all background jobs
@@ -30,6 +31,7 @@ export async function initializeBackgroundJobs() {
     await scheduleDailyPromotionalNotifications();
     await scheduleTelemetrySync();
     await scheduleWalletExpiry();
+    await scheduleHoldExpiry();
 
     console.log('✅ All background jobs initialized successfully');
 
@@ -41,6 +43,7 @@ export async function initializeBackgroundJobs() {
       notificationCampaign: notificationCampaignQueue,
       telemetrySync: telemetrySyncQueue,
       walletExpiry: walletExpiryQueue,
+      holdExpiry: holdExpiryQueue,
     };
   } catch (error) {
     console.error('Failed to initialize background jobs:', error);
@@ -62,6 +65,7 @@ export async function shutdownBackgroundJobs() {
     await notificationCampaignQueue.close();
     await telemetrySyncQueue.close();
     await walletExpiryQueue.close();
+    await holdExpiryQueue.close();
 
     console.log('✅ All background jobs shut down successfully');
   } catch (error) {
@@ -77,4 +81,5 @@ export {
   notificationCampaignQueue,
   telemetrySyncQueue,
   walletExpiryQueue,
+  holdExpiryQueue,
 };

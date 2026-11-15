@@ -46,9 +46,17 @@ export const SearchController = {
    */
   searchProducts: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const { q, category, minPrice, maxPrice, minRating, shopId, limit = 20, offset = 0, lat, lng } = req.query;
+      const { q, category, minPrice, maxPrice, minRating, shopId, limit = 20, offset, page, lat, lng, gender } = req.query;
 
       const queryStr = (q as string) || '';
+      const parsedLimit = Math.min(Math.max(parseInt(limit as string) || 20, 1), 100);
+      const parsedPage = page ? Math.max(parseInt(page as string) || 1, 1) : 1;
+      const parsedOffset = offset !== undefined ? Math.max(parseInt(offset as string) || 0, 0) : (parsedPage - 1) * parsedLimit;
+      const user = req.user as any;
+      const resolvedLat = lat !== undefined ? parseFloat(lat as string) : (user?.latitude ?? undefined);
+      const resolvedLng = lng !== undefined ? parseFloat(lng as string) : (user?.longitude ?? undefined);
+      const resolvedGender = ((gender as string) || user?.gender || undefined)?.toString().toUpperCase();
+      const resolvedCity = (req.query.city as string) || user?.city || undefined;
 
       const results = await searchService.searchProducts(
         queryStr,
@@ -59,12 +67,12 @@ export const SearchController = {
           minRating: minRating ? parseFloat(minRating as string) : undefined,
           shopId: shopId as string,
         },
-        parseInt(limit as string),
-        parseInt(offset as string),
-        lat ? parseFloat(lat as string) : undefined,
-        lng ? parseFloat(lng as string) : undefined,
-        (req.user as any)?.gender,
-        ((req.query.city as string) || (req.user as any)?.city || undefined),
+        parsedLimit,
+        parsedOffset,
+        resolvedLat,
+        resolvedLng,
+        resolvedGender,
+        resolvedCity,
         req.user?.id
       );
 

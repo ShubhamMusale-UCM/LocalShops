@@ -37,12 +37,14 @@ export class AdsService {
       geoMode?: 'RADIUS' | 'CITIES';
       targetRadiusKm?: number;
       targetCities?: string[];
+      useWalletBalance?: boolean;
     } = {}
   ) {
     const objective = targeting.objective || 'TRAFFIC';
     const geoMode = targeting.geoMode || 'RADIUS';
     const targetRadiusKm = Math.min(Math.max(targeting.targetRadiusKm ?? 5, 1), MAX_TARGET_RADIUS_KM);
     const targetCities = Array.from(new Set((targeting.targetCities || []).map(normalizeCity).filter(Boolean)));
+    const useWalletBalance = targeting.useWalletBalance !== undefined ? Boolean(targeting.useWalletBalance) : true;
     // Server decides the bid so the auction cannot be gamed from the client.
     const bidPerClick = bidForObjective(objective);
 
@@ -75,42 +77,6 @@ export class AdsService {
     const budget = budgetPerDay * duration;
 
     const campaign = await prisma.$transaction(async (tx) => {
-      const [lockedShop] = await tx.$queryRaw<any[]>`SELECT "adWalletBalance", id FROM "Shop" WHERE id = ${shopId} FOR UPDATE`;
-      if (!lockedShop) throw new AppError('Shop not found', 404);
-
-      if (lockedShop.adWalletBalance < budget) {
-        const bypassPayment = process.env.BYPASS_SELLER_PAYMENT === 'true' || process.env.NODE_ENV !== 'production';
-        if (!bypassPayment) {
-          throw new AppError(`Insufficient ad wallet balance. Need ₹${budget}, have ₹${lockedShop.adWalletBalance}. Please top up your wallet.`, 402);
-        }
-        const shortage = budget - (lockedShop.adWalletBalance || 0);
-        await tx.shop.update({
-          where: { id: shopId },
-          data: { adWalletBalance: { increment: shortage } }
-        });
-        lockedShop.adWalletBalance = budget;
-      }
-
-      const newBalance = lockedShop.adWalletBalance - budget;
-      
-      // Deduct budget upfront
-      await tx.shop.update({
-        where: { id: shopId },
-        data: { adWalletBalance: newBalance }
-      });
-
-      await tx.sellerAdWalletTransaction.create({
-        data: {
-          shopId,
-          type: 'AD_SPEND_DEBIT',
-          amount: budget,
-          direction: 'DEBIT',
-          balanceAfter: newBalance,
-          description: `Upfront budget deduction for ad campaign (Product: ${productId})`,
-          referenceType: 'AD_CAMPAIGN',
-        }
-      });
-
       const existing = await tx.promotedListing.findFirst({
         where: { 
           productId,
@@ -123,7 +89,34 @@ export class AdsService {
         throw new AppError('An active ad campaign already exists for this product. Pause or wait for it to expire before creating a new one.', 400);
       }
 
-      return await tx.promotedListing.create({
+      const [lockedShop] = await tx.$queryRaw<any[]>`SELECT "adWalletBalance", id FROM "Shop" WHERE id = ${shopId} FOR UPDATE`;
+      if (!lockedShop) throw new AppError('Shop not found', 404);
+
+      const currentWalletBalance = Math.max(0, Number(lockedShop.adWalletBalance || 0));
+      const walletDeduction = useWalletBalance ? Math.min(currentWalletBalance, budget) : 0;
+      const netPayable = Math.max(0, budget - walletDeduction);
+      const newBalance = currentWalletBalance - walletDeduction;
+
+      if (walletDeduction > 0) {
+        await tx.shop.update({
+          where: { id: shopId },
+          data: { adWalletBalance: newBalance }
+        });
+
+        await tx.sellerAdWalletTransaction.create({
+          data: {
+            shopId,
+            type: 'AD_SPEND_DEBIT',
+            amount: walletDeduction,
+            direction: 'DEBIT',
+            balanceAfter: newBalance,
+            description: `Ad wallet deduction for campaign (Product: ${productId}, Total: ₹${budget}, Wallet Used: ₹${walletDeduction})`,
+            referenceType: 'AD_CAMPAIGN',
+          }
+        });
+      }
+
+      const created = await tx.promotedListing.create({
         data: {
           shopId,
           productId,
@@ -146,6 +139,17 @@ export class AdsService {
           shop: { select: { id: true, name: true, logo: true, coverImage: true } },
         },
       });
+
+      return {
+        ...created,
+        paymentBreakdown: {
+          totalBudget: budget,
+          useWalletBalance,
+          walletDeduction,
+          netPayable,
+          remainingWalletBalance: newBalance,
+        },
+      };
     });
 
     await Promise.all([
@@ -296,6 +300,19 @@ export class AdsService {
       throw new AppError('Ad not found', 404);
     }
 
+    const keywordGroups = await prisma.campaignKeywordStat.groupBy({
+      by: ['keyword'],
+      where: { promotedListingId: adId },
+      _sum: { impressions: true, clicks: true },
+      orderBy: { _sum: { impressions: 'desc' } },
+      take: 15,
+    });
+    const topKeywords = keywordGroups.map((r) => ({
+      keyword: r.keyword,
+      impressions: r._sum.impressions || 0,
+      clicks: r._sum.clicks || 0,
+    }));
+
     const ctr = ad.impressions > 0 ? (ad.clicks / ad.impressions) * 100 : 0;
     const budgetRemaining = Math.max(0, ad.budget - ad.spent);
 
@@ -303,14 +320,23 @@ export class AdsService {
     const cpm = ad.impressions > 0 ? (ad.spent / ad.impressions) * 1000 : 0;
     const cvr = ad.clicks > 0 ? ((ad.conversions || 0) / ad.clicks) * 100 : 0;
     const aov = ad.conversions && ad.conversions > 0 ? ((ad.revenue || 0) / ad.conversions) : 0;
+    const roas = ad.spent > 0 ? (ad.revenue || 0) / ad.spent : 0;
+    const uniqueReach = ad.uniqueReach || 0;
+    const frequency = uniqueReach > 0 ? ad.impressions / uniqueReach : 0;
 
     return {
       ad,
+      topKeywords,
       metrics: {
         ctr: Number(ctr.toFixed(2)),
         clicks: ad.clicks,
         impressions: ad.impressions,
+        uniqueReach,
+        reach: uniqueReach,
+        frequency: Number(frequency.toFixed(2)),
         searchAppearances: ad.impressions,
+        views: ad.views || 0,
+        cartAdds: ad.cartAdds || 0,
         conversions: ad.conversions || 0,
         revenue: ad.revenue || 0,
         spent: ad.spent,
@@ -320,6 +346,7 @@ export class AdsService {
         cpm: Number(cpm.toFixed(2)),
         cvr: Number(cvr.toFixed(2)),
         aov: Number(aov.toFixed(2)),
+        roas: Number(roas.toFixed(2)),
         budgetRemaining,
         isLive: !!ad.product?.isActive && isCampaignLive(ad),
         isDeletedProduct: !ad.product?.isActive,
@@ -614,6 +641,23 @@ export class AdsService {
                   uniqueReach: uniqueReachCount,
                 }
               });
+
+              if ((impCount > 0 || clickCount > 0) && campaign.productId && campaign.shopId) {
+                await tx.productDailyAnalytics.upsert({
+                  where: { productId_date: { productId: campaign.productId, date: today } },
+                  update: {
+                    ...(impCount > 0 && { adImpressions: { increment: impCount } }),
+                    ...(clickCount > 0 && { adClicks: { increment: clickCount } }),
+                  },
+                  create: {
+                    productId: campaign.productId,
+                    shopId: campaign.shopId,
+                    date: today,
+                    adImpressions: impCount,
+                    adClicks: clickCount,
+                  },
+                });
+              }
             });
           } catch (err) {
             console.error(`Failed to process telemetry for campaign ${campaign.id}:`, err);
@@ -857,7 +901,7 @@ export class AdsService {
     return result;
   }
 
-  async renewAdBudget(adId: string, additionalBudget: number, durationDays: number = 30) {
+  async renewAdBudget(adId: string, additionalBudget: number, durationDays: number = 30, useWalletBalance: boolean = true) {
     if (additionalBudget < 100) {
       throw new AppError('Additional budget must be at least ₹100', 400);
     }
@@ -872,42 +916,41 @@ export class AdsService {
       const [lockedShop] = await tx.$queryRaw<any[]>`SELECT "adWalletBalance", id FROM "Shop" WHERE id = ${ad.shopId} FOR UPDATE`;
       if (!lockedShop) throw new AppError('Shop not found', 404);
 
-      if (lockedShop.adWalletBalance < additionalBudget) {
+      const currentWalletBalance = Math.max(0, Number(lockedShop.adWalletBalance || 0));
+      const walletDeduction = useWalletBalance ? Math.min(currentWalletBalance, additionalBudget) : 0;
+      const netPayable = Math.max(0, additionalBudget - walletDeduction);
+      const newBalance = currentWalletBalance - walletDeduction;
+
+      if (netPayable > 0) {
         const bypassPayment = process.env.BYPASS_SELLER_PAYMENT === 'true' || process.env.NODE_ENV !== 'production';
         if (!bypassPayment) {
-          throw new AppError(`Insufficient ad wallet balance. Need ₹${additionalBudget}, have ₹${lockedShop.adWalletBalance}. Please top up your wallet.`, 402);
+          throw new AppError(`Insufficient ad wallet balance. Need ₹${additionalBudget}, wallet deduction ₹${walletDeduction}. Please pay remaining ₹${netPayable}.`, 402);
         }
-        const shortage = additionalBudget - (lockedShop.adWalletBalance || 0);
-        await tx.shop.update({
-          where: { id: ad.shopId },
-          data: { adWalletBalance: { increment: shortage } }
-        });
-        lockedShop.adWalletBalance = additionalBudget;
       }
 
-      const newBalance = lockedShop.adWalletBalance - additionalBudget;
+      if (walletDeduction > 0) {
+        await tx.shop.update({
+          where: { id: ad.shopId },
+          data: { adWalletBalance: newBalance }
+        });
 
-      await tx.shop.update({
-        where: { id: ad.shopId },
-        data: { adWalletBalance: newBalance }
-      });
-
-      await tx.sellerAdWalletTransaction.create({
-        data: {
-          shopId: ad.shopId,
-          type: 'AD_SPEND_DEBIT',
-          amount: additionalBudget,
-          direction: 'DEBIT',
-          balanceAfter: newBalance,
-          description: `Upfront budget renewal for ad campaign (Ad: ${ad.id})`,
-          referenceType: 'AD_CAMPAIGN',
-        }
-      });
+        await tx.sellerAdWalletTransaction.create({
+          data: {
+            shopId: ad.shopId,
+            type: 'AD_SPEND_DEBIT',
+            amount: walletDeduction,
+            direction: 'DEBIT',
+            balanceAfter: newBalance,
+            description: `Ad wallet deduction for budget renewal (Ad: ${ad.id}, Total: ₹${additionalBudget}, Wallet Used: ₹${walletDeduction})`,
+            referenceType: 'AD_CAMPAIGN',
+          }
+        });
+      }
 
       const now = new Date();
       const startDate = ad.endDate > now ? ad.endDate : now;
 
-      return tx.promotedListing.update({
+      const renewed = await tx.promotedListing.update({
         where: { id: adId },
         data: {
           budget: { increment: additionalBudget },
@@ -915,6 +958,17 @@ export class AdsService {
           endDate: new Date(startDate.getTime() + durationDays * 24 * 60 * 60 * 1000),
         },
       });
+
+      return {
+        ...renewed,
+        paymentBreakdown: {
+          additionalBudget,
+          useWalletBalance,
+          walletDeduction,
+          netPayable,
+          remainingWalletBalance: newBalance,
+        },
+      };
     });
 
     await Promise.all([
@@ -1061,9 +1115,6 @@ export class AdsService {
     const { limit = 10, query, keywords, category, lat, lng, city, userId, userGender } = params;
     
     const hasCoords = typeof lat === 'number' && typeof lng === 'number' && !Number.isNaN(lat) && !Number.isNaN(lng) && (lat !== 0 || lng !== 0);
-    if (!hasCoords && !city) {
-      return [];
-    }
 
     const andConditions: any[] = [];
     const whereClause: any = {
@@ -1073,7 +1124,7 @@ export class AdsService {
     };
 
     const productQuery: any = { isActive: true };
-    if (category && category !== 'all') productQuery.category = category;
+    if (category && category !== 'all') productQuery.category = { equals: category, mode: 'insensitive' };
     
     const searchTerms = [];
     if (query) searchTerms.push(...query.split(' ').filter(k => k.trim().length > 0));
@@ -1089,19 +1140,27 @@ export class AdsService {
       }));
     }
     
-    if (query) {
+    if (query && query.trim().length > 0) {
+      const normalizedQuery = query.trim().toLowerCase();
+      const queryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
+      const negativeChecks = Array.from(new Set([normalizedQuery, ...queryTokens]));
       whereClause.negativeKeywords = {
-        none: { keyword: { equals: query, mode: 'insensitive' } }
+        none: {
+          OR: negativeChecks.map(tok => ({
+            keyword: { equals: tok, mode: 'insensitive' }
+          }))
+        }
       };
     }
     
     whereClause.product = productQuery;
 
-    if (userGender && userGender !== 'OTHER') {
+    const normalizedGender = userGender ? userGender.toString().trim().toUpperCase() : undefined;
+    if (normalizedGender === 'MALE' || normalizedGender === 'FEMALE') {
       andConditions.push({
         OR: [
           { targetGender: 'ALL' },
-          { targetGender: userGender }
+          { targetGender: normalizedGender as TargetGender }
         ]
       });
     } else {

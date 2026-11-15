@@ -139,8 +139,8 @@ export const searchProducts = async (params: SearchParams) => {
   if (maxPrice !== undefined) where.price = { ...where.price, lte: maxPrice };
 
   // Category filter
-  if (category) where.category = category;
-  if (subCategory) where.subCategory = subCategory;
+  if (category && category !== 'all') where.category = { equals: category, mode: 'insensitive' };
+  if (subCategory) where.subCategory = { equals: subCategory, mode: 'insensitive' };
   if (brand) where.brand = { contains: brand, mode: 'insensitive' };
   if (inStock !== undefined) where.inStock = inStock;
 

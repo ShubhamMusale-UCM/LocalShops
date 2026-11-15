@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "npm run build && node dist/app.js",
     "serve": "node dist/app.js",
+    "worker": "node dist/worker.js",
+    "typecheck": "node ../node_modules/typescript/bin/tsc --noEmit",
     "build": "node ../node_modules/sucrase/bin/sucrase ./src -d ./dist --transforms typescript,imports",
     "start": "node dist/app.js",
     "prisma:generate": "prisma generate",

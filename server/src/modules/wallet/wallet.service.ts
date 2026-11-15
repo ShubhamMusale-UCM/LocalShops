@@ -141,7 +141,9 @@ export class WalletService {
         where: { userId },
         data: {
           balance: { increment: amount },
-          lifetime: { increment: amount },
+          ...(type === 'BOOKING_REFUND'
+            ? { spent: { decrement: amount } }
+            : { lifetime: { increment: amount } }),
         },
       });
 
@@ -278,12 +280,10 @@ export class WalletService {
   calculateMaxCoinUsage(walletBalance: number, orderTotal: number): number {
     if (walletBalance <= 0 || orderTotal <= 0) return 0;
 
-    const percentCap =
-      (orderTotal * WALLET_CONFIG.MAX_COIN_USAGE_PERCENT) / 100;
+    // Allow full referral wallet reward usage up to absolute cap or orderTotal
     const absoluteCap = WALLET_CONFIG.MAX_COIN_USAGE_ABSOLUTE;
-    const maxAllowed = Math.min(percentCap, absoluteCap);
 
-    return Math.min(walletBalance, maxAllowed, orderTotal);
+    return Math.min(walletBalance, absoluteCap, orderTotal);
   }
 
   /**
@@ -433,20 +433,22 @@ export class WalletService {
 
   /**
    * Calculate split payment for ads: how much from wallet vs Razorpay.
+   * Supports optional `useWalletBalance` toggle so seller can choose whether to deduct wallet this time or not.
    */
-  async calculateAdPaymentSplit(shopId: string, adBudget: number) {
+  async calculateAdPaymentSplit(shopId: string, adBudget: number, useWalletBalance: boolean = true) {
     const shop = await prisma.shop.findUnique({
       where: { id: shopId },
       select: { adWalletBalance: true },
     });
     if (!shop) throw new AppError('Shop not found.', 404);
 
-    const walletUsable = Math.min(shop.adWalletBalance, adBudget);
-    const razorpayAmount = adBudget - walletUsable;
+    const walletUsable = useWalletBalance ? Math.min(Math.max(0, shop.adWalletBalance || 0), adBudget) : 0;
+    const razorpayAmount = Math.max(0, adBudget - walletUsable);
 
     return {
       adBudget,
       walletBalance: shop.adWalletBalance,
+      useWalletBalance,
       walletDeduction: walletUsable,
       razorpayAmount,
       isFullWalletPayment: razorpayAmount <= 0,
@@ -486,9 +488,8 @@ export class WalletService {
   // ============= REFERRAL ACTIVATION =============
 
   /**
-   * Activate a pending referral earning after the referred user completes
-   * their first booking. Credits coins to the referrer's wallet.
-   * Called internally from order completion flow.
+   * Activate a pending referral earning immediately upon new user registration
+   * (or if any legacy pending referral exists). Credits ₹50 coins to the referrer's wallet.
    */
   async activateReferralIfEligible(referredUserId: string) {
     // Find pending referral where this user is the referred user
@@ -501,13 +502,6 @@ export class WalletService {
     });
 
     if (!pendingReferral) return null;
-
-    // Check if the referred user has at least 1 DELIVERED order with a minimum value (e.g., ₹100)
-    const validOrder = await prisma.order.findFirst({
-      where: { userId: referredUserId, status: 'DELIVERED', total: { gte: 100 } },
-    });
-
-    if (!validOrder) return null;
 
     // Check referrer monthly rate limit
     const monthStart = new Date();
@@ -540,13 +534,13 @@ export class WalletService {
       return null;
     }
 
-    // Credit the referrer's wallet
+    // Credit the referrer's wallet immediately
     try {
       const result = await this.creditBuyerWallet(
         pendingReferral.referrerId,
         pendingReferral.amount,
         'REFERRAL_CREDIT',
-        `Referral reward: Your friend completed their first booking!`,
+        `Referral reward: Your friend registered with your referral code!`,
         pendingReferral.id,
         'REFERRAL',
       );

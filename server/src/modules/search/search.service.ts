@@ -37,7 +37,7 @@ export class SearchService {
            OR word_similarity(${cleanQuery}, brand) >= 0.25
            OR name ILIKE ${'%' + cleanQuery + '%'}
            OR description ILIKE ${'%' + cleanQuery + '%'}
-           OR brand ILIKE ${'%' + cleanQuery + '%'}
+           OR brand ILIKE ${'%' + cleanQuery + '%'} LIMIT 500
       `;
       fuzzyIds = fuzzyMatches.map(m => m.id);
     }
@@ -60,7 +60,7 @@ export class SearchService {
       isActive: true,
       shop: { isActive: true },
       ...searchCondition,
-      ...(filters.category && { category: filters.category }),
+      ...(filters.category && filters.category !== 'all' && { category: { equals: filters.category, mode: 'insensitive' } }),
       ...(filters.minPrice && { price: { gte: filters.minPrice } }),
       ...(filters.maxPrice && { price: { lte: filters.maxPrice } }),
       ...(filters.shopId && { shopId: filters.shopId }),
@@ -70,7 +70,7 @@ export class SearchService {
 
     // 1. Fetch Sponsored Products dynamically (only on first page)
     let sponsoredProducts: any[] = [];
-    if ((cleanQuery || filters.category) && offset === 0) {
+    if (offset === 0) {
       const activeSponsored = await adsService.serveAds({
         limit: 3,
         query: cleanQuery,
@@ -88,6 +88,12 @@ export class SearchService {
         isSponsored: true,
         campaignId: ad.id,
         sponsoredListingId: ad.id,
+        promotedListingId: ad.id,
+        adObjective: (ad as any).objective,
+        targetGender: (ad as any).targetGender,
+        geoMode: (ad as any).geoMode,
+        targetRadiusKm: (ad as any).targetRadiusKm,
+        targetCities: (ad as any).targetCities,
         shopDistance_km: (ad as any).geo?.distanceKm != null ? Number((ad as any).geo.distanceKm.toFixed(1)) : null,
         distance_km: (ad as any).geo?.distanceKm != null ? Number((ad as any).geo.distanceKm.toFixed(1)) : null,
       }));
@@ -131,7 +137,7 @@ export class SearchService {
     const finalProducts = offset === 0 ? [...sponsoredProducts, ...mappedOrganic] : mappedOrganic;
     const total = await prisma.product.count({ where: whereClause });
 
-    return { products: finalProducts, total, limit, offset };
+    return { products: finalProducts, total, limit, offset, pagination: { page: limit > 0 ? Math.floor(offset / limit) + 1 : 1, limit, total, totalPages: limit > 0 ? Math.ceil(total / limit) : 1 } };
   }
 
   /**
@@ -332,7 +338,7 @@ export class SearchService {
       isActive: true,
       shop: { isActive: true },
       ...searchCondition,
-      ...(filters.category && { category: filters.category }),
+      ...(filters.category && filters.category !== 'all' && { category: { equals: filters.category, mode: 'insensitive' } }),
       ...(filters.minPrice && { price: { gte: filters.minPrice } }),
       ...(filters.maxPrice && { price: { lte: filters.maxPrice } }),
       ...(filters.shopId && { shopId: filters.shopId }),
@@ -361,6 +367,12 @@ export class SearchService {
         isSponsored: true,
         campaignId: ad.id,
         sponsoredListingId: ad.id,
+        promotedListingId: ad.id,
+        adObjective: (ad as any).objective,
+        targetGender: (ad as any).targetGender,
+        geoMode: (ad as any).geoMode,
+        targetRadiusKm: (ad as any).targetRadiusKm,
+        targetCities: (ad as any).targetCities,
       }));
     }
 
@@ -402,7 +414,7 @@ export class SearchService {
     const finalProducts = offset === 0 ? [...sponsoredProducts, ...mappedOrganic] : mappedOrganic;
     const total = await prisma.product.count({ where: whereClause });
 
-    return { products: finalProducts, total, limit, offset };
+    return { products: finalProducts, total, limit, offset, pagination: { page: limit > 0 ? Math.floor(offset / limit) + 1 : 1, limit, total, totalPages: limit > 0 ? Math.ceil(total / limit) : 1 } };
   }
 }
 

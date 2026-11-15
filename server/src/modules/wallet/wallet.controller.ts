@@ -92,9 +92,22 @@ export class WalletController {
       // Verify ownership
       const shop = await this.verifyShopOwnership(shopId, req.user!.id);
 
+      const [creditsAgg, debitsAgg] = await Promise.all([
+        prisma.sellerAdWalletTransaction.aggregate({
+          where: { shopId: shop.id, direction: 'CREDIT' },
+          _sum: { amount: true },
+        }),
+        prisma.sellerAdWalletTransaction.aggregate({
+          where: { shopId: shop.id, direction: 'DEBIT' },
+          _sum: { amount: true },
+        }),
+      ]);
+
       res.json({
         shopId: shop.id,
         adWalletBalance: shop.adWalletBalance,
+        totalEarned: creditsAgg._sum.amount || 0,
+        totalSpent: debitsAgg._sum.amount || 0,
       });
     } catch (error: any) {
       res.status(error.statusCode || 500).json({ error: error.message });
@@ -125,21 +138,22 @@ export class WalletController {
   /**
    * POST /api/wallet/ad-wallet/:shopId/calculate-split
    * Calculate payment split for an ad campaign.
-   * Body: { adBudget: number }
+   * Body: { adBudget: number, useWalletBalance?: boolean }
    */
   async calculateAdSplit(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { shopId } = req.params;
       await this.verifyShopOwnership(shopId, req.user!.id);
 
-      const { adBudget } = req.body;
+      const { adBudget, useWalletBalance = true } = req.body;
       if (!adBudget || adBudget <= 0) {
         res.status(400).json({ error: 'adBudget must be a positive number.' });
         return;
       }
       const data = await walletService.calculateAdPaymentSplit(
         shopId,
-        adBudget,
+        Number(adBudget),
+        Boolean(useWalletBalance),
       );
       res.json(data);
     } catch (error: any) {

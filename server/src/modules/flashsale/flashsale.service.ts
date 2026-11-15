@@ -1,4 +1,4 @@
-﻿import prisma from "../../config/database";
+import prisma from "../../config/database";
 import { haversineDistance } from "../../utils/geoUtils";
 import { AppError } from "../../middleware/errorHandler.middleware";
 
@@ -48,10 +48,21 @@ export class FlashSaleService {
     return prisma.flashSale.update({ where: { id: saleId }, data: { isActive: false } });
   }
 
-  async getLiveFlashSales(limit = 20, lat?: number, lng?: number) {
+  async getLiveFlashSales(limit = 20, lat?: number, lng?: number, category?: string) {
     const now = new Date();
+    const normalizedCat = category && category.toLowerCase() !== "all" && category.toLowerCase() !== "new-arrivals"
+      ? category.trim()
+      : undefined;
     const sales = await prisma.flashSale.findMany({
-      where: { isActive: true, startTime: { lte: now }, endTime: { gte: now }, product: { isActive: true } },
+      where: {
+        isActive: true,
+        startTime: { lte: now },
+        endTime: { gte: now },
+        product: {
+          isActive: true,
+          ...(normalizedCat ? { category: { equals: normalizedCat, mode: "insensitive" as const } } : {}),
+        },
+      },
       include: {
         product: { select: { id: true, name: true, price: true, images: true, category: true } },
         shop: { select: { id: true, name: true, logo: true, latitude: true, longitude: true, city: true, address: true } },

@@ -32,6 +32,63 @@ export const updateShopSchema = createShopSchema.partial().extend({
   deliveryEnabled: z.boolean().optional(),
   deliveryRadius: z.number().positive().optional(),
   minOrderDelivery: z.number().positive().optional(),
+  description: z.string().max(2000).optional(),
+  phone: z.string().max(25).optional(),
+  whatsapp: z.string().max(25).optional().nullable(),
+  pincode: z.string().max(15).optional(),
+  gstNumber: z.string().max(30).optional().nullable(),
+  razorpayAccountId: z.string().max(100).optional().nullable(),
+  // Extended Compliance & Legal fields
+  fssaiNumber: z
+    .string()
+    .max(30)
+    .refine((v) => !v || /^\d{10,14}$/.test(v.trim()), 'Invalid FSSAI license number (10-14 digits)')
+    .optional()
+    .nullable(),
+  panNumber: z
+    .string()
+    .max(20)
+    .refine((v) => !v || /^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(v.trim()), 'Invalid PAN format (e.g., ABCDE1234F)')
+    .optional()
+    .nullable(),
+  legalEntityName: z.string().max(150).optional().nullable(),
+  grievanceOfficerName: z.string().max(120).optional().nullable(),
+  grievanceEmail: z.string().max(150).optional().nullable(),
+  grievancePhone: z.string().max(25).optional().nullable(),
+  // Extended Payout & Banking fields
+  bankName: z.string().max(120).optional().nullable(),
+  accountHolder: z.string().max(120).optional().nullable(),
+  accountNumber: z
+    .string()
+    .max(40)
+    .refine((v) => !v || /^\d{6,22}$/.test(v.trim()), 'Invalid bank account number (6-22 digits)')
+    .optional()
+    .nullable(),
+  ifscCode: z
+    .string()
+    .max(20)
+    .refine((v) => !v || /^[A-Z]{4}0[A-Z0-9]{6}$/i.test(v.trim()), 'Invalid IFSC code (e.g., HDFC0001234)')
+    .optional()
+    .nullable(),
+  upiId: z
+    .string()
+    .max(100)
+    .refine((v) => !v || /^[\w.-]+@[\w.-]+$/.test(v.trim()), 'Invalid UPI VPA format (e.g., store@okaxis)')
+    .optional()
+    .nullable(),
+  // Extended Schedule & Booking Operations fields
+  openingTime: z.string().max(20).optional().nullable(),
+  closingTime: z.string().max(20).optional().nullable(),
+  workingDays: z.array(z.string()).optional().nullable(),
+  autoConfirmBookings: z.boolean().optional(),
+  slotDuration: z.string().max(20).optional(),
+  maxPerSlot: z.string().max(20).optional(),
+  allowWalkIns: z.boolean().optional(),
+  advanceNotice: z.string().max(20).optional(),
+  // Extended Notification & Alert Toggles
+  soundAlerts: z.boolean().optional(),
+  bookingAlerts: z.boolean().optional(),
+  dailyDigest: z.boolean().optional(),
 });
 
 export const nearbyShopsSchema = z.object({

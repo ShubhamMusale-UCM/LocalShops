@@ -5,10 +5,11 @@ export const createOrderSchema = z.object({
   items: z.array(z.object({
     productId: z.string().uuid(),
     quantity: z.number().int().positive(),
-    price: z.number().positive(),
-    name: z.string(),
+    price: z.number().positive().optional(),
+    name: z.string().optional(),
+    campaignId: z.string().optional(),
   })).min(1, 'At least one item required'),
-  deliveryType: z.enum(['PICKUP', 'DELIVERY']),
+  deliveryType: z.enum(['PICKUP', 'DELIVERY', 'SELF_PICKUP']).transform(v => v === 'SELF_PICKUP' ? 'PICKUP' : v),
   deliveryAddress: z.object({
     address: z.string().min(5),
     landmark: z.string().optional(),
@@ -20,6 +21,7 @@ export const createOrderSchema = z.object({
   paymentMethod: z.enum(['COD', 'ONLINE', 'UPI']),
   notes: z.string().max(500).optional(),
   couponCode: z.string().optional(),
+  coinsToUse: z.number().min(0).optional(),
 });
 
 export const updateOrderStatusSchema = z.object({

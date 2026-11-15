@@ -194,6 +194,43 @@ export class ShopController {
       res.status(error.statusCode || 500).json({ error: error.message });
     }
   }
+
+  async getShopSettings(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const result = await shopService.getPrivateShopSettings(req.params.id, req.user!.id, req.user!.role);
+      res.json(result);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async getAuditLogs(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const logs = await shopService.getShopAuditLogs(req.params.id, req.user!.id);
+      res.json({ logs });
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async updateShopSettings(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const validated = updateShopSchema.parse(req.body);
+      const updated = await shopService.updateShop(req.params.id, req.user!.id, validated);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({ error: error.message, details: error.errors });
+    }
+  }
+
+  async getDailyDigest(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const digest = await shopService.getDailyDigestReport(req.params.id, req.user!.id);
+      res.json(digest);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
 }
 
 export default new ShopController();

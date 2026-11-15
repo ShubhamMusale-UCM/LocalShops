@@ -1,4 +1,4 @@
-﻿import { Request, Response, NextFunction } from "express";
+import { Request, Response, NextFunction } from "express";
 import { AuthRequest } from "../../middleware/auth.middleware";
 import { AppError } from "../../middleware/errorHandler.middleware";
 import prisma from "../../config/database";
@@ -52,7 +52,8 @@ export const FlashSaleController = {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
       const lat = req.query.lat ? parseFloat(req.query.lat as string) : undefined;
       const lng = req.query.lng ? parseFloat(req.query.lng as string) : undefined;
-      const sales = await flashSaleService.getLiveFlashSales(limit, lat, lng);
+      const category = typeof req.query.category === "string" ? req.query.category.trim() : undefined;
+      const sales = await flashSaleService.getLiveFlashSales(limit, lat, lng, category);
       res.json({ status: "success", data: sales });
     } catch (e) { next(e); }
   },

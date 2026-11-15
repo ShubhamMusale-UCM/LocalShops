@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import prisma from '../config/database';
+import env from '../config/env';
 
 export interface AuthRequest extends Request {
   user?: {
@@ -8,6 +9,10 @@ export interface AuthRequest extends Request {
     phone: string;
     role: string;
     name: string;
+    gender?: string | null;
+    city?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
   };
 }
 
@@ -20,15 +25,22 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-super-secret-jwt-key') as {
-      userId: string;
+    const decoded = jwt.verify(token, env.JWT_SECRET) as {
+      userId?: string;
+      id?: string;
       phone: string;
       role: string;
     };
 
+    const resolvedUserId = decoded.userId || decoded.id;
+    if (!resolvedUserId) {
+      res.status(401).json({ error: 'Invalid token payload.' });
+      return;
+    }
+
     const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      select: { id: true, phone: true, role: true, name: true, isActive: true },
+      where: { id: resolvedUserId },
+      select: { id: true, phone: true, role: true, name: true, isActive: true, gender: true, city: true, latitude: true, longitude: true },
     });
 
     if (!user) {
@@ -71,16 +83,20 @@ export const optionalAuth = async (req: AuthRequest, _res: Response, next: NextF
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.split(' ')[1];
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-super-secret-jwt-key') as {
-        userId: string;
+      const decoded = jwt.verify(token, env.JWT_SECRET) as {
+        userId?: string;
+        id?: string;
         phone: string;
         role: string;
       };
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.userId },
-        select: { id: true, phone: true, role: true, name: true },
-      });
-      if (user) req.user = user;
+      const resolvedUserId = decoded.userId || decoded.id;
+      if (resolvedUserId) {
+        const user = await prisma.user.findUnique({
+          where: { id: resolvedUserId },
+          select: { id: true, phone: true, role: true, name: true, gender: true, city: true, latitude: true, longitude: true },
+        });
+        if (user) req.user = user;
+      }
     }
   } catch { /* Silently continue without auth */ }
   next();
