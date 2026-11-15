@@ -28,6 +28,7 @@ import adminRoutes from './modules/admin/admin.routes';
 import notificationRoutes from './modules/notification/notification.routes';
 import orderRoutes from './modules/order/order.routes';
 import reviewRoutes from './modules/review/review.routes';
+import cartRoutes from './modules/cart/cart.routes';
 import paymentRoutes from './modules/payment/payment.routes';
 import searchRoutes from './modules/search/search.routes';
 
@@ -143,6 +144,7 @@ app.use('/api/shops', shopRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/cart', cartRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/payment', paymentRoutes);

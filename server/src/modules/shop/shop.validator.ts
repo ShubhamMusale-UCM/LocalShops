@@ -102,6 +102,10 @@ export const updateShopSchema = createShopSchema.partial().extend({
   soundAlerts: z.boolean().optional(),
   bookingAlerts: z.boolean().optional(),
   dailyDigest: z.boolean().optional(),
+  // Abandoned Cart Recovery Configuration
+  abandonedCartRecoveryEnabled: z.boolean().optional(),
+  abandonedCartDiscountPercent: z.number().min(1).max(50).optional().nullable(),
+  abandonedCartHours: z.number().min(1).max(168).optional().nullable(),
 });
 
 export const nearbyShopsSchema = z.object({

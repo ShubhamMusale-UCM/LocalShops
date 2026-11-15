@@ -59,6 +59,7 @@ export class PaymentController {
         paymentMethod: paymentMethod === 'COD' ? 'COD' : 'ONLINE',
         notes: req.body.notes,
         coinsToUse: coinsToUse ? Number(coinsToUse) : 0,
+        couponCode: req.body.couponCode,
       });
 
       // If COD or testing bypass mode, return order directly without Razorpay

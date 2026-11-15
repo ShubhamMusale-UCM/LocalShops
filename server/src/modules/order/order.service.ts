@@ -8,6 +8,7 @@ import walletService, { WALLET_CONFIG } from '../wallet/wallet.service';
 import notificationService from '../notification/notification.service';
 import { recordAuditLog } from '../../utils/auditLogger';
 import { persistImagesArray } from '../../utils/imageProcessor';
+import cartService from '../cart/cart.service';
 
 let archivedTablesInitialized = false;
 
@@ -204,11 +205,15 @@ export class OrderService {
     // Calculate delivery fee
     let deliveryFee = 0; // Booking platform, no delivery fee
 
-    // Coupon discount (placeholder)
+    // Coupon / Abandoned cart voucher discount
     let discount = 0;
+    let appliedVoucherCode: string | null = null;
     if (data.couponCode) {
-      // TODO: Implement coupon validation
-      discount = 0;
+      const voucherResult = await cartService.validateAndApplyVoucher(data.couponCode, userId, data.shopId, subtotal);
+      if (voucherResult.valid) {
+        discount = voucherResult.discountAmount;
+        appliedVoucherCode = voucherResult.code;
+      }
     }
 
     const total = +( (subtotal + deliveryFee - discount).toFixed(2) );
@@ -439,6 +444,24 @@ export class OrderService {
       }
 
       return newOrder;
+    });
+
+    // Mark applied cart recovery voucher as redeemed
+    if (appliedVoucherCode) {
+      await cartService.markVoucherRedeemed(appliedVoucherCode, order.id).catch(err => {
+        console.error('Failed to mark cart voucher redeemed:', err);
+      });
+    }
+
+    // Clean up purchased items from user's persistent CartItem records
+    const purchasedProductIds = data.items.map(i => i.productId);
+    await prisma.cartItem.deleteMany({
+      where: {
+        userId,
+        productId: { in: purchasedProductIds },
+      },
+    }).catch(err => {
+      console.warn('Failed to clean up cart items post-checkout:', err);
     });
 
     // Send confirmation email (non-blocking)

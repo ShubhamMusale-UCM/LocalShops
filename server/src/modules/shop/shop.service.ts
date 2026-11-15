@@ -30,6 +30,9 @@ export const PUBLIC_SHOP_SETTINGS_KEYS = new Set([
   'allowWalkIns',
   'slotDuration',
   'advanceNotice',
+  'abandonedCartRecoveryEnabled',
+  'abandonedCartDiscountPercent',
+  'abandonedCartHours',
 ]);
 
 export const PRIVATE_SHOP_SETTINGS_KEYS = new Set([
@@ -106,6 +109,9 @@ const EXTENDED_SHOP_SETTINGS_KEYS = new Set([
   'soundAlerts',
   'bookingAlerts',
   'dailyDigest',
+  'abandonedCartRecoveryEnabled',
+  'abandonedCartDiscountPercent',
+  'abandonedCartHours',
 ]);
 
 export class ShopService {
