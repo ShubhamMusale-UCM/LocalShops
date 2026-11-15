@@ -33,6 +33,14 @@ export class ProductService {
       data.discount = Math.round(((data.mrp - data.price) / data.mrp) * 100);
     }
 
+    // Sanitize bookingAmount
+    if (data.bookingAmount !== undefined) {
+      const bAmount = parseFloat(String(data.bookingAmount));
+      data.bookingAmount = !isNaN(bAmount) && bAmount >= 0 ? Math.min(bAmount, data.price) : 0;
+    } else {
+      data.bookingAmount = 0;
+    }
+
     if (typeof data.quantity === 'number') {
       data.inStock = data.quantity > 0;
     }
@@ -147,6 +155,13 @@ export class ProductService {
     // Recalculate discount
     if (data.mrp && data.price) {
       data.discount = Math.round(((data.mrp - data.price) / data.mrp) * 100);
+    }
+
+    // Sanitize bookingAmount
+    if (data.bookingAmount !== undefined) {
+      const bAmount = parseFloat(String(data.bookingAmount));
+      const targetPrice = data.price ?? product.price;
+      data.bookingAmount = !isNaN(bAmount) && bAmount >= 0 ? Math.min(bAmount, targetPrice) : 0;
     }
 
     if (typeof data.quantity === 'number') {
@@ -411,6 +426,10 @@ export class ProductService {
           discount = parseInt(row.discount, 10) || 0;
         }
 
+        const rawBookingAmount = row.bookingAmount || row.booking_amount || row.tokenAmount || row.token_amount;
+        const bAmount = rawBookingAmount ? parseFloat(String(rawBookingAmount).replace(/[^0-9.]/g, '')) : 0;
+        const bookingAmount = !isNaN(bAmount) && bAmount >= 0 ? Math.min(bAmount, price) : 0;
+
         const rawTags = row.tags || row.Tags;
         const tags = rawTags ? String(rawTags).split(',').map((t: string) => t.trim()).filter(Boolean) : [];
         const rawQty = row.quantity ?? row.stock ?? row.Quantity ?? row.Stock;
@@ -434,6 +453,7 @@ export class ProductService {
           price,
           mrp: mrp && !isNaN(mrp) ? mrp : undefined,
           discount,
+          bookingAmount,
           category,
           subCategory,
           brand,
@@ -519,6 +539,10 @@ export class ProductService {
         const data: any = {};
         if (update.price !== undefined) data.price = update.price;
         if (update.mrp !== undefined) data.mrp = update.mrp;
+        if (update.bookingAmount !== undefined) {
+          const bAmount = parseFloat(String(update.bookingAmount));
+          data.bookingAmount = !isNaN(bAmount) && bAmount >= 0 ? bAmount : 0;
+        }
         if (update.quantity !== undefined) {
           data.quantity = update.quantity;
           data.inStock = update.quantity > 0;

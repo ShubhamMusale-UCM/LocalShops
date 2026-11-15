@@ -87,7 +87,12 @@ export const updateShopSchema = createShopSchema.partial().extend({
   // Extended Schedule & Booking Operations fields
   openingTime: z.string().max(20).optional().nullable(),
   closingTime: z.string().max(20).optional().nullable(),
-  workingDays: z.array(z.string()).optional().nullable(),
+  workingDays: z.union([z.string().max(100), z.array(z.string())]).optional().nullable(),
+  orderAcceptanceStart: z.string().max(20).optional().nullable(),
+  orderAcceptanceEnd: z.string().max(20).optional().nullable(),
+  orderTimingType: z.enum(['always', 'store_hours', 'custom_window']).optional().nullable(),
+  closedDates: z.union([z.array(z.string()), z.string()]).optional().nullable(),
+  defaultBookingAmount: z.number().min(0).optional().nullable(),
   autoConfirmBookings: z.boolean().optional(),
   slotDuration: z.union([z.string().max(20), z.number()]).optional().nullable(),
   maxPerSlot: z.union([z.string().max(20), z.number()]).optional().nullable(),

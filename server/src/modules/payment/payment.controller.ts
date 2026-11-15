@@ -80,10 +80,12 @@ export class PaymentController {
           orderNumber: order.orderNumber,
           subtotal: order.subtotal,
           total: order.total,
+          bookingAmount: order.bookingAmount || 0,
+          balanceAmount: order.balanceAmount || 0,
           coinsUsed: order.coinsUsed || 0,
           coinsCredited: order.coinsCredited || 0,
-          netPayable: Math.max(0, order.total - (order.coinsUsed || 0)),
-          amount: Math.max(0, order.total - (order.coinsUsed || 0)),
+          netPayable: Math.max(0, (order.bookingAmount > 0 ? order.bookingAmount : order.total) - (order.coinsUsed || 0)),
+          amount: Math.max(0, (order.bookingAmount > 0 ? order.bookingAmount : order.total) - (order.coinsUsed || 0)),
           bypassed: paymentMethod !== 'COD' && skipPaymentVerification,
           message:
             paymentMethod === 'COD'

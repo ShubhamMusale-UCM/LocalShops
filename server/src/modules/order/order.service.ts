@@ -36,6 +36,13 @@ async function ensureArchivedOrdersTables(): Promise<void> {
   }
 }
 
+function isTimeWithinWindow(currentHHMM: string, startHHMM: string, endHHMM: string): boolean {
+  if (startHHMM <= endHHMM) {
+    return currentHHMM >= startHHMM && currentHHMM <= endHHMM;
+  }
+  return currentHHMM >= startHHMM || currentHHMM <= endHHMM;
+}
+
 const toStatusHistory = (value: unknown): any[] => (Array.isArray(value) ? value : []);
 
 const formatDeliveryAddress = (deliveryAddress?: any): string | null => {
@@ -77,9 +84,46 @@ export class OrderService {
     const shop = await prisma.shop.findUnique({ where: { id: data.shopId } });
     if (!shop) throw new AppError('Shop not found.', 404);
     if (!shop.isActive) throw new AppError('Shop is not active.', 400);
-    // if (shop.ownerId === userId) {
-    //   throw new AppError('You cannot place an order on your own shop.', 400);
-    // }
+    if (!shop.isOpen) throw new AppError('Shop is currently marked closed by the merchant.', 400);
+
+    // Fetch extended shop settings for custom schedule & booking configuration
+    let extSettings: Record<string, any> = {};
+    try {
+      const extRows = await prisma.$queryRawUnsafe<Array<{ settings: any }>>(
+        `SELECT settings FROM shop_extended_settings WHERE shop_id = $1`,
+        data.shopId
+      );
+      if (extRows && extRows[0] && extRows[0].settings) {
+        extSettings = extRows[0].settings;
+      }
+    } catch (_) {}
+
+    // Check scheduled holiday / closed dates
+    const nowIst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const todayDateStr = nowIst.toISOString().slice(0, 10); // YYYY-MM-DD
+    let closedDatesList: string[] = [];
+    if (Array.isArray(extSettings.closedDates)) {
+      closedDatesList = extSettings.closedDates;
+    } else if (typeof extSettings.closedDates === 'string') {
+      closedDatesList = extSettings.closedDates.split(',').map((s: string) => s.trim()).filter(Boolean);
+    }
+    if (closedDatesList.includes(todayDateStr)) {
+      throw new AppError(`Shop is closed today (${todayDateStr}) for scheduled holiday. Orders cannot be placed.`, 400);
+    }
+
+    // Check order acceptance timing window
+    const currentHHMM = `${String(nowIst.getHours()).padStart(2, '0')}:${String(nowIst.getMinutes()).padStart(2, '0')}`;
+    if (extSettings.orderTimingType === 'custom_window' && extSettings.orderAcceptanceStart && extSettings.orderAcceptanceEnd) {
+      if (!isTimeWithinWindow(currentHHMM, extSettings.orderAcceptanceStart, extSettings.orderAcceptanceEnd)) {
+        throw new AppError(`Order booking is currently closed. Orders accepted between ${extSettings.orderAcceptanceStart} and ${extSettings.orderAcceptanceEnd}.`, 400);
+      }
+    } else if (extSettings.orderTimingType === 'store_hours' && (extSettings.openingTime || extSettings.closingTime)) {
+      const openT = extSettings.openingTime || '09:00';
+      const closeT = extSettings.closingTime || '21:00';
+      if (!isTimeWithinWindow(currentHHMM, openT, closeT)) {
+        throw new AppError(`Order booking is currently closed. Store hours are ${openT} to ${closeT}.`, 400);
+      }
+    }
 
     // Determine delivery type
     const effectiveDeliveryType = data.deliveryType === 'DELIVERY' ? 'DELIVERY' : 'PICKUP';
@@ -121,8 +165,13 @@ export class OrderService {
       throw new AppError(`Insufficient stock for: ${names.join(', ')}`, 400);
     }
 
-    // Calculate totals using actual DB prices (not client-submitted prices)
-        let subtotal = 0;
+    const defaultBookingAmount = typeof extSettings.defaultBookingAmount === 'number' && extSettings.defaultBookingAmount >= 0
+      ? extSettings.defaultBookingAmount
+      : 0;
+
+    // Calculate totals using actual DB prices (not client-submitted prices) and booking amount
+    let subtotal = 0;
+    let totalBookingAmount = 0;
     const orderItems = data.items.map(item => {
       const product = products.find(p => p.id === item.productId)!;
       let actualPrice = product.price;
@@ -130,15 +179,27 @@ export class OrderService {
         const fs = product.flashSales[0];
         actualPrice = +(product.price * (1 - fs.discount / 100)).toFixed(2);
       }
-      const itemTotal = actualPrice * item.quantity;
+      const itemTotal = +(actualPrice * item.quantity).toFixed(2);
       subtotal += itemTotal;
+
+      // Product-level booking token or shop-wide default
+      const itemBookingAmount = (typeof product.bookingAmount === 'number' && product.bookingAmount >= 0)
+        ? Math.min(product.bookingAmount, actualPrice)
+        : Math.min(defaultBookingAmount, actualPrice);
+
+      totalBookingAmount += +(itemBookingAmount * item.quantity).toFixed(2);
+
       return {
         productId: item.productId,
         quantity: item.quantity,
         price: actualPrice,
         total: itemTotal,
+        bookingAmount: itemBookingAmount,
       };
     });
+
+    subtotal = +(subtotal.toFixed(2));
+    totalBookingAmount = +(totalBookingAmount.toFixed(2));
 
     // Calculate delivery fee
     let deliveryFee = 0; // Booking platform, no delivery fee
@@ -150,7 +211,8 @@ export class OrderService {
       discount = 0;
     }
 
-    const total = subtotal + deliveryFee - discount;
+    const total = +( (subtotal + deliveryFee - discount).toFixed(2) );
+    const effectiveBookingAmount = Math.min(totalBookingAmount, total);
     const orderNumber = `CLS${Date.now().toString(36).toUpperCase()}${nanoid(4).toUpperCase()}`;
     const orderCampaignId =
       data.items.find(i => i.campaignId)?.campaignId ||
@@ -169,17 +231,10 @@ export class OrderService {
       }
     }
 
+    const balanceAmount = Math.max(0, +( (total - effectiveBookingAmount - coinsUsed).toFixed(2) ));
+
     // Check if shop has autoConfirmBookings enabled (SEL-1)
-    let isAutoConfirm = false;
-    try {
-      const extRows = await prisma.$queryRawUnsafe<Array<{ settings: any }>>(
-        `SELECT settings FROM shop_extended_settings WHERE shop_id = $1`,
-        data.shopId
-      );
-      if (extRows && extRows[0] && extRows[0].settings) {
-        isAutoConfirm = Boolean(extRows[0].settings.autoConfirmBookings);
-      }
-    } catch (_) {}
+    const isAutoConfirm = Boolean(extSettings.autoConfirmBookings);
 
     const initialStatus = isAutoConfirm ? 'CONFIRMED' : 'PLACED';
     const initialStatusHistory = [
@@ -214,6 +269,8 @@ export class OrderService {
           deliveryFee,
           discount,
           total,
+          bookingAmount: effectiveBookingAmount,
+          balanceAmount: balanceAmount,
           isDelivery: effectiveDeliveryType === 'DELIVERY',
           deliveryAddress: formatDeliveryAddress(data.deliveryAddress),
           deliveryLatitude:
@@ -451,7 +508,7 @@ export class OrderService {
         include: {
           items: {
             include: {
-              product: { select: { id: true, name: true, images: true, price: true } },
+              product: { select: { id: true, name: true, images: true, price: true, mrp: true, bookingAmount: true } },
             },
           },
           shop: { select: { id: true, name: true, slug: true, phone: true } },
@@ -540,7 +597,7 @@ export class OrderService {
         include: {
           items: {
             include: {
-              product: { select: { id: true, name: true, images: true, price: true } },
+              product: { select: { id: true, name: true, images: true, price: true, mrp: true, bookingAmount: true } },
             },
           },
           user: { select: { id: true, name: true, phone: true } },

@@ -187,9 +187,10 @@ model Product {
   shortDescription String?
 
   // Pricing
-  price    Float
-  mrp      Float?
-  discount Float?
+  price         Float
+  mrp           Float?
+  discount      Float?
+  bookingAmount Float?   @default(0)
 
   // Media
   images String[]
@@ -248,11 +249,13 @@ model Order {
   items OrderItem[]
 
   // Pricing
-  subtotal    Float
-  deliveryFee Float @default(0)
-  platformFee Float @default(0)
-  discount    Float @default(0)
-  total       Float
+  subtotal      Float
+  deliveryFee   Float @default(0)
+  platformFee   Float @default(0)
+  discount      Float @default(0)
+  total         Float
+  bookingAmount Float @default(0)
+  balanceAmount Float @default(0)
 
   // Status
   status        OrderStatus @default(PLACED)
@@ -300,14 +303,15 @@ model Order {
 }
 
 model OrderItem {
-  id        String  @id @default(uuid())
-  orderId   String
-  order     Order   @relation(fields: [orderId], references: [id])
-  productId String
-  product   Product @relation(fields: [productId], references: [id])
-  quantity  Int
-  price     Float
-  total     Float
+  id            String  @id @default(uuid())
+  orderId       String
+  order         Order   @relation(fields: [orderId], references: [id])
+  productId     String
+  product       Product @relation(fields: [productId], references: [id])
+  quantity      Int
+  price         Float
+  total         Float
+  bookingAmount Float   @default(0)
 
   @@index([productId])
   @@index([orderId])
