@@ -94,8 +94,12 @@ export async function processAbandonedCarts(defaultCutoffHours = 24): Promise<Pr
       // 1. Fetch shop's extended recovery settings
       const shopSettings = await shopService.getExtendedShopSettings(shopId);
 
-      // If seller explicitly disabled recovery, skip notifying for this shop
+      // If seller explicitly disabled recovery, mark notified so they don't clog hourly scan batches
       if (shopSettings.abandonedCartRecoveryEnabled === false) {
+        await prisma.cartItem.updateMany({
+          where: { id: { in: items.map((i) => i.id) } },
+          data: { recoveryNotifiedAt: new Date() },
+        });
         continue;
       }
 

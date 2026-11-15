@@ -216,7 +216,7 @@ export class OrderService {
       }
     }
 
-    const total = +( (subtotal + deliveryFee - discount).toFixed(2) );
+    const total = Math.max(0, +( (subtotal + deliveryFee - discount).toFixed(2) ));
     const effectiveBookingAmount = Math.min(totalBookingAmount, total);
     const orderNumber = `CLS${Date.now().toString(36).toUpperCase()}${nanoid(4).toUpperCase()}`;
     const orderCampaignId =
