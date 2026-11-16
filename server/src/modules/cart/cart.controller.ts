@@ -5,7 +5,7 @@ import cartService from './cart.service';
 export const CartController = {
   syncCart: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const items = req.body.items || [];
+      const items = Array.isArray(req.body) ? req.body : (req.body?.items || []);
       const result = await cartService.syncCart(req.user!.id, items);
       res.json({
         status: 'success',
