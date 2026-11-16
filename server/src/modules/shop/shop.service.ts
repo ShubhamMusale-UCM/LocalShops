@@ -155,6 +155,7 @@ export class ShopService {
   }
 
   async getExtendedShopSettings(shopId: string): Promise<Record<string, any>> {
+    let settings: Record<string, any> = {};
     try {
       await this.ensureExtendedSettingsTable();
       const rows = await prisma.$queryRawUnsafe<Array<{ settings: any }>>(
@@ -162,12 +163,46 @@ export class ShopService {
         shopId
       );
       if (rows && rows.length > 0 && rows[0].settings && typeof rows[0].settings === 'object') {
-        return this.decryptSettingsRow(rows[0].settings);
+        settings = this.decryptSettingsRow(rows[0].settings);
       }
     } catch (e) {
       console.error('Failed to read shop_extended_settings:', e);
     }
-    return {};
+
+    try {
+      const [dbSettings, dbClosures] = await Promise.all([
+        prisma.shopSettings.findUnique({ where: { shopId } }),
+        prisma.shopClosure.findMany({ where: { shopId }, select: { date: true }, orderBy: { date: 'asc' } }),
+      ]);
+
+      if (dbSettings) {
+        if (dbSettings.defaultBookingAmount !== undefined) settings.defaultBookingAmount = dbSettings.defaultBookingAmount;
+        if (dbSettings.openingTime) settings.openingTime = dbSettings.openingTime;
+        if (dbSettings.closingTime) settings.closingTime = dbSettings.closingTime;
+        if (dbSettings.workingDays && Array.isArray(dbSettings.workingDays)) {
+          settings.workingDays = dbSettings.workingDays;
+        }
+        if (dbSettings.autoConfirmBookings !== undefined) settings.autoConfirmBookings = dbSettings.autoConfirmBookings;
+        if (dbSettings.slotDurationMin !== undefined) settings.slotDuration = `${dbSettings.slotDurationMin}m`;
+        if (dbSettings.advanceNoticeMin !== undefined) settings.advanceNotice = `${dbSettings.advanceNoticeMin}m`;
+        if (dbSettings.allowWalkIns !== undefined) settings.allowWalkIns = dbSettings.allowWalkIns;
+        if (dbSettings.maxPerSlot !== undefined) settings.maxPerSlot = dbSettings.maxPerSlot;
+        if (dbSettings.notificationToggles && typeof dbSettings.notificationToggles === 'object') {
+          const nt = dbSettings.notificationToggles as any;
+          if (nt.dailyDigest !== undefined) settings.dailyDigest = nt.dailyDigest;
+          if (nt.soundAlerts !== undefined) settings.soundAlerts = nt.soundAlerts;
+          if (nt.bookingAlerts !== undefined) settings.bookingAlerts = nt.bookingAlerts;
+        }
+      }
+
+      if (dbClosures && dbClosures.length > 0) {
+        settings.closedDates = dbClosures.map((c) => c.date);
+      }
+    } catch (e) {
+      console.error('Failed to merge ShopSettings in getExtendedShopSettings:', e);
+    }
+
+    return settings;
   }
 
   async getExtendedShopSettingsBatch(shopIds: string[]): Promise<Map<string, Record<string, any>>> {
@@ -187,6 +222,47 @@ export class ShopService {
     } catch (e) {
       console.error('Failed to batch-read shop_extended_settings:', e);
     }
+
+    try {
+      const [dbSettingsList, dbClosuresList] = await Promise.all([
+        prisma.shopSettings.findMany({ where: { shopId: { in: shopIds } } }),
+        prisma.shopClosure.findMany({ where: { shopId: { in: shopIds } }, select: { shopId: true, date: true }, orderBy: { date: 'asc' } }),
+      ]);
+
+      const closuresByShop = new Map<string, string[]>();
+      dbClosuresList.forEach((c) => {
+        if (!closuresByShop.has(c.shopId)) closuresByShop.set(c.shopId, []);
+        closuresByShop.get(c.shopId)!.push(c.date);
+      });
+
+      for (const dbSettings of dbSettingsList) {
+        const existing = map.get(dbSettings.shopId) || {};
+        if (dbSettings.defaultBookingAmount !== undefined) existing.defaultBookingAmount = dbSettings.defaultBookingAmount;
+        if (dbSettings.openingTime) existing.openingTime = dbSettings.openingTime;
+        if (dbSettings.closingTime) existing.closingTime = dbSettings.closingTime;
+        if (dbSettings.workingDays && Array.isArray(dbSettings.workingDays)) {
+          existing.workingDays = dbSettings.workingDays;
+        }
+        if (dbSettings.autoConfirmBookings !== undefined) existing.autoConfirmBookings = dbSettings.autoConfirmBookings;
+        if (dbSettings.slotDurationMin !== undefined) existing.slotDuration = `${dbSettings.slotDurationMin}m`;
+        if (dbSettings.advanceNoticeMin !== undefined) existing.advanceNotice = `${dbSettings.advanceNoticeMin}m`;
+        if (dbSettings.allowWalkIns !== undefined) existing.allowWalkIns = dbSettings.allowWalkIns;
+        if (dbSettings.maxPerSlot !== undefined) existing.maxPerSlot = dbSettings.maxPerSlot;
+        if (dbSettings.notificationToggles && typeof dbSettings.notificationToggles === 'object') {
+          const nt = dbSettings.notificationToggles as any;
+          if (nt.dailyDigest !== undefined) existing.dailyDigest = nt.dailyDigest;
+          if (nt.soundAlerts !== undefined) existing.soundAlerts = nt.soundAlerts;
+          if (nt.bookingAlerts !== undefined) existing.bookingAlerts = nt.bookingAlerts;
+        }
+        if (closuresByShop.has(dbSettings.shopId)) {
+          existing.closedDates = closuresByShop.get(dbSettings.shopId);
+        }
+        map.set(dbSettings.shopId, existing);
+      }
+    } catch (e) {
+      console.error('Failed to merge ShopSettings in getExtendedShopSettingsBatch:', e);
+    }
+
     return map;
   }
 
@@ -280,6 +356,29 @@ export class ShopService {
     }).catch(err => {
       console.warn('Failed to sync shopSettings in Prisma:', err.message);
     });
+
+    if (Array.isArray(mergedPlain.closedDates)) {
+      try {
+        await prisma.$transaction(async (tx) => {
+          await tx.shopClosure.deleteMany({ where: { shopId } });
+          const validDates = mergedPlain.closedDates
+            .filter((d: any) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.trim()))
+            .map((d: string) => d.trim());
+          if (validDates.length > 0) {
+            await tx.shopClosure.createMany({
+              data: validDates.map((dateStr: string) => ({
+                shopId,
+                date: dateStr,
+                reason: 'Scheduled Closure',
+              })),
+              skipDuplicates: true,
+            });
+          }
+        });
+      } catch (err: any) {
+        console.warn('Failed to sync shop_closures in Prisma:', err.message);
+      }
+    }
 
     return this.decryptSettingsRow(toStore);
   }
