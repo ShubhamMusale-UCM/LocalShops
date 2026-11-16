@@ -819,7 +819,9 @@ export class ShopService {
       orderBy: [{ orderCount: 'desc' }, { viewCount: 'desc' }],
       take: 20,
       include: {
-        promotedListings: { select: { clicks: true, impressions: true } },
+        promotedListings: {
+          select: { clicks: true, impressions: true, startDate: true, endDate: true, isActive: true },
+        },
         _count: { select: { wishlistedBy: true, cartItems: true } },
       },
     });
@@ -876,8 +878,17 @@ export class ShopService {
       const orderAgg = orderItemsAggMap.get(p.id) || { unitsSold: 0, revenue: 0 };
       const unitsSold = orderAgg.unitsSold;
       const revenue = orderAgg.revenue;
-      const adImpressions = (p.promotedListings || []).reduce((a, l) => a + (l.impressions || 0), 0);
-      const adClicks = (p.promotedListings || []).reduce((a, l) => a + (l.clicks || 0), 0);
+
+      // Filter promoted listings to only those active/overlapping with the selected period
+      const activePromotedInPeriod = (p.promotedListings || []).filter(l => {
+        if (!l.startDate) return false;
+        const start = new Date(l.startDate);
+        const end = l.endDate ? new Date(l.endDate) : now;
+        return end >= since && start <= now;
+      });
+
+      const adImpressions = activePromotedInPeriod.reduce((a, l) => a + (l.impressions || 0), 0);
+      const adClicks = activePromotedInPeriod.reduce((a, l) => a + (l.clicks || 0), 0);
 
       // Period daily telemetry aggregated in PostgreSQL
       const periodDaily = dailyAggMap.get(p.id) || { impressions: 0, views: 0, cartAdds: 0 };
@@ -886,16 +897,18 @@ export class ShopService {
       const periodViews = periodDaily.views || 0;
       const periodImpressions = periodDaily.impressions || 0;
 
-      // views: Always guarantee lifetime views match ManageProductsScreen inventory count
-      const views = lifetimeViews;
+      // Period views for accurate period analytics report
+      const views = periodViews;
 
-      // impressions: Organic feed views + ad impressions, fallback to at least total views
-      const impressions = periodImpressions > 0 
-        ? periodImpressions 
-        : Math.max(adImpressions, periodViews, lifetimeViews);
+      // Combined impressions and clicks in the selected period
+      const totalPeriodImpressions = periodImpressions + adImpressions;
+      const totalPeriodClicks = periodViews + adClicks;
 
-      const ctr = impressions > 0
-        ? Math.min(100, Math.max(0, ((adClicks > 0 ? adClicks : periodViews) / impressions) * 100)).toFixed(2)
+      // Safe impressions ensures impressions >= clicks to avoid >100% or divide-by-zero artifacts
+      const safeImpressions = Math.max(totalPeriodImpressions, totalPeriodClicks);
+
+      const ctr = safeImpressions > 0 && totalPeriodClicks > 0
+        ? Math.min(100, Math.max(0, (totalPeriodClicks / safeImpressions) * 100)).toFixed(2)
         : '0.00';
 
       const dailyVelocity = unitsSold / periodDays;
@@ -914,10 +927,10 @@ export class ShopService {
         units: unitsSold,
         orderCount: p.orderCount ?? 0,
         viewCount: lifetimeViews,
-        views: lifetimeViews,
+        views: views,
         periodViews,
         periodImpressions,
-        impressions,
+        impressions: totalPeriodImpressions,
         clicks: adClicks,
         revenue: revenue,
         ctr,
@@ -1173,16 +1186,30 @@ export class ShopService {
 
     const realProductViews = productViewsAgg._sum.viewCount ?? 0;
 
-    // If adDailyMetricRollup was unpopulated, reconcile with real campaign summary
-    if (campaignsData?.summary) {
-      if (realTotalAdClicks === 0 && campaignsData.summary.totalClicks > 0) {
-        realTotalAdClicks = campaignsData.summary.totalClicks;
-      }
-      if (realTotalAdImpressions === 0 && campaignsData.summary.totalImpressions > 0) {
-        realTotalAdImpressions = campaignsData.summary.totalImpressions;
-      }
-      if (realAdSpent === 0 && campaignsData.summary.totalSpent > 0) {
-        realAdSpent = campaignsData.summary.totalSpent;
+    // If adDailyMetricRollup was unpopulated, reconcile with active period campaigns
+    if (campaignsData?.campaigns) {
+      const activePeriodCampaigns = (campaignsData.campaigns as any[]).filter((c: any) => {
+        if (!c.startDate) return false;
+        const start = new Date(c.startDate);
+        const end = c.endDate ? new Date(c.endDate) : now;
+        return end >= since && start <= now;
+      });
+      if (activePeriodCampaigns.length > 0) {
+        const periodAdClicks = activePeriodCampaigns.reduce((a: number, c: any) => a + (c.clicks || 0), 0);
+        const periodAdImpressions = activePeriodCampaigns.reduce((a: number, c: any) => a + (c.impressions || 0), 0);
+        const periodAdSpent = activePeriodCampaigns.reduce((a: number, c: any) => a + (c.spent || 0), 0);
+
+        // Reconcile if adDailyMetricRollup was incomplete for the active period
+        if (periodAdClicks > realTotalAdClicks) {
+          realTotalAdClicks = periodAdClicks;
+          realTotalAdImpressions = Math.max(realTotalAdImpressions, periodAdImpressions);
+        }
+        if (periodAdImpressions > realTotalAdImpressions) {
+          realTotalAdImpressions = periodAdImpressions;
+        }
+        if (periodAdSpent > realAdSpent) {
+          realAdSpent = periodAdSpent;
+        }
       }
     }
 
