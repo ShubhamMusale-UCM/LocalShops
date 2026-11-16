@@ -314,6 +314,41 @@ export class OrderService {
     const shopSettings = await prisma.shopSettings.findUnique({ where: { shopId: data.shopId } }).catch(() => null);
     const isAutoConfirm = shopSettings ? shopSettings.autoConfirmBookings : Boolean(extSettings.autoConfirmBookings);
 
+    // ============= PICKUP SCHEDULE & CAPACITY (SEL-2) =============
+    let pickupSlotStart: Date | null = null;
+    let pickupSlotEnd: Date | null = null;
+
+    if (effectiveDeliveryType === 'PICKUP') {
+      if (data.pickupSlotStart) {
+        pickupSlotStart = new Date(data.pickupSlotStart);
+        if (isNaN(pickupSlotStart.getTime())) {
+          throw new AppError('Invalid pickupSlotStart datetime format.', 400);
+        }
+
+        const slotDur = Math.max(15, Number(shopSettings?.slotDurationMin) || 30);
+        pickupSlotEnd = data.pickupSlotEnd
+          ? new Date(data.pickupSlotEnd)
+          : new Date(pickupSlotStart.getTime() + slotDur * 60000);
+
+        // Advance notice validation
+        const advNotice = Math.max(0, Number(shopSettings?.advanceNoticeMin) || 15);
+        if (pickupSlotStart.getTime() < Date.now() + advNotice * 60000 - 60000) {
+          throw new AppError(`Pickup slot requires at least ${advNotice} minutes advance notice.`, 400);
+        }
+
+        // Closure validation
+        const slotDateStr = pickupSlotStart.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+        const closure = await prisma.shopClosure.findUnique({
+          where: { shopId_date: { shopId: data.shopId, date: slotDateStr } },
+        });
+        if (closure) {
+          throw new AppError(`Shop is closed on ${slotDateStr}: ${closure.reason || 'Closed for holiday'}`, 400);
+        }
+      } else if (shopSettings?.allowWalkIns === false) {
+        throw new AppError('This shop requires selecting a scheduled pickup slot. Walk-in visits are not accepted.', 400);
+      }
+    }
+
     const initialStatus = isAutoConfirm ? 'CONFIRMED' : 'PLACED';
     const initialStatusHistory = [
       {
@@ -340,6 +375,23 @@ export class OrderService {
       const txSettings = await tx.shopSettings.findUnique({ where: { shopId: data.shopId } }).catch(() => null);
       const isAutoConfirmTx = txSettings ? txSettings.autoConfirmBookings : isAutoConfirm;
 
+      // Atomic Slot Capacity Lock (SEL-2)
+      if (pickupSlotStart) {
+        const maxCapacity = Math.max(1, Number(shopSettings?.maxPerSlot) || 2);
+        const bookedResult = await tx.$queryRawUnsafe<Array<{ booked: number }>>(`
+          INSERT INTO shop_slot_counters (shop_id, slot_start, booked)
+          VALUES ($1, $2, 1)
+          ON CONFLICT (shop_id, slot_start)
+          DO UPDATE SET booked = shop_slot_counters.booked + 1
+          WHERE shop_slot_counters.booked < $3
+          RETURNING booked;
+        `, data.shopId, pickupSlotStart, maxCapacity);
+
+        if (!bookedResult || bookedResult.length === 0) {
+          throw new AppError('Selected pickup slot is already fully booked. Please choose another time slot.', 400);
+        }
+      }
+
       const newOrder = await tx.order.create({
         data: {
           orderNumber,
@@ -354,6 +406,8 @@ export class OrderService {
           bookingAmount: effectiveBookingAmount,
           balanceAmount: balanceAmount,
           holdDurationMinutes: maxOrderHoldMinutes,
+          pickupSlotStart,
+          pickupSlotEnd,
           isDelivery: effectiveDeliveryType === 'DELIVERY',
           deliveryAddress: formatDeliveryAddress(data.deliveryAddress),
           deliveryLatitude:
@@ -813,6 +867,15 @@ export class OrderService {
         }
       }
 
+      // Release slot capacity when cancelling (SEL-2)
+      if (status === 'CANCELLED' && order.pickupSlotStart) {
+        await tx.$executeRawUnsafe(`
+          UPDATE shop_slot_counters
+          SET booked = GREATEST(0, booked - 1)
+          WHERE shop_id = $1 AND slot_start = $2;
+        `, order.shopId, order.pickupSlotStart);
+      }
+
       if (status === 'CANCELLED' && order.status !== 'CANCELLED') {
         const orderDate = new Date(order.createdAt);
         orderDate.setUTCHours(0, 0, 0, 0);
@@ -1037,6 +1100,15 @@ export class OrderService {
             });
           }
         }
+      }
+
+      // Release slot capacity when cancelling (SEL-2)
+      if (status === 'CANCELLED' && order.pickupSlotStart) {
+        await tx.$executeRawUnsafe(`
+          UPDATE shop_slot_counters
+          SET booked = GREATEST(0, booked - 1)
+          WHERE shop_id = $1 AND slot_start = $2;
+        `, order.shopId, order.pickupSlotStart);
       }
 
       // Real-time ShopAnalytics and ProductDailyAnalytics update (decrement)

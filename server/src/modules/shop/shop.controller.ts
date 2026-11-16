@@ -257,6 +257,44 @@ export class ShopController {
       res.status(error.statusCode || 400).json({ error: error.message });
     }
   }
+
+  async getShopSlots(req: Request, res: Response): Promise<void> {
+    try {
+      const date = (req.query.date as string) || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      const slots = await shopService.getShopPickupSlots(req.params.id, date);
+      res.json(slots);
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({ error: error.message });
+    }
+  }
+
+  async getShopClosures(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const closures = await shopService.getShopClosures(req.params.id, req.user!.id);
+      res.json(closures);
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({ error: error.message });
+    }
+  }
+
+  async addShopClosure(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { date, reason } = req.body;
+      const closure = await shopService.addShopClosure(req.params.id, req.user!.id, date, reason);
+      res.status(201).json(closure);
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({ error: error.message });
+    }
+  }
+
+  async deleteShopClosure(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const result = await shopService.deleteShopClosure(req.params.id, req.user!.id, req.params.date);
+      res.json(result);
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({ error: error.message });
+    }
+  }
 }
 
 export default new ShopController();

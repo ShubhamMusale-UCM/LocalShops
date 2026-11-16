@@ -1826,6 +1826,253 @@ export class ShopService {
       vouchers: createdVouchers,
     };
   }
+
+  /**
+   * Real schedule engine: slots, capacity, notice, hours (SEL-2)
+   */
+  async getShopPickupSlots(shopId: string, dateStr: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      throw new AppError('Invalid date format. Expected YYYY-MM-DD.', 400);
+    }
+
+    const shop = await prisma.shop.findUnique({
+      where: { id: shopId },
+      include: {
+        settings: true,
+        closures: { where: { date: dateStr } },
+      },
+    });
+
+    if (!shop) throw new AppError('Shop not found.', 404);
+
+    const timeZone = 'Asia/Kolkata';
+    const now = new Date();
+    const todayStr = now.toLocaleDateString('en-CA', { timeZone });
+
+    // Check if shop is explicitly closed
+    if (!shop.isOpen) {
+      return {
+        shopId,
+        date: dateStr,
+        isOpen: false,
+        reason: 'Shop is currently marked closed',
+        allowWalkIns: false,
+        slots: [],
+      };
+    }
+
+    // Check holiday / closure table
+    if (shop.closures && shop.closures.length > 0) {
+      return {
+        shopId,
+        date: dateStr,
+        isOpen: false,
+        reason: shop.closures[0].reason || 'Shop closed on this date',
+        allowWalkIns: false,
+        slots: [],
+      };
+    }
+
+    const settings = shop.settings || {
+      openingTime: '09:00',
+      closingTime: '21:00',
+      slotDurationMin: 30,
+      maxPerSlot: 2,
+      advanceNoticeMin: 15,
+      allowWalkIns: true,
+      workingDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+    };
+
+    // Check working days
+    const targetDate = new Date(`${dateStr}T12:00:00+05:30`);
+    const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+    const targetDayName = dayNames[targetDate.getDay()];
+    const workingDaysStr = Array.isArray(settings.workingDays)
+      ? settings.workingDays.join(',').toLowerCase()
+      : String(settings.workingDays || '').toLowerCase();
+
+    const isWorkingDay =
+      !workingDaysStr ||
+      workingDaysStr.includes('mon - sun') ||
+      workingDaysStr.includes('daily') ||
+      workingDaysStr.includes('24/7') ||
+      workingDaysStr.includes(targetDayName) ||
+      (workingDaysStr.includes('mon - sat') && targetDayName !== 'sun') ||
+      (workingDaysStr.includes('mon - fri') && !['sat', 'sun'].includes(targetDayName));
+
+    if (!isWorkingDay) {
+      return {
+        shopId,
+        date: dateStr,
+        isOpen: false,
+        reason: `Shop is closed on ${targetDayName.toUpperCase()}`,
+        allowWalkIns: false,
+        slots: [],
+      };
+    }
+
+    const parseTimeToMins = (t?: string | null, def = 540) => {
+      if (!t || !t.includes(':')) return def;
+      const [h, m] = t.split(':').map(Number);
+      return (h || 0) * 60 + (m || 0);
+    };
+
+    const openMins = parseTimeToMins(settings.openingTime, 9 * 60);
+    const closeMins = parseTimeToMins(settings.closingTime, 21 * 60);
+    const slotDuration = Math.max(15, Math.min(180, Number(settings.slotDurationMin) || 30));
+    const maxPerSlot = Math.max(1, Number(settings.maxPerSlot) || 2);
+    const advanceNoticeMin = Math.max(0, Number(settings.advanceNoticeMin) || 15);
+    const allowWalkIns = settings.allowWalkIns !== false;
+
+    // Generate slots
+    const rawSlots: Array<{ slotStart: Date; slotEnd: Date; formatted: string }> = [];
+    for (let m = openMins; m + slotDuration <= closeMins; m += slotDuration) {
+      const startH = Math.floor(m / 60);
+      const startM = m % 60;
+      const endMins = m + slotDuration;
+      const endH = Math.floor(endMins / 60);
+      const endM = endMins % 60;
+
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      const startIso = `${dateStr}T${pad(startH)}:${pad(startM)}:00+05:30`;
+      const endIso = `${dateStr}T${pad(endH)}:${pad(endM)}:00+05:30`;
+
+      const formatTime = (h: number, min: number) => {
+        const period = h >= 12 ? 'PM' : 'AM';
+        const displayH = h % 12 || 12;
+        return `${displayH}:${pad(min)} ${period}`;
+      };
+
+      rawSlots.push({
+        slotStart: new Date(startIso),
+        slotEnd: new Date(endIso),
+        formatted: `${formatTime(startH, startM)} - ${formatTime(endH, endM)}`,
+      });
+    }
+
+    // Filter out past / past-notice slots if target date is today
+    const nowMs = now.getTime();
+    const noticeThresholdMs = nowMs + advanceNoticeMin * 60 * 1000;
+
+    const filteredSlots = rawSlots.filter((slot) => {
+      if (dateStr < todayStr) return false;
+      if (dateStr === todayStr) {
+        return slot.slotStart.getTime() >= noticeThresholdMs;
+      }
+      return true;
+    });
+
+    if (filteredSlots.length === 0) {
+      return {
+        shopId,
+        date: dateStr,
+        isOpen: true,
+        reason: dateStr === todayStr ? 'No remaining slots available today' : undefined,
+        allowWalkIns,
+        slotDurationMin: slotDuration,
+        maxPerSlot,
+        advanceNoticeMin,
+        slots: [],
+      };
+    }
+
+    // Query booked counts from shop_slot_counters
+    const slotStarts = filteredSlots.map((s) => s.slotStart);
+    const counters = await prisma.shopSlotCounter.findMany({
+      where: {
+        shopId,
+        slotStart: { in: slotStarts },
+      },
+    });
+    const counterMap = new Map(counters.map((c) => [c.slotStart.toISOString(), c.booked]));
+
+    // Query active orders as ground truth
+    const orderCounts = await prisma.order.groupBy({
+      by: ['pickupSlotStart'],
+      where: {
+        shopId,
+        pickupSlotStart: { in: slotStarts },
+        status: { in: ['PLACED', 'CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP'] },
+      },
+      _count: { id: true },
+    });
+    const orderMap = new Map(
+      orderCounts
+        .filter((o) => o.pickupSlotStart)
+        .map((o) => [o.pickupSlotStart!.toISOString(), o._count.id])
+    );
+
+    const slots = filteredSlots.map((s) => {
+      const key = s.slotStart.toISOString();
+      const bookedFromCounter = counterMap.get(key) || 0;
+      const bookedFromOrders = orderMap.get(key) || 0;
+      const bookedCount = Math.max(bookedFromCounter, bookedFromOrders);
+      const availableCount = Math.max(0, maxPerSlot - bookedCount);
+      const isAvailable = availableCount > 0;
+
+      return {
+        slotStart: s.slotStart.toISOString(),
+        slotEnd: s.slotEnd.toISOString(),
+        formatted: s.formatted,
+        capacity: maxPerSlot,
+        bookedCount,
+        availableCount,
+        isAvailable,
+      };
+    });
+
+    return {
+      shopId,
+      date: dateStr,
+      isOpen: true,
+      allowWalkIns,
+      slotDurationMin: slotDuration,
+      maxPerSlot,
+      advanceNoticeMin,
+      slots,
+    };
+  }
+
+  async getShopClosures(shopId: string, ownerId: string) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
+
+    return prisma.shopClosure.findMany({
+      where: { shopId },
+      orderBy: { date: 'asc' },
+    });
+  }
+
+  async addShopClosure(shopId: string, ownerId: string, date: string, reason?: string) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new AppError('Date must be in YYYY-MM-DD format.', 400);
+    }
+
+    const closure = await prisma.shopClosure.upsert({
+      where: { shopId_date: { shopId, date } },
+      update: { reason: reason || 'Scheduled closure' },
+      create: { shopId, date, reason: reason || 'Scheduled closure' },
+    });
+
+    return closure;
+  }
+
+  async deleteShopClosure(shopId: string, ownerId: string, date: string) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
+
+    await prisma.shopClosure.deleteMany({
+      where: { shopId, date },
+    });
+
+    return { success: true, message: `Closure on ${date} removed.` };
+  }
 }
 
 export default new ShopService();

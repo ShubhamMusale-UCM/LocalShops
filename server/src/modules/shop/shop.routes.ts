@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import shopController from './shop.controller';
-import { authenticate, authorize } from '../../middleware/auth.middleware';
+import { authenticate, authorize, optionalAuth } from '../../middleware/auth.middleware';
 import { uploadSingle, handleUploadError } from '../../middleware/upload.middleware';
 import { cacheMiddleware } from '../../middleware/cache.middleware';
 
@@ -34,6 +34,10 @@ router.get('/:id/followers', authenticate, authorize('SELLER', 'ADMIN'), shopCon
 router.post('/:id/broadcast', authenticate, authorize('SELLER', 'ADMIN'), shopController.broadcastToFollowers.bind(shopController));
 router.get('/:id/cart-items', authenticate, authorize('SELLER', 'ADMIN'), shopController.getCartAdders.bind(shopController));
 router.post('/:id/cart-discount', authenticate, authorize('SELLER', 'ADMIN'), shopController.sendCartDiscount.bind(shopController));
+router.get('/:id/slots', optionalAuth, shopController.getShopSlots.bind(shopController));
+router.get('/:id/closures', authenticate, authorize('SELLER', 'ADMIN'), shopController.getShopClosures.bind(shopController));
+router.post('/:id/closures', authenticate, authorize('SELLER', 'ADMIN'), shopController.addShopClosure.bind(shopController));
+router.delete('/:id/closures/:date', authenticate, authorize('SELLER', 'ADMIN'), shopController.deleteShopClosure.bind(shopController));
 router.post('/:id/save', authenticate, shopController.toggleSaveShop.bind(shopController));
 
 export default router;

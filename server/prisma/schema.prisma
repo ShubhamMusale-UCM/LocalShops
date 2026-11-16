@@ -168,6 +168,7 @@ model Shop {
   searchKeywordStats SearchKeywordStat[]
   adWalletTransactions SellerAdWalletTransaction[]
   settings         ShopSettings?
+  closures         ShopClosure[]
 
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -259,6 +260,8 @@ model Order {
   bookingAmount       Float @default(0)
   balanceAmount       Float @default(0)
   holdDurationMinutes Int   @default(180)
+  pickupSlotStart     DateTime? @map("pickup_slot_start")
+  pickupSlotEnd       DateTime? @map("pickup_slot_end")
 
   // Status
   status        OrderStatus @default(PLACED)
@@ -928,6 +931,27 @@ model ShopSettings {
   updatedAt            DateTime @updatedAt @map("updated_at")
 
   @@map("shop_settings")
+}
+
+model ShopSlotCounter {
+  shopId    String   @map("shop_id")
+  slotStart DateTime @map("slot_start")
+  booked    Int      @default(0)
+
+  @@id([shopId, slotStart])
+  @@map("shop_slot_counters")
+}
+
+model ShopClosure {
+  id        String   @id @default(uuid())
+  shopId    String   @map("shop_id")
+  shop      Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  date      String
+  reason    String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([shopId, date])
+  @@map("shop_closures")
 }
 
 

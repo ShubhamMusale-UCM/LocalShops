@@ -22,6 +22,8 @@ export const createOrderSchema = z.object({
   notes: z.string().max(500).optional(),
   couponCode: z.string().optional(),
   coinsToUse: z.number().min(0).optional(),
+  pickupSlotStart: z.string().optional(),
+  pickupSlotEnd: z.string().optional(),
 });
 
 export const updateOrderStatusSchema = z.object({
