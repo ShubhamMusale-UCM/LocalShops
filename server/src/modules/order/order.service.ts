@@ -10,6 +10,7 @@ import { recordAuditLog } from '../../utils/auditLogger';
 import { persistImagesArray } from '../../utils/imageProcessor';
 import cartService from '../cart/cart.service';
 import { scheduleBookingReminder, cancelBookingReminder } from '../../jobs/bookingReminder.job';
+import { generateOrderSlipPdf } from '../../utils/dispatchSlipGenerator';
 
 let archivedTablesInitialized = false;
 
@@ -1490,6 +1491,70 @@ export class OrderService {
       success: true,
       clearedCount: archivedIds.length,
       archivedIds,
+    };
+  }
+
+  /**
+   * Generate official PDF dispatch slip & delivery challan (SEL-8)
+   */
+  async generateOrderSlip(orderId: string, actorUserId: string) {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        shop: true,
+        user: true,
+        items: {
+          include: {
+            product: { select: { name: true, price: true } },
+          },
+        },
+      },
+    });
+
+    if (!order) throw new AppError('Order not found', 404);
+
+    const isOwner = order.shop.ownerId === actorUserId;
+    const isBuyer = order.userId === actorUserId;
+    if (!isOwner && !isBuyer) {
+      const actor = await prisma.user.findUnique({ where: { id: actorUserId }, select: { role: true } });
+      if (actor?.role !== 'ADMIN') {
+        throw new AppError('Unauthorized to access this dispatch slip', 403);
+      }
+    }
+
+    const items = order.items.map((i) => ({
+      name: i.product?.name || `Item #${i.productId.slice(0, 6)}`,
+      quantity: i.quantity,
+      price: i.price,
+      total: i.total,
+    }));
+
+    const pdfBuffer = await generateOrderSlipPdf({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      createdAt: order.createdAt,
+      status: order.status,
+      pickupSlotStart: order.pickupSlotStart,
+      pickupSlotEnd: order.pickupSlotEnd,
+      isDelivery: order.isDelivery,
+      buyerName: order.user?.name,
+      buyerPhone: order.user?.phone,
+      buyerAddress: order.deliveryAddress,
+      shopName: order.shop.name,
+      shopAddress: order.shop.address,
+      shopPhone: order.shop.phone,
+      shopGstin: order.shop.gstNumber,
+      items,
+      subtotal: order.subtotal,
+      discount: order.discount,
+      bookingAmount: order.bookingAmount,
+      balanceAmount: order.balanceAmount,
+      total: order.total,
+    });
+
+    return {
+      pdfBuffer,
+      orderNumber: order.orderNumber,
     };
   }
 }

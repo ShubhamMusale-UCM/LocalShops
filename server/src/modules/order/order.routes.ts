@@ -23,6 +23,7 @@ router.get('/shop/:shopId', authorize('SELLER', 'ADMIN'), orderController.getSho
 router.post('/shop/:shopId/clear-rejected', authorize('SELLER', 'ADMIN'), orderController.clearShopRejected.bind(orderController));
 router.delete('/shop/:shopId/:orderId', authorize('SELLER', 'ADMIN'), orderController.archiveShopOrder.bind(orderController));
 router.put('/:id/status', authorize('SELLER', 'ADMIN'), orderController.updateStatus.bind(orderController));
+router.get('/:id/slip.pdf', orderController.downloadSlipPdf.bind(orderController));
 router.put('/return/:returnId/status', authorize('SELLER', 'ADMIN'), orderController.updateReturnStatus.bind(orderController));
 
 export default router;

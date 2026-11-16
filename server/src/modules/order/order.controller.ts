@@ -155,6 +155,20 @@ export class OrderController {
       res.status(error.statusCode || 500).json({ error: error.message });
     }
   }
+
+  async downloadSlipPdf(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { pdfBuffer, orderNumber } = await orderService.generateOrderSlip(id, req.user!.id);
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="dispatch-slip-${orderNumber}.pdf"`);
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.status(200).send(pdfBuffer);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
 }
 
 export default new OrderController();
