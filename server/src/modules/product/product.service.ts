@@ -7,6 +7,7 @@ import { persistImagesArray } from '../../utils/imageProcessor';
 import { getPlanLimits } from '../../config/plans';
 import { recordAuditLog } from '../../utils/auditLogger';
 import shopService, { PUBLIC_SHOP_SETTINGS_KEYS } from '../shop/shop.service';
+import { validateAndParseRow, NormalizedProductRow, RowValidationError } from './csvAliasMap';
 
 async function compressImagesArray(images?: string[]): Promise<string[]> {
   return persistImagesArray(images, 'products');
@@ -384,17 +385,15 @@ export class ProductService {
   }
 
   /**
-   * Bulk import products from CSV
+   * Preview bulk import without saving to database (SEL-7)
    */
-  async bulkImportProducts(shopId: string, ownerId: string, csvBuffer: Buffer) {
+  async previewBulkImport(shopId: string, ownerId: string, csvBuffer: Buffer) {
     const shop = await prisma.shop.findUnique({ where: { id: shopId } });
     if (!shop) throw new AppError('Shop not found.', 404);
     if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
 
-    // Dynamic import to support both commonjs and esm parsing if needed
     const { parse } = await import('csv-parse/sync');
-
-    let records;
+    let records: any[];
     try {
       records = parse(csvBuffer, {
         columns: true,
@@ -409,102 +408,404 @@ export class ProductService {
       throw new AppError('CSV file is empty or missing headers.', 400);
     }
 
-    const successRows: any[] = [];
-    const errorRows: { row: number; error: string }[] = [];
+    if (records.length > 5000) {
+      throw new AppError('CSV file exceeds maximum limit of 5,000 rows. Please import in chunks.', 400);
+    }
 
-    // Centralized limits check
-    const productCount = await prisma.product.count({ where: { shopId, isActive: true } });
+    const validRows: NormalizedProductRow[] = [];
+    const errorRows: RowValidationError[] = [];
+    const skusInFile = new Set<string>();
+
+    for (let i = 0; i < records.length; i++) {
+      const { parsed, error } = validateAndParseRow(records[i], i + 1, shop.category);
+      if (error) {
+        errorRows.push(error);
+      } else if (parsed) {
+        validRows.push(parsed);
+        if (parsed.sku) skusInFile.add(parsed.sku);
+      }
+    }
+
+    let existingSkuCount = 0;
+    if (skusInFile.size > 0) {
+      existingSkuCount = await prisma.product.count({
+        where: {
+          shopId,
+          sku: { in: Array.from(skusInFile) },
+        },
+      });
+    }
+
+    return {
+      totalRows: records.length,
+      validCount: validRows.length,
+      errorCount: errorRows.length,
+      duplicateSkusToUpdate: existingSkuCount,
+      newProductsToCreate: validRows.length - existingSkuCount,
+      previewSample: validRows.slice(0, 10),
+      errors: errorRows.slice(0, 50),
+    };
+  }
+
+  /**
+   * Start asynchronous chunked bulk import with progress tracking (SEL-7)
+   */
+  async createBulkImportJob(shopId: string, ownerId: string, csvBuffer: Buffer) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
+
+    const { parse } = await import('csv-parse/sync');
+    let records: any[];
+    try {
+      records = parse(csvBuffer, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      });
+    } catch (err: any) {
+      throw new AppError(`Failed to parse CSV: ${err.message}`, 400);
+    }
+
+    if (!records || records.length === 0) {
+      throw new AppError('CSV file is empty or missing headers.', 400);
+    }
+
+    if (records.length > 5000) {
+      throw new AppError('CSV file exceeds maximum limit of 5,000 rows.', 400);
+    }
+
+    const validRows: NormalizedProductRow[] = [];
+    const errorRows: RowValidationError[] = [];
+    for (let i = 0; i < records.length; i++) {
+      const { parsed, error } = validateAndParseRow(records[i], i + 1, shop.category);
+      if (error) {
+        errorRows.push(error);
+      } else if (parsed) {
+        validRows.push(parsed);
+      }
+    }
+
+    const job = await prisma.importJob.create({
+      data: {
+        shopId,
+        status: 'PROCESSING',
+        totalRows: records.length,
+        processedRows: 0,
+        successRows: 0,
+        errorRows: errorRows.length,
+        errors: errorRows as any,
+        startedAt: new Date(),
+      },
+    });
+
+    // Run async chunked upserts without blocking request
+    this.processImportJobAsync(job.id, shopId, validRows, errorRows).catch((err) => {
+      console.error(`[ImportJob:${job.id}] Background processing failed:`, err);
+    });
+
+    return {
+      jobId: job.id,
+      status: job.status,
+      totalRows: job.totalRows,
+      initialErrorCount: errorRows.length,
+    };
+  }
+
+  /**
+   * Background processor for chunked upserts (SEL-7)
+   */
+  private async processImportJobAsync(
+    jobId: string,
+    shopId: string,
+    validRows: NormalizedProductRow[],
+    errorRows: RowValidationError[]
+  ) {
+    const CHUNK_SIZE = 500;
+    let totalSuccess = 0;
+    let totalProcessed = errorRows.length;
+
+    for (let i = 0; i < validRows.length; i += CHUNK_SIZE) {
+      const chunk = validRows.slice(i, i + CHUNK_SIZE);
+      let chunkSuccess = 0;
+
+      for (const row of chunk) {
+        try {
+          const searchVector = [row.name, row.description, row.brand, ...(row.tags || [])].filter(Boolean).join(' ');
+
+          if (row.sku) {
+            await prisma.product.upsert({
+              where: {
+                shopId_sku: {
+                  shopId,
+                  sku: row.sku,
+                },
+              },
+              update: {
+                name: row.name,
+                description: row.description,
+                price: row.price,
+                mrp: row.mrp,
+                discount: row.discount,
+                bookingAmount: row.bookingAmount,
+                quantity: row.quantity,
+                inStock: row.inStock,
+                category: row.category,
+                subCategory: row.subCategory,
+                brand: row.brand,
+                unit: row.unit,
+                tags: row.tags,
+                searchVector,
+                isActive: true,
+                updatedAt: new Date(),
+              },
+              create: {
+                shopId,
+                sku: row.sku,
+                name: row.name,
+                description: row.description,
+                price: row.price,
+                mrp: row.mrp,
+                discount: row.discount,
+                bookingAmount: row.bookingAmount,
+                quantity: row.quantity,
+                inStock: row.inStock,
+                category: row.category,
+                subCategory: row.subCategory,
+                brand: row.brand,
+                unit: row.unit,
+                tags: row.tags,
+                images: row.images || [],
+                searchVector,
+                isActive: true,
+              },
+            });
+          } else {
+            await prisma.product.create({
+              data: {
+                shopId,
+                name: row.name,
+                description: row.description,
+                price: row.price,
+                mrp: row.mrp,
+                discount: row.discount,
+                bookingAmount: row.bookingAmount,
+                quantity: row.quantity,
+                inStock: row.inStock,
+                category: row.category,
+                subCategory: row.subCategory,
+                brand: row.brand,
+                unit: row.unit,
+                tags: row.tags,
+                images: row.images || [],
+                searchVector,
+                isActive: true,
+              },
+            });
+          }
+          chunkSuccess++;
+        } catch (rowErr: any) {
+          errorRows.push({
+            row: totalProcessed + 1,
+            sku: row.sku,
+            name: row.name,
+            message: rowErr?.message || 'Database write failed',
+          });
+        }
+        totalProcessed++;
+      }
+
+      totalSuccess += chunkSuccess;
+
+      await prisma.importJob.update({
+        where: { id: jobId },
+        data: {
+          processedRows: totalProcessed,
+          successRows: totalSuccess,
+          errorRows: errorRows.length,
+          errors: errorRows as any,
+        },
+      });
+    }
+
+    await prisma.importJob.update({
+      where: { id: jobId },
+      data: {
+        status: 'COMPLETED',
+        completedAt: new Date(),
+        processedRows: totalProcessed,
+        successRows: totalSuccess,
+        errorRows: errorRows.length,
+        errors: errorRows as any,
+      },
+    });
+
+    await this.invalidateProductAndShopCaches(shopId);
+  }
+
+  /**
+   * Fetch import job status and progress
+   */
+  async getImportJob(jobId: string) {
+    const job = await prisma.importJob.findUnique({
+      where: { id: jobId },
+    });
+    if (!job) throw new AppError('Import job not found', 404);
+
+    const progressPercent = job.totalRows > 0
+      ? Math.round((job.processedRows / job.totalRows) * 100)
+      : 0;
+
+    return {
+      ...job,
+      progressPercent,
+    };
+  }
+
+  /**
+   * Export error report as downloadable CSV string
+   */
+  async getImportJobErrorReportCsv(jobId: string): Promise<string> {
+    const job = await prisma.importJob.findUnique({
+      where: { id: jobId },
+    });
+    if (!job) throw new AppError('Import job not found', 404);
+
+    const errors = (job.errors as any[]) || [];
+    const lines = ['Row,SKU,Item Name,Column,Error Message'];
+
+    for (const err of errors) {
+      const row = err.row || '';
+      const sku = (err.sku || '').replace(/"/g, '""');
+      const name = (err.name || '').replace(/"/g, '""');
+      const col = (err.column || '').replace(/"/g, '""');
+      const msg = (err.message || '').replace(/"/g, '""');
+      lines.push(`${row},"${sku}","${name}","${col}","${msg}"`);
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Synchronous bulk import backwards-compatible helper (upgraded with SKU upsert & alias map)
+   */
+  async bulkImportProducts(shopId: string, ownerId: string, csvBuffer: Buffer) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
+
+    const { parse } = await import('csv-parse/sync');
+    let records: any[];
+    try {
+      records = parse(csvBuffer, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      });
+    } catch (err: any) {
+      throw new AppError(`Failed to parse CSV: ${err.message}`, 400);
+    }
+
+    if (!records || records.length === 0) {
+      throw new AppError('CSV file is empty or missing headers.', 400);
+    }
+
     const planLimits = getPlanLimits(shop.subscriptionPlan);
-    const maxAllowed = planLimits.maxProducts;
-
     if (records.length > planLimits.maxCsvBatchRows) {
       throw new AppError(`CSV batch size (${records.length}) exceeds maximum ${planLimits.maxCsvBatchRows} rows for ${shop.subscriptionPlan} plan.`, 400);
     }
 
-    if (productCount + records.length > maxAllowed) {
-      throw new AppError(`Bulk import exceeds product limit for ${shop.subscriptionPlan} plan. Available slots: ${Math.max(0, maxAllowed - productCount)}`, 400);
-    }
-
-    // Process rows
+    const validRows: NormalizedProductRow[] = [];
+    const errorRows: RowValidationError[] = [];
     for (let i = 0; i < records.length; i++) {
-      const row = records[i] as any;
-      try {
-        const itemName = (row.name || row.title || row.Name || row.Title || '').trim();
-        const rawPrice = row.price || row.Price || row.selling_price;
-        const itemDescription = (row.description || row.Description || `${itemName} — available in store for immediate pickup.`).trim();
-
-        if (!itemName || !rawPrice) {
-          throw new Error('Missing required fields: name, price');
-        }
-
-        const price = parseFloat(String(rawPrice).replace(/[^0-9.]/g, ''));
-        if (isNaN(price) || price <= 0) {
-          throw new Error('Invalid price value');
-        }
-        const rawMrp = row.mrp || row.MRP || row.originalPrice;
-        const mrp = rawMrp ? parseFloat(String(rawMrp).replace(/[^0-9.]/g, '')) : undefined;
-        let discount = 0;
-        if (mrp && price && mrp > price && !row.discount) {
-          discount = Math.round(((mrp - price) / mrp) * 100);
-        } else if (row.discount) {
-          discount = parseInt(row.discount, 10) || 0;
-        }
-
-        const rawBookingAmount = row.bookingAmount || row.booking_amount || row.tokenAmount || row.token_amount;
-        const bAmount = rawBookingAmount ? parseFloat(String(rawBookingAmount).replace(/[^0-9.]/g, '')) : 0;
-        const bookingAmount = !isNaN(bAmount) && bAmount >= 0 ? Math.min(bAmount, price) : 0;
-
-        const rawTags = row.tags || row.Tags;
-        const tags = rawTags ? String(rawTags).split(',').map((t: string) => t.trim()).filter(Boolean) : [];
-        const rawQty = row.quantity ?? row.stock ?? row.Quantity ?? row.Stock;
-        const quantity = rawQty !== undefined && rawQty !== '' ? parseInt(String(rawQty), 10) : 5;
-        const inStock = quantity > 0 || row.inStock === 'true' || row.inStock === '1';
-        const category = (row.category || row.Category || shop.category || 'General').trim();
-        const subCategory = (row.subCategory || row.SubCategory || '').trim() || null;
-        const brand = (row.brand || row.Brand || '').trim() || null;
-        const unit = (row.unit || row.Unit || 'pcs').trim();
-
-        const searchVector = [itemName, itemDescription, brand, ...tags].filter(Boolean).join(' ');
-        const rawRowImages = row.images || row.image || row.Images || row.Image
-          ? String(row.images || row.image || row.Images || row.Image).split(/[|,]/).map((s: string) => s.trim()).filter(Boolean)
-          : [];
-        const persistedRowImages = rawRowImages.length > 0 ? await compressImagesArray(rawRowImages) : [];
-
-        successRows.push({
-          shopId,
-          name: itemName,
-          description: itemDescription,
-          price,
-          mrp: mrp && !isNaN(mrp) ? mrp : undefined,
-          discount,
-          bookingAmount,
-          category,
-          subCategory,
-          brand,
-          quantity: isNaN(quantity) ? 5 : quantity,
-          unit,
-          inStock,
-          tags,
-          searchVector,
-          isActive: true,
-          images: persistedRowImages
-        });
-      } catch (err: any) {
-        errorRows.push({ row: i + 1, error: err.message });
+      const { parsed, error } = validateAndParseRow(records[i], i + 1, shop.category);
+      if (error) {
+        errorRows.push(error);
+      } else if (parsed) {
+        validRows.push(parsed);
       }
     }
 
-    if (successRows.length > 0) {
-      await prisma.product.createMany({
-        data: successRows,
-        skipDuplicates: true // Optional: depending on needs
-      });
-      await this.invalidateProductAndShopCaches(shopId);
+    let successCount = 0;
+    for (const row of validRows) {
+      try {
+        const searchVector = [row.name, row.description, row.brand, ...(row.tags || [])].filter(Boolean).join(' ');
+        if (row.sku) {
+          await prisma.product.upsert({
+            where: { shopId_sku: { shopId, sku: row.sku } },
+            update: {
+              name: row.name,
+              description: row.description,
+              price: row.price,
+              mrp: row.mrp,
+              discount: row.discount,
+              bookingAmount: row.bookingAmount,
+              quantity: row.quantity,
+              inStock: row.inStock,
+              category: row.category,
+              subCategory: row.subCategory,
+              brand: row.brand,
+              unit: row.unit,
+              tags: row.tags,
+              searchVector,
+              isActive: true,
+              updatedAt: new Date(),
+            },
+            create: {
+              shopId,
+              sku: row.sku,
+              name: row.name,
+              description: row.description,
+              price: row.price,
+              mrp: row.mrp,
+              discount: row.discount,
+              bookingAmount: row.bookingAmount,
+              quantity: row.quantity,
+              inStock: row.inStock,
+              category: row.category,
+              subCategory: row.subCategory,
+              brand: row.brand,
+              unit: row.unit,
+              tags: row.tags,
+              images: row.images || [],
+              searchVector,
+              isActive: true,
+            },
+          });
+        } else {
+          await prisma.product.create({
+            data: {
+              shopId,
+              name: row.name,
+              description: row.description,
+              price: row.price,
+              mrp: row.mrp,
+              discount: row.discount,
+              bookingAmount: row.bookingAmount,
+              quantity: row.quantity,
+              inStock: row.inStock,
+              category: row.category,
+              subCategory: row.subCategory,
+              brand: row.brand,
+              unit: row.unit,
+              tags: row.tags,
+              images: row.images || [],
+              searchVector,
+              isActive: true,
+            },
+          });
+        }
+        successCount++;
+      } catch (err: any) {
+        errorRows.push({ row: validRows.indexOf(row) + 1, message: err.message });
+      }
     }
+
+    await this.invalidateProductAndShopCaches(shopId);
 
     return {
       totalProcessed: records.length,
-      successCount: successRows.length,
+      successCount,
       errorCount: errorRows.length,
       errors: errorRows,
     };

@@ -32,6 +32,34 @@ router.post(
 	(req, res, next) => uploadCsv(req, res, (err: any) => handleUploadError(err, req, res, next)),
 	productController.bulkImport.bind(productController)
 );
+router.post(
+	'/shop/:shopId/bulk-import/preview',
+	authenticate,
+	authorize('SELLER', 'ADMIN'),
+	uploadLimiter,
+	(req, res, next) => uploadCsv(req, res, (err: any) => handleUploadError(err, req, res, next)),
+	productController.previewBulkImport.bind(productController)
+);
+router.post(
+	'/shop/:shopId/bulk-import/job',
+	authenticate,
+	authorize('SELLER', 'ADMIN'),
+	uploadLimiter,
+	(req, res, next) => uploadCsv(req, res, (err: any) => handleUploadError(err, req, res, next)),
+	productController.startBulkImportJob.bind(productController)
+);
+router.get(
+	'/import-jobs/:id',
+	authenticate,
+	authorize('SELLER', 'ADMIN'),
+	productController.getImportJob.bind(productController)
+);
+router.get(
+	'/import-jobs/:id/errors.csv',
+	authenticate,
+	authorize('SELLER', 'ADMIN'),
+	productController.downloadErrorReport.bind(productController)
+);
 router.get('/seller/shop/:shopId', authenticate, authorize('SELLER', 'ADMIN'), productController.getSellerShopProducts.bind(productController));
 router.post('/shop/:shopId', authenticate, authorize('SELLER', 'ADMIN'), productController.createProduct.bind(productController));
 router.put('/shop/:shopId/bulk-update', authenticate, authorize('SELLER', 'ADMIN'), productController.bulkUpdate.bind(productController));

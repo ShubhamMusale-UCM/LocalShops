@@ -115,6 +115,66 @@ export class ProductController {
     }
   }
 
+  async previewBulkImport(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { shopId } = req.params;
+      const file = req.file;
+
+      if (!file) {
+        res.status(400).json({ error: 'No CSV file provided for preview.' });
+        return;
+      }
+
+      const result = await productService.previewBulkImport(shopId, req.user!.id, file.buffer);
+      res.status(200).json(result);
+    } catch (error: any) {
+      const statusCode = error.statusCode || 400;
+      res.status(statusCode).json({ error: error.message });
+    }
+  }
+
+  async startBulkImportJob(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { shopId } = req.params;
+      const file = req.file;
+
+      if (!file) {
+        res.status(400).json({ error: 'No CSV file provided.' });
+        return;
+      }
+
+      const result = await productService.createBulkImportJob(shopId, req.user!.id, file.buffer);
+      res.status(202).json(result);
+    } catch (error: any) {
+      const statusCode = error.statusCode || 400;
+      res.status(statusCode).json({ error: error.message });
+    }
+  }
+
+  async getImportJob(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const result = await productService.getImportJob(id);
+      res.status(200).json(result);
+    } catch (error: any) {
+      const statusCode = error.statusCode || 404;
+      res.status(statusCode).json({ error: error.message });
+    }
+  }
+
+  async downloadErrorReport(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const csvData = await productService.getImportJobErrorReportCsv(id);
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="import-errors-${id}.csv"`);
+      res.status(200).send(csvData);
+    } catch (error: any) {
+      const statusCode = error.statusCode || 404;
+      res.status(statusCode).json({ error: error.message });
+    }
+  }
+
   async updateProduct(req: AuthRequest, res: Response): Promise<void> {
     try {
       const validated = updateProductSchema.parse(req.body);

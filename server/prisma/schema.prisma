@@ -171,6 +171,7 @@ model Shop {
   settings         ShopSettings?
   closures         ShopClosure[]
   kycDocuments     ShopKyc[]
+  importJobs       ImportJob[]
 
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -185,6 +186,7 @@ model Product {
   id     String @id @default(uuid())
   shopId String
   shop   Shop   @relation(fields: [shopId], references: [id])
+  sku    String?
 
   name             String
   description      String
@@ -241,6 +243,7 @@ model Product {
   @@index([isActive, category, createdAt])
   @@index([name])
   @@index([price])
+  @@unique([shopId, sku])
 }
 
 model Order {
@@ -990,6 +993,27 @@ model ShopKyc {
   @@index([shopId])
   @@index([status])
   @@map("shop_kyc")
+}
+
+model ImportJob {
+  id            String    @id @default(uuid())
+  shopId        String    @map("shop_id")
+  shop          Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  status        String    @default("PENDING") // PENDING | PROCESSING | COMPLETED | FAILED
+  totalRows     Int       @default(0) @map("total_rows")
+  processedRows Int       @default(0) @map("processed_rows")
+  successRows   Int       @default(0) @map("success_rows")
+  errorRows     Int       @default(0) @map("error_rows")
+  errors        Json?     @default("[]")
+  fileUrl       String?   @map("file_url")
+  startedAt     DateTime? @map("started_at")
+  completedAt   DateTime? @map("completed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([shopId])
+  @@index([status])
+  @@map("import_jobs")
 }
 
 
