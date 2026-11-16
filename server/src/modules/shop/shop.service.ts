@@ -255,7 +255,7 @@ export class ShopService {
     const cached = await cacheGet(cacheKey);
 
     // Log shop view asynchronously
-    this.logShopView(shopId).catch(() => {});
+    this.logShopView(shopId).catch(() => { });
 
     if (cached) return cached;
 
@@ -310,10 +310,10 @@ export class ShopService {
     });
 
     if (!shop || !shop.isActive) throw new AppError('Shop not found.', 404);
-    
+
     // Log shop view asynchronously
-    this.logShopView(shop.id).catch(() => {});
-    
+    this.logShopView(shop.id).catch(() => { });
+
     return shop;
   }
 
@@ -348,7 +348,7 @@ export class ShopService {
         ]);
       }
       const { runTelemetrySyncNow } = require('../../jobs/telemetrySync.job');
-      runTelemetrySyncNow().catch(() => {});
+      runTelemetrySyncNow().catch(() => { });
     } catch (e) {
       console.error('Failed to buffer shop view in redis:', e);
     }
@@ -392,7 +392,7 @@ export class ShopService {
         },
       });
 
-      await cacheDeletePattern(`shop:${shopId}:analytics*`).catch(() => {});
+      await cacheDeletePattern(`shop:${shopId}:analytics*`).catch(() => { });
       try {
         const { orderSocket } = require('../../app');
         if (orderSocket) {
@@ -401,7 +401,7 @@ export class ShopService {
             timestamp: new Date(),
           });
         }
-      } catch (_) {}
+      } catch (_) { }
     } catch (e) {
       console.error('Failed to log shop intent:', e);
     }
@@ -538,7 +538,7 @@ export class ShopService {
       entityType: 'SHOP',
       entityId: shopId,
       changes: { ...prismaPayload, ...extendedPayload },
-    }).catch(() => {});
+    }).catch(() => { });
 
     return { ...extSettings, ...updatedShopRecord, extendedSettings: extSettings };
   }
@@ -819,9 +819,7 @@ export class ShopService {
       orderBy: [{ orderCount: 'desc' }, { viewCount: 'desc' }],
       take: 20,
       include: {
-        promotedListings: {
-          select: { clicks: true, impressions: true, startDate: true, endDate: true, isActive: true },
-        },
+        promotedListings: { select: { clicks: true, impressions: true } },
         _count: { select: { wishlistedBy: true, cartItems: true } },
       },
     });
@@ -830,26 +828,26 @@ export class ShopService {
     const [topProductsDailyAgg, topProductsOrderItemsAgg] =
       topProductIds.length > 0
         ? await Promise.all([
-            prisma.productDailyAnalytics.groupBy({
-              by: ['productId'],
-              where: { productId: { in: topProductIds }, date: { gte: since } },
-              _sum: {
-                impressions: true,
-                detailViews: true,
-                cartAdds: true,
-                unitsSold: true,
-                revenue: true,
-              },
-            }),
-            prisma.orderItem.groupBy({
-              by: ['productId'],
-              where: {
-                productId: { in: topProductIds },
-                order: { createdAt: { gte: since }, status: { notIn: ['CANCELLED', 'REFUNDED'] } },
-              },
-              _sum: { quantity: true, total: true },
-            }),
-          ])
+          prisma.productDailyAnalytics.groupBy({
+            by: ['productId'],
+            where: { productId: { in: topProductIds }, date: { gte: since } },
+            _sum: {
+              impressions: true,
+              detailViews: true,
+              cartAdds: true,
+              unitsSold: true,
+              revenue: true,
+            },
+          }),
+          prisma.orderItem.groupBy({
+            by: ['productId'],
+            where: {
+              productId: { in: topProductIds },
+              order: { createdAt: { gte: since }, status: { notIn: ['CANCELLED', 'REFUNDED'] } },
+            },
+            _sum: { quantity: true, total: true },
+          }),
+        ])
         : [[], []];
 
     const dailyAggMap = new Map(
@@ -915,7 +913,7 @@ export class ShopService {
       const daysOfStockLeft = p.quantity !== null && p.quantity !== undefined
         ? (p.quantity <= 0 ? 0 : dailyVelocity > 0 ? Math.floor(p.quantity / dailyVelocity) : null)
         : null;
-      
+
       return {
         id: p.id,
         name: p.name,
@@ -1181,35 +1179,21 @@ export class ShopService {
     const revenueGrowth = previousRevenue > 0
       ? (((realRevenue - previousRevenue) / previousRevenue) * 100).toFixed(1)
       : realRevenue > 0
-      ? '100.0'
-      : '0.0';
+        ? '100.0'
+        : '0.0';
 
     const realProductViews = productViewsAgg._sum.viewCount ?? 0;
 
-    // If adDailyMetricRollup was unpopulated, reconcile with active period campaigns
-    if (campaignsData?.campaigns) {
-      const activePeriodCampaigns = (campaignsData.campaigns as any[]).filter((c: any) => {
-        if (!c.startDate) return false;
-        const start = new Date(c.startDate);
-        const end = c.endDate ? new Date(c.endDate) : now;
-        return end >= since && start <= now;
-      });
-      if (activePeriodCampaigns.length > 0) {
-        const periodAdClicks = activePeriodCampaigns.reduce((a: number, c: any) => a + (c.clicks || 0), 0);
-        const periodAdImpressions = activePeriodCampaigns.reduce((a: number, c: any) => a + (c.impressions || 0), 0);
-        const periodAdSpent = activePeriodCampaigns.reduce((a: number, c: any) => a + (c.spent || 0), 0);
-
-        // Reconcile if adDailyMetricRollup was incomplete for the active period
-        if (periodAdClicks > realTotalAdClicks) {
-          realTotalAdClicks = periodAdClicks;
-          realTotalAdImpressions = Math.max(realTotalAdImpressions, periodAdImpressions);
-        }
-        if (periodAdImpressions > realTotalAdImpressions) {
-          realTotalAdImpressions = periodAdImpressions;
-        }
-        if (periodAdSpent > realAdSpent) {
-          realAdSpent = periodAdSpent;
-        }
+    // If adDailyMetricRollup was unpopulated, reconcile with real campaign summary
+    if (campaignsData?.summary) {
+      if (realTotalAdClicks === 0 && campaignsData.summary.totalClicks > 0) {
+        realTotalAdClicks = campaignsData.summary.totalClicks;
+      }
+      if (realTotalAdImpressions === 0 && campaignsData.summary.totalImpressions > 0) {
+        realTotalAdImpressions = campaignsData.summary.totalImpressions;
+      }
+      if (realAdSpent === 0 && campaignsData.summary.totalSpent > 0) {
+        realAdSpent = campaignsData.summary.totalSpent;
       }
     }
 
@@ -1403,7 +1387,7 @@ export class ShopService {
     return followers.map(f => {
       const stats = orderMap.get(f.userId) || { ordersCount: 0, totalSpent: 0 };
       const badge = stats.ordersCount >= 3 ? 'VIP Buyer' : stats.ordersCount >= 1 ? 'Regular Buyer' : 'Follower';
-      
+
       let distanceKm: number | null = null;
       if (
         shop?.latitude != null &&
@@ -1468,7 +1452,7 @@ export class ShopService {
         targetFollowers = inRange.length > 0 ? inRange : followers;
       }
     } else if (payload.city && payload.city !== 'all_city' && payload.city !== 'All') {
-      const cityFiltered = followers.filter(f => 
+      const cityFiltered = followers.filter(f =>
         f.city && f.city.toLowerCase() === payload.city?.toLowerCase()
       );
       if (cityFiltered.length > 0) {
