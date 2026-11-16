@@ -38,6 +38,7 @@ import subscriptionRoutes from './modules/subscription/subscription.routes';
 import systemRoutes from './modules/system/system.routes';
 import flashSaleRoutes from './modules/flashsale/flashsale.routes';
 import walletRoutes from './modules/wallet/wallet.routes';
+import kycRoutes from './modules/kyc/kyc.routes';
 
 const app = express();
 const httpServer = createServer(app);
@@ -157,6 +158,7 @@ app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/flash-sales', flashSaleRoutes);
 app.use('/api/wallet', walletRoutes);
+app.use('/api', kycRoutes);
 
 // Expose uploaded media with immutable 1-year browser disk caching
 app.use('/uploads', express.static(path.resolve(__dirname, '../uploads'), {

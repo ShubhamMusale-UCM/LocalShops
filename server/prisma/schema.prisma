@@ -170,6 +170,7 @@ model Shop {
   adWalletTransactions SellerAdWalletTransaction[]
   settings         ShopSettings?
   closures         ShopClosure[]
+  kycDocuments     ShopKyc[]
 
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -967,6 +968,28 @@ model UserDevice {
 
   @@index([userId])
   @@map("user_devices")
+}
+
+model ShopKyc {
+  id              String    @id @default(uuid())
+  shopId          String    @map("shop_id")
+  shop            Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  type            String    // 'GSTIN' | 'PAN' | 'FSSAI' | 'BANK_ACCOUNT' | 'SHOP_ESTABLISHMENT'
+  value           String
+  status          String    @default("PENDING") // 'PENDING' | 'VERIFIED' | 'FAILED' | 'MANUAL_REVIEW'
+  verifiedName    String?   @map("verified_name")
+  providerRef     String?   @map("provider_ref")
+  documentUrl     String?   @map("document_url")
+  rejectionReason String?   @map("rejection_reason")
+  verifiedAt      DateTime? @map("verified_at")
+  reviewedBy      String?   @map("reviewed_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@unique([shopId, type])
+  @@index([shopId])
+  @@index([status])
+  @@map("shop_kyc")
 }
 
 

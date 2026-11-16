@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validateGSTIN, validatePAN, validateFSSAI, validateIFSC, validateUPI } from '../../utils/kycValidator';
 
 export const createShopSchema = z.object({
   name: z.string().min(2, 'Shop name must be at least 2 characters').max(100),
@@ -19,7 +20,7 @@ export const createShopSchema = z.object({
   longitude: z.number().min(-180).max(180),
   category: z.string().min(2),
   subCategories: z.array(z.string()).optional(),
-  gstNumber: z.string().regex(/^\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}[Z]{1}[A-Z\d]{1}$/, 'Invalid GST number').optional(),
+  gstNumber: z.string().refine((v) => !v || validateGSTIN(v), 'Invalid GSTIN structure or checksum failed').optional(),
   operatingHours: z.record(z.object({
     open: z.string(),
     close: z.string(),
@@ -39,10 +40,7 @@ export const updateShopSchema = createShopSchema.partial().extend({
   gstNumber: z
     .string()
     .max(30)
-    .refine(
-      (v) => !v || /^\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}[Z]{1}[A-Z\d]{1}$/i.test(v.trim()),
-      'Invalid GSTIN format (15 alphanumeric characters, e.g. 29AAAAA0000A1Z5)'
-    )
+    .refine((v) => !v || validateGSTIN(v), 'Invalid GSTIN format or checksum verification failed')
     .optional()
     .nullable(),
   razorpayAccountId: z.string().max(100).optional().nullable(),
@@ -50,13 +48,13 @@ export const updateShopSchema = createShopSchema.partial().extend({
   fssaiNumber: z
     .string()
     .max(30)
-    .refine((v) => !v || /^\d{10,14}$/.test(v.trim()), 'Invalid FSSAI license number (10-14 digits)')
+    .refine((v) => !v || validateFSSAI(v), 'Invalid FSSAI license number (must be 14 numeric digits)')
     .optional()
     .nullable(),
   panNumber: z
     .string()
     .max(20)
-    .refine((v) => !v || /^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(v.trim()), 'Invalid PAN format (e.g., ABCDE1234F)')
+    .refine((v) => !v || validatePAN(v), 'Invalid PAN format (e.g., ABCDE1234F)')
     .optional()
     .nullable(),
   legalEntityName: z.string().max(150).optional().nullable(),
@@ -75,13 +73,13 @@ export const updateShopSchema = createShopSchema.partial().extend({
   ifscCode: z
     .string()
     .max(20)
-    .refine((v) => !v || /^[A-Z]{4}0[A-Z0-9]{6}$/i.test(v.trim()), 'Invalid IFSC code (e.g., HDFC0001234)')
+    .refine((v) => !v || validateIFSC(v), 'Invalid IFSC code (e.g., HDFC0001234)')
     .optional()
     .nullable(),
   upiId: z
     .string()
     .max(100)
-    .refine((v) => !v || /^[\w.-]+@[\w.-]+$/.test(v.trim()), 'Invalid UPI VPA format (e.g., store@okaxis)')
+    .refine((v) => !v || validateUPI(v), 'Invalid UPI VPA format (e.g., store@okaxis)')
     .optional()
     .nullable(),
   // Extended Schedule & Booking Operations fields
