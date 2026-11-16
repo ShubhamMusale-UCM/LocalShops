@@ -95,6 +95,7 @@ model User {
   searchHistory    UserSearchHistory[]
   buyerWallet      BuyerWallet?
   devices          UserDevice[]
+  shopMemberships  ShopMember[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -180,6 +181,7 @@ model Shop {
   sentConnections     MerchantConnection[] @relation("SentConnections")
   receivedConnections MerchantConnection[] @relation("ReceivedConnections")
   supportTickets      SupportTicket[]
+  members             ShopMember[]
 
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -220,6 +222,7 @@ model Product {
   // Inventory
   inStock  Boolean @default(true)
   quantity Int?
+  lowStockThreshold Int? @default(5)
   unit     String?
 
   // Search
@@ -1088,6 +1091,31 @@ model ImportJob {
   @@index([shopId])
   @@index([status])
   @@map("import_jobs")
+}
+
+enum ShopRole {
+  OWNER
+  MANAGER
+  COUNTER
+}
+
+model ShopMember {
+  id        String    @id @default(uuid())
+  shopId    String    @map("shop_id")
+  shop      Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  userId    String?   @map("user_id")
+  user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone     String
+  name      String?
+  role      ShopRole  @default(COUNTER)
+  invitedAt DateTime  @default(now()) @map("invited_at")
+  joinedAt  DateTime? @map("joined_at")
+
+  @@unique([shopId, phone])
+  @@index([shopId])
+  @@index([userId])
+  @@index([phone])
+  @@map("shop_members")
 }
 
 

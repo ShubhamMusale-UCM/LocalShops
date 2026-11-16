@@ -38,6 +38,10 @@ router.get('/:id/slots', optionalAuth, shopController.getShopSlots.bind(shopCont
 router.get('/:id/closures', authenticate, authorize('SELLER', 'ADMIN'), shopController.getShopClosures.bind(shopController));
 router.post('/:id/closures', authenticate, authorize('SELLER', 'ADMIN'), shopController.addShopClosure.bind(shopController));
 router.delete('/:id/closures/:date', authenticate, authorize('SELLER', 'ADMIN'), shopController.deleteShopClosure.bind(shopController));
+router.get('/:id/members', authenticate, authorize('SELLER', 'ADMIN'), shopController.getShopMembers.bind(shopController));
+router.post('/:id/members/invite', authenticate, authorize('SELLER', 'ADMIN'), shopController.inviteShopMember.bind(shopController));
+router.patch('/:id/members/:memberId', authenticate, authorize('SELLER', 'ADMIN'), shopController.updateMemberRole.bind(shopController));
+router.delete('/:id/members/:memberId', authenticate, authorize('SELLER', 'ADMIN'), shopController.removeShopMember.bind(shopController));
 router.post('/:id/save', authenticate, shopController.toggleSaveShop.bind(shopController));
 
 export default router;

@@ -48,7 +48,10 @@ export async function deductOrderStockTx(
   items: Array<{ productId: string; quantity: number }>
 ) {
   for (const item of items) {
-    const product = await tx.product.findUnique({ where: { id: item.productId } });
+    const product = await tx.product.findUnique({
+      where: { id: item.productId },
+      include: { shop: true },
+    });
     if (product && typeof product.quantity === 'number') {
       const newQuantity = Math.max(0, product.quantity - item.quantity);
       await tx.product.update({
@@ -58,6 +61,14 @@ export async function deductOrderStockTx(
           inStock: newQuantity > 0,
         },
       });
+
+      // Low-stock alert triggering (SEL-10)
+      const threshold = product.lowStockThreshold ?? 5;
+      if (newQuantity <= threshold && product.shop?.ownerId) {
+        try {
+          await notificationService.notifyLowStock(item.productId);
+        } catch {}
+      }
     }
   }
 }
@@ -1556,6 +1567,118 @@ export class OrderService {
       pdfBuffer,
       orderNumber: order.orderNumber,
     };
+  }
+
+  /**
+   * Restore an archived order back to active shop order list (SEL-10)
+   */
+  async restoreShopOrder(shopId: string, ownerId: string, orderId: string) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) {
+      const member = await prisma.shopMember.findFirst({
+        where: { shopId, userId: ownerId, role: { in: ['OWNER', 'MANAGER'] } },
+      });
+      if (!member) throw new AppError('Not authorized.', 403);
+    }
+
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM shop_archived_orders WHERE shop_id = $1 AND order_id = $2`,
+      shopId,
+      orderId
+    );
+
+    return { success: true, restoredOrderId: orderId };
+  }
+
+  /**
+   * Get list of archived orders for a shop (SEL-10)
+   */
+  async getArchivedOrders(shopId: string, ownerId: string) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) {
+      const member = await prisma.shopMember.findFirst({
+        where: { shopId, userId: ownerId },
+      });
+      if (!member) throw new AppError('Not authorized.', 403);
+    }
+
+    const rows = await prisma.$queryRawUnsafe<any[]>(
+      `SELECT o.*, sao.archived_at
+       FROM shop_archived_orders sao
+       JOIN "Order" o ON o.id = sao.order_id
+       WHERE sao.shop_id = $1
+       ORDER BY sao.archived_at DESC`,
+      shopId
+    );
+
+    return rows;
+  }
+
+  /**
+   * Export all shop orders as a formatted accounting CSV (SEL-10)
+   */
+  async exportOrdersCsv(shopId: string, ownerId: string): Promise<string> {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) {
+      const member = await prisma.shopMember.findFirst({
+        where: { shopId, userId: ownerId, role: { in: ['OWNER', 'MANAGER'] } },
+      });
+      if (!member) throw new AppError('Not authorized.', 403);
+    }
+
+    const orders = await prisma.order.findMany({
+      where: { shopId },
+      include: {
+        user: { select: { name: true, phone: true } },
+        items: { include: { product: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const headers = [
+      'OrderNumber',
+      'Date',
+      'CustomerName',
+      'CustomerPhone',
+      'ItemsCount',
+      'ItemNames',
+      'Subtotal',
+      'Discount',
+      'TokenPaid',
+      'BalanceCollected',
+      'Total',
+      'PaymentMethod',
+      'Status',
+      'GSTIN',
+    ];
+
+    const lines = [headers.join(',')];
+
+    for (const o of orders) {
+      const itemsList = o.items.map((i: any) => `${i.product?.name || i.title || i.name || 'Floor Piece'} (x${i.quantity || 1})`).join('; ').replace(/"/g, '""');
+      const row = [
+        `"${o.orderNumber}"`,
+        `"${new Date(o.createdAt).toISOString().split('T')[0]}"`,
+        `"${(o.user?.name || 'Walk-in Buyer').replace(/"/g, '""')}"`,
+        `"${o.user?.phone || 'N/A'}"`,
+        o.items.reduce((acc: number, cur: any) => acc + (cur.quantity || 1), 0),
+        `"${itemsList}"`,
+        o.subtotal || o.total || 0,
+        o.discount || 0,
+        o.bookingAmount || 0,
+        o.balanceAmount || 0,
+        o.total || o.totalAmount || 0,
+        `"${o.paymentMethod || 'SHOWROOM'}"`,
+        `"${o.status}"`,
+        `"${shop.gstNumber || 'N/A'}"`,
+      ];
+      lines.push(row.join(','));
+    }
+
+    return lines.join('\n');
   }
 }
 

@@ -533,6 +533,15 @@ export class NotificationService {
       actionUrl: `/seller/reviews`,
     });
   }
+
+  async sendNotification(payload: { userId: string; title: string; body: string; type?: string; data?: any }) {
+    return this.createNotification(payload.userId, {
+      title: payload.title,
+      description: payload.body,
+      type: (payload.type || 'SYSTEM') as any,
+      relatedId: payload.data?.orderId || payload.data?.ticketId || payload.data?.productId,
+    });
+  }
 }
 
 export default new NotificationService();

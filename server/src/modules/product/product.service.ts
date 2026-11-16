@@ -47,8 +47,22 @@ export class ProductService {
     if (data.holdDurationMinutes !== undefined) {
       const hMins = parseInt(String(data.holdDurationMinutes), 10);
       data.holdDurationMinutes = !isNaN(hMins) && hMins >= 15 ? Math.min(hMins, 10080) : 180;
+    }
+
+    // Sanitize lowStockThreshold
+    if (data.lowStockThreshold !== undefined) {
+      const lst = parseInt(String(data.lowStockThreshold), 10);
+      data.lowStockThreshold = !isNaN(lst) && lst >= 0 ? lst : 5;
     } else {
       data.holdDurationMinutes = 180;
+    }
+
+    // Sanitize lowStockThreshold
+    if (data.lowStockThreshold !== undefined) {
+      const lst = parseInt(String(data.lowStockThreshold), 10);
+      data.lowStockThreshold = !isNaN(lst) && lst >= 0 ? lst : 5;
+    } else {
+      data.lowStockThreshold = 5;
     }
 
     if (typeof data.quantity === 'number') {
@@ -187,6 +201,12 @@ export class ProductService {
     if (data.holdDurationMinutes !== undefined) {
       const hMins = parseInt(String(data.holdDurationMinutes), 10);
       data.holdDurationMinutes = !isNaN(hMins) && hMins >= 15 ? Math.min(hMins, 10080) : 180;
+    }
+
+    // Sanitize lowStockThreshold
+    if (data.lowStockThreshold !== undefined) {
+      const lst = parseInt(String(data.lowStockThreshold), 10);
+      data.lowStockThreshold = !isNaN(lst) && lst >= 0 ? lst : 5;
     }
 
     if (typeof data.quantity === 'number') {

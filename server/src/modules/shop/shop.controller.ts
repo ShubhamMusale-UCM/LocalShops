@@ -3,6 +3,9 @@ import { AuthRequest } from '../../middleware/auth.middleware';
 import shopService from './shop.service';
 import { createShopSchema, updateShopSchema, nearbyShopsSchema } from './shop.validator';
 import { processAndUploadImage } from '../../utils/imageProcessor';
+import { ShopMemberService } from './shopMember.service';
+
+const shopMemberService = new ShopMemberService();
 
 export class ShopController {
   async uploadShopImage(req: AuthRequest, res: Response): Promise<void> {
@@ -291,6 +294,44 @@ export class ShopController {
     try {
       const result = await shopService.deleteShopClosure(req.params.id, req.user!.id, req.params.date);
       res.json(result);
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({ error: error.message });
+    }
+  }
+
+  async getShopMembers(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const roster = await shopMemberService.getMembers(req.params.id, req.user!.id);
+      res.json(roster);
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({ error: error.message });
+    }
+  }
+
+  async inviteShopMember(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { phone, name, role } = req.body;
+      const member = await shopMemberService.inviteMember(req.params.id, req.user!.id, { phone, name, role });
+      res.status(201).json({ message: 'Team member invited successfully', member });
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({ error: error.message });
+    }
+  }
+
+  async updateMemberRole(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { role } = req.body;
+      const member = await shopMemberService.updateRole(req.params.id, req.params.memberId, req.user!.id, role);
+      res.json({ message: 'Member role updated', member });
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({ error: error.message });
+    }
+  }
+
+  async removeShopMember(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      await shopMemberService.removeMember(req.params.id, req.params.memberId, req.user!.id);
+      res.json({ message: 'Team member removed' });
     } catch (error: any) {
       res.status(error.statusCode || 400).json({ error: error.message });
     }

@@ -20,7 +20,10 @@ router.post('/:id/review', uploadPhotos, orderController.addReview.bind(orderCon
 
 // Seller routes
 router.get('/shop/:shopId', authorize('SELLER', 'ADMIN'), orderController.getShopOrders.bind(orderController));
+router.get('/shop/:shopId/archived', authorize('SELLER', 'ADMIN'), orderController.getArchivedOrders.bind(orderController));
+router.get('/shop/:shopId/export.csv', authorize('SELLER', 'ADMIN'), orderController.exportOrdersCsv.bind(orderController));
 router.post('/shop/:shopId/clear-rejected', authorize('SELLER', 'ADMIN'), orderController.clearShopRejected.bind(orderController));
+router.post('/shop/:shopId/restore/:orderId', authorize('SELLER', 'ADMIN'), orderController.restoreShopOrder.bind(orderController));
 router.delete('/shop/:shopId/:orderId', authorize('SELLER', 'ADMIN'), orderController.archiveShopOrder.bind(orderController));
 router.put('/:id/status', authorize('SELLER', 'ADMIN'), orderController.updateStatus.bind(orderController));
 router.get('/:id/slip.pdf', orderController.downloadSlipPdf.bind(orderController));

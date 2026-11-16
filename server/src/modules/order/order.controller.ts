@@ -147,6 +147,35 @@ export class OrderController {
     }
   }
 
+  async restoreShopOrder(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const result = await orderService.restoreShopOrder(req.params.shopId, req.user!.id, req.params.orderId);
+      res.json(result);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async getArchivedOrders(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const orders = await orderService.getArchivedOrders(req.params.shopId, req.user!.id);
+      res.json({ orders });
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async exportOrdersCsv(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const csv = await orderService.exportOrdersCsv(req.params.shopId, req.user!.id);
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="orders-${req.params.shopId}.csv"`);
+      res.status(200).send(csv);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
   async clearShopRejected(req: AuthRequest, res: Response): Promise<void> {
     try {
       const result = await orderService.clearShopRejectedOrders(req.params.shopId, req.user!.id);
