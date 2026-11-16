@@ -18,6 +18,21 @@ export class CartService {
       throw new AppError('Items array required', 400);
     }
 
+    const requestedProductIds = items
+      .map((i) => i.productId)
+      .filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+
+    // Filter incoming items to only those whose product actually exists in database
+    const validProducts = requestedProductIds.length > 0
+      ? await prisma.product.findMany({
+          where: { id: { in: requestedProductIds } },
+          select: { id: true, shopId: true },
+        })
+      : [];
+
+    const validProductMap = new Map(validProducts.map((p) => [p.id, p]));
+    const validItems = items.filter((item) => validProductMap.has(item.productId));
+
     const currentItems = await prisma.cartItem.findMany({
       where: { userId },
     });
@@ -27,11 +42,11 @@ export class CartService {
       currentMap.set(ci.productId, ci);
     });
 
-    const incomingProductIds = new Set(items.map((i) => i.productId));
+    const incomingValidProductIds = new Set(validItems.map((i) => i.productId));
 
     // Remove deleted items
     const toDeleteIds = currentItems
-      .filter((ci) => !incomingProductIds.has(ci.productId))
+      .filter((ci) => !incomingValidProductIds.has(ci.productId))
       .map((ci) => ci.id);
 
     if (toDeleteIds.length > 0) {
@@ -40,10 +55,12 @@ export class CartService {
       });
     }
 
-    // Upsert items
-    for (const item of items) {
+    // Upsert items that exist in database
+    for (const item of validItems) {
+      const productInfo = validProductMap.get(item.productId);
       const existing = currentMap.get(item.productId);
       const safeQty = Math.max(1, parseInt(String(item.quantity), 10) || 1);
+      const targetShopId = item.shopId || productInfo?.shopId || existing?.shopId || null;
 
       if (existing) {
         // Update quantity and shopId if changed, keep createdAt intact!
@@ -51,8 +68,8 @@ export class CartService {
           where: { id: existing.id },
           data: {
             quantity: safeQty,
-            shopId: item.shopId || existing.shopId,
-            variantId: item.variantId || existing.variantId,
+            shopId: targetShopId,
+            variantId: item.variantId || existing.variantId || null,
           },
         });
       } else {
@@ -61,8 +78,8 @@ export class CartService {
           data: {
             userId,
             productId: item.productId,
-            shopId: item.shopId,
-            variantId: item.variantId,
+            shopId: targetShopId,
+            variantId: item.variantId || null,
             quantity: safeQty,
           },
         });
