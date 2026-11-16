@@ -37,6 +37,29 @@ async function ensureArchivedOrdersTables(): Promise<void> {
   }
 }
 
+/**
+ * Shared atomic stock deduction helper for both createOrder auto-confirm
+ * and manual seller confirmOrderTx (SEL-1).
+ */
+export async function deductOrderStockTx(
+  tx: any,
+  items: Array<{ productId: string; quantity: number }>
+) {
+  for (const item of items) {
+    const product = await tx.product.findUnique({ where: { id: item.productId } });
+    if (product && typeof product.quantity === 'number') {
+      const newQuantity = Math.max(0, product.quantity - item.quantity);
+      await tx.product.update({
+        where: { id: item.productId },
+        data: {
+          quantity: newQuantity,
+          inStock: newQuantity > 0,
+        },
+      });
+    }
+  }
+}
+
 function isTimeWithinWindow(currentHHMM: string, startHHMM: string, endHHMM: string): boolean {
   if (startHHMM <= endHHMM) {
     return currentHHMM >= startHHMM && currentHHMM <= endHHMM;
@@ -287,8 +310,9 @@ export class OrderService {
 
     const balanceAmount = Math.max(0, +( (total - effectiveBookingAmount - coinsUsed).toFixed(2) ));
 
-    // Check if shop has autoConfirmBookings enabled (SEL-1)
-    const isAutoConfirm = Boolean(extSettings.autoConfirmBookings);
+    // Check if shop has autoConfirmBookings enabled (SEL-1: Prisma model ShopSettings with fallback to extSettings)
+    const shopSettings = await prisma.shopSettings.findUnique({ where: { shopId: data.shopId } }).catch(() => null);
+    const isAutoConfirm = shopSettings ? shopSettings.autoConfirmBookings : Boolean(extSettings.autoConfirmBookings);
 
     const initialStatus = isAutoConfirm ? 'CONFIRMED' : 'PLACED';
     const initialStatusHistory = [
@@ -312,12 +336,16 @@ export class OrderService {
 
     // Create order with items in a transaction
     const order = await prisma.$transaction(async (tx) => {
+      // Re-verify atomically within tx (SEL-1)
+      const txSettings = await tx.shopSettings.findUnique({ where: { shopId: data.shopId } }).catch(() => null);
+      const isAutoConfirmTx = txSettings ? txSettings.autoConfirmBookings : isAutoConfirm;
+
       const newOrder = await tx.order.create({
         data: {
           orderNumber,
           userId,
           shopId: data.shopId,
-          status: initialStatus,
+          status: isAutoConfirmTx ? 'CONFIRMED' : 'PLACED',
           statusHistory: initialStatusHistory as any,
           subtotal,
           deliveryFee,
@@ -350,21 +378,9 @@ export class OrderService {
         },
       });
 
-      // Deduct stock immediately if auto-confirmed (atomic stock reservation)
-      if (isAutoConfirm) {
-        for (const item of orderItems) {
-          const product = await tx.product.findUnique({ where: { id: item.productId } });
-          if (product && typeof product.quantity === 'number') {
-            const newQuantity = Math.max(0, product.quantity - item.quantity);
-            await tx.product.update({
-              where: { id: item.productId },
-              data: {
-                quantity: newQuantity,
-                inStock: newQuantity > 0,
-              },
-            });
-          }
-        }
+      // Deduct stock immediately if auto-confirmed (atomic stock reservation via shared helper)
+      if (isAutoConfirmTx) {
+        await deductOrderStockTx(tx, orderItems);
       }
 
       const today = new Date();
@@ -546,6 +562,16 @@ export class OrderService {
       }
     } catch (e) {
       console.warn('Socket emit failed for new order:', e);
+    }
+
+    // Push notification to buyer for auto-confirmed hold (SEL-1)
+    if (isAutoConfirm && !userId.startsWith('anon_')) {
+      notificationService.createNotification(userId, {
+        title: 'Booking Confirmed! 🎉',
+        body: `Your booking #${orderNumber} at ${order.shop?.name || 'the shop'} has been auto-confirmed and reserved.`,
+        type: 'ORDER_UPDATE',
+        data: { orderId: order.id, status: 'CONFIRMED' },
+      }).catch(() => {});
     }
 
     return order;
@@ -765,21 +791,9 @@ export class OrderService {
         include: { items: true, shop: { select: { name: true } } },
       });
 
-      // Deduct stock when confirming
+      // Deduct stock when confirming (shared helper SEL-1)
       if (status === 'CONFIRMED' && order.status === 'PLACED') {
-        for (const item of updatedOrder.items) {
-          const product = await tx.product.findUnique({ where: { id: item.productId } });
-          if (product && typeof product.quantity === 'number') {
-            const newQuantity = Math.max(0, product.quantity - item.quantity);
-            await tx.product.update({
-              where: { id: item.productId },
-              data: {
-                quantity: newQuantity,
-                inStock: newQuantity > 0
-              }
-            });
-          }
-        }
+        await deductOrderStockTx(tx, updatedOrder.items);
       }
 
       // Restore stock when cancelling an already confirmed order
@@ -905,6 +919,16 @@ export class OrderService {
       }
     } catch (e) {
       console.warn('Socket emit failed for order update:', e);
+    }
+
+    // Push notification to buyer for confirmed order (SEL-1)
+    if (status === 'CONFIRMED' && !order.userId.startsWith('anon_')) {
+      notificationService.createNotification(order.userId, {
+        title: 'Booking Confirmed! 🎉',
+        body: `Your booking #${order.orderNumber} at ${updated.shop?.name || 'the shop'} has been confirmed.`,
+        type: 'ORDER_UPDATE',
+        data: { orderId: order.id, status: 'CONFIRMED' },
+      }).catch(() => {});
     }
 
     // ============= REFUND COINS ON CANCELLATION =============

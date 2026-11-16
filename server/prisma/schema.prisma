@@ -167,6 +167,7 @@ model Shop {
   flashSales       FlashSale[]
   searchKeywordStats SearchKeywordStat[]
   adWalletTransactions SellerAdWalletTransaction[]
+  settings         ShopSettings?
 
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -907,6 +908,26 @@ model AuditLog {
   @@index([entityType, entityId, createdAt(sort: Desc)], map: "idx_audit_logs_entity")
   @@index([actorId, createdAt(sort: Desc)], map: "idx_audit_logs_actor")
   @@map("audit_logs")
+}
+
+model ShopSettings {
+  id                   String   @id @default(uuid())
+  shopId               String   @unique @map("shop_id")
+  shop                 Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  autoConfirmBookings  Boolean  @default(false) @map("auto_confirm_bookings")
+  slotDurationMin      Int      @default(30) @map("slot_duration_min")
+  maxPerSlot           Int      @default(2) @map("max_per_slot")
+  allowWalkIns         Boolean  @default(true) @map("allow_walk_ins")
+  advanceNoticeMin     Int      @default(15) @map("advance_notice_min")
+  openingTime          String?  @default("09:00") @map("opening_time")
+  closingTime          String?  @default("21:00") @map("closing_time")
+  workingDays          String[] @default(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]) @map("working_days")
+  defaultBookingAmount Float    @default(0) @map("default_booking_amount")
+  notificationToggles  Json?    @default("{}") @map("notification_toggles")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("shop_settings")
 }
 
 

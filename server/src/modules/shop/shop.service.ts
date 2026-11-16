@@ -214,6 +214,73 @@ export class ShopService {
       shopId,
       JSON.stringify(toStore)
     );
+
+    // Sync to typed Prisma model ShopSettings (SEL-1)
+    let slotDurationMin = 30;
+    if (typeof mergedPlain.slotDuration === 'number') slotDurationMin = mergedPlain.slotDuration;
+    else if (typeof mergedPlain.slotDuration === 'string') {
+      const match = mergedPlain.slotDuration.match(/\d+/);
+      if (match) slotDurationMin = parseInt(match[0], 10);
+    }
+
+    const maxPerSlot = parseInt(mergedPlain.maxPerSlot, 10) || 2;
+    let advanceNoticeMin = 15;
+    if (typeof mergedPlain.advanceNotice === 'number') advanceNoticeMin = mergedPlain.advanceNotice;
+    else if (typeof mergedPlain.advanceNotice === 'string') {
+      const match = mergedPlain.advanceNotice.match(/\d+/);
+      if (match) advanceNoticeMin = parseInt(match[0], 10);
+    }
+
+    let workingDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    if (Array.isArray(mergedPlain.workingDays)) {
+      workingDays = mergedPlain.workingDays;
+    } else if (typeof mergedPlain.workingDays === 'string') {
+      if (mergedPlain.workingDays.includes('-')) {
+        workingDays = [mergedPlain.workingDays.trim()];
+      } else {
+        workingDays = mergedPlain.workingDays.split(',').map(d => d.trim()).filter(Boolean);
+      }
+    }
+
+    await prisma.shopSettings.upsert({
+      where: { shopId },
+      update: {
+        autoConfirmBookings: Boolean(mergedPlain.autoConfirmBookings),
+        slotDurationMin,
+        maxPerSlot,
+        allowWalkIns: mergedPlain.allowWalkIns !== false,
+        advanceNoticeMin,
+        openingTime: mergedPlain.openingTime || '09:00',
+        closingTime: mergedPlain.closingTime || '21:00',
+        workingDays,
+        defaultBookingAmount: Number(mergedPlain.defaultBookingAmount || 0),
+        notificationToggles: {
+          dailyDigest: Boolean(mergedPlain.dailyDigest),
+          soundAlerts: Boolean(mergedPlain.soundAlerts),
+          bookingAlerts: Boolean(mergedPlain.bookingAlerts),
+        },
+      },
+      create: {
+        shopId,
+        autoConfirmBookings: Boolean(mergedPlain.autoConfirmBookings),
+        slotDurationMin,
+        maxPerSlot,
+        allowWalkIns: mergedPlain.allowWalkIns !== false,
+        advanceNoticeMin,
+        openingTime: mergedPlain.openingTime || '09:00',
+        closingTime: mergedPlain.closingTime || '21:00',
+        workingDays,
+        defaultBookingAmount: Number(mergedPlain.defaultBookingAmount || 0),
+        notificationToggles: {
+          dailyDigest: Boolean(mergedPlain.dailyDigest),
+          soundAlerts: Boolean(mergedPlain.soundAlerts),
+          bookingAlerts: Boolean(mergedPlain.bookingAlerts),
+        },
+      },
+    }).catch(err => {
+      console.warn('Failed to sync shopSettings in Prisma:', err.message);
+    });
+
     return this.decryptSettingsRow(toStore);
   }
   /**
