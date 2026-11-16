@@ -173,6 +173,14 @@ model Shop {
   kycDocuments     ShopKyc[]
   importJobs       ImportJob[]
 
+  // Merchant Network (SEL-9)
+  networkOptIn        Boolean              @default(false)
+  networkDescription  String?
+  networkCategory     String?
+  sentConnections     MerchantConnection[] @relation("SentConnections")
+  receivedConnections MerchantConnection[] @relation("ReceivedConnections")
+  supportTickets      SupportTicket[]
+
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -714,18 +722,83 @@ enum TicketStatus {
   CLOSED
 }
 
+enum TicketAudience {
+  BUYER
+  SELLER
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ConnectionStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
 model SupportTicket {
-  id          String       @id @default(uuid())
-  userId      String
-  user        User         @relation(fields: [userId], references: [id])
-  orderId     String? // Optional: if tied to a specific order
-  subject     String
-  description String
-  status      TicketStatus @default(OPEN)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id                   String         @id @default(uuid())
+  userId               String
+  user                 User           @relation(fields: [userId], references: [id])
+  shopId               String?
+  shop                 Shop?          @relation(fields: [shopId], references: [id])
+  orderId              String? // Optional: if tied to a specific order
+  subject              String
+  description          String
+  audience             TicketAudience @default(BUYER)
+  priority             TicketPriority @default(MEDIUM)
+  status               TicketStatus   @default(OPEN)
+  slaDueAt             DateTime?
+  assignedTo           String? // Admin user ID
+  internalNotes        String?
+  resolution           String?
+  satisfactionRating   Int? // 1 to 5
+  satisfactionFeedback String?
+  closedAt             DateTime?
+  messages             TicketMessage[]
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 
   @@index([userId])
+  @@index([shopId])
+  @@index([audience])
+  @@index([status])
+  @@index([slaDueAt])
+}
+
+model TicketMessage {
+  id         String        @id @default(uuid())
+  ticketId   String
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderId   String
+  senderRole String // 'BUYER' | 'SELLER' | 'ADMIN'
+  message    String
+  isInternal Boolean       @default(false)
+  createdAt  DateTime      @default(now())
+
+  @@index([ticketId])
+  @@index([senderId])
+}
+
+model MerchantConnection {
+  id             String           @id @default(uuid())
+  senderShopId   String
+  senderShop     Shop             @relation("SentConnections", fields: [senderShopId], references: [id], onDelete: Cascade)
+  receiverShopId String
+  receiverShop   Shop             @relation("ReceivedConnections", fields: [receiverShopId], references: [id], onDelete: Cascade)
+  status         ConnectionStatus @default(PENDING)
+  note           String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([senderShopId, receiverShopId])
+  @@index([senderShopId])
+  @@index([receiverShopId])
+  @@index([status])
 }
 
 model FlashSale {
@@ -910,6 +983,7 @@ model AuditLog {
   entityType String   @map("entity_type")
   entityId   String   @map("entity_id")
   metadata   Json     @default("{}")
+  changes    Json?
   ipAddress  String?  @map("ip_address")
   createdAt  DateTime @default(now()) @map("created_at")
 

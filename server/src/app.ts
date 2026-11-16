@@ -39,6 +39,8 @@ import systemRoutes from './modules/system/system.routes';
 import flashSaleRoutes from './modules/flashsale/flashsale.routes';
 import walletRoutes from './modules/wallet/wallet.routes';
 import kycRoutes from './modules/kyc/kyc.routes';
+import supportRoutes from './modules/support/support.routes';
+import networkRoutes from './modules/network/network.routes';
 
 const app = express();
 const httpServer = createServer(app);
@@ -159,6 +161,8 @@ app.use('/api/system', systemRoutes);
 app.use('/api/flash-sales', flashSaleRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api', kycRoutes);
+app.use('/api/support', supportRoutes);
+app.use('/api/network', networkRoutes);
 
 // Expose uploaded media with immutable 1-year browser disk caching
 app.use('/uploads', express.static(path.resolve(__dirname, '../uploads'), {
