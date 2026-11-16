@@ -9,6 +9,7 @@ import notificationService from '../notification/notification.service';
 import { recordAuditLog } from '../../utils/auditLogger';
 import { persistImagesArray } from '../../utils/imageProcessor';
 import cartService from '../cart/cart.service';
+import { scheduleBookingReminder, cancelBookingReminder } from '../../jobs/bookingReminder.job';
 
 let archivedTablesInitialized = false;
 
@@ -628,6 +629,11 @@ export class OrderService {
       }).catch(() => {});
     }
 
+    // Schedule booking reminder 15m before pickup slot (SEL-3)
+    if (order.pickupSlotStart) {
+      scheduleBookingReminder(order.id, new Date(order.pickupSlotStart)).catch(() => {});
+    }
+
     return order;
   }
 
@@ -969,6 +975,11 @@ export class OrderService {
       console.error('Failed to invalidate cache on order status update:', err);
     }
 
+    // Cancel scheduled booking reminder if cancelled (SEL-3)
+    if (status === 'CANCELLED') {
+      cancelBookingReminder(orderId).catch(() => {});
+    }
+
     // Notify buyer and seller in real-time
     try {
       const { orderSocket } = require('../../app');
@@ -1206,6 +1217,9 @@ export class OrderService {
     } catch (err) {
       console.error('Failed to invalidate cache on order cancellation:', err);
     }
+
+    // Cancel scheduled booking reminder (SEL-3)
+    cancelBookingReminder(orderId).catch(() => {});
 
     // Notify seller in real-time
     try {
