@@ -248,6 +248,7 @@ async function runSel9Verification() {
   await prisma.ticketMessage.deleteMany({ where: { ticketId: { in: [sellerTicket.id, buyerTicket.id] } } });
   await prisma.supportTicket.deleteMany({ where: { id: { in: [sellerTicket.id, buyerTicket.id] } } });
   await prisma.merchantConnection.deleteMany({ where: { id: connectReq.id } });
+  await prisma.notification.deleteMany({ where: { userId: { in: [sellerUser.id, buyerUser.id, adminUser.id] } } });
   await prisma.shop.deleteMany({ where: { id: { in: [shopA.id, shopB.id] } } });
   await prisma.user.deleteMany({ where: { id: { in: [sellerUser.id, buyerUser.id, adminUser.id] } } });
   console.log('Cleanup completed cleanly.');

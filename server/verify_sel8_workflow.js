@@ -1,3 +1,4 @@
+require('dotenv').config();
 const prisma = require('./dist/config/database').default;
 const orderService = new (require('./dist/modules/order/order.service').OrderService)();
 
