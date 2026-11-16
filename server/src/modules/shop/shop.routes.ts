@@ -32,6 +32,8 @@ router.get('/:id/audit-logs', authenticate, authorize('SELLER', 'ADMIN'), shopCo
 router.get('/:id/analytics', authenticate, authorize('SELLER', 'ADMIN'), shopController.getAnalytics.bind(shopController));
 router.get('/:id/followers', authenticate, authorize('SELLER', 'ADMIN'), shopController.getShopFollowers.bind(shopController));
 router.post('/:id/broadcast', authenticate, authorize('SELLER', 'ADMIN'), shopController.broadcastToFollowers.bind(shopController));
+router.get('/:id/cart-items', authenticate, authorize('SELLER', 'ADMIN'), shopController.getCartAdders.bind(shopController));
+router.post('/:id/cart-discount', authenticate, authorize('SELLER', 'ADMIN'), shopController.sendCartDiscount.bind(shopController));
 router.post('/:id/save', authenticate, shopController.toggleSaveShop.bind(shopController));
 
 export default router;

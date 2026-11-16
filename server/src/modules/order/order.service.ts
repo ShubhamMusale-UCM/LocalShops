@@ -44,6 +44,41 @@ function isTimeWithinWindow(currentHHMM: string, startHHMM: string, endHHMM: str
   return currentHHMM >= startHHMM || currentHHMM <= endHHMM;
 }
 
+const WEEKDAY_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+function isDayWithinWorkingDays(nowIst: Date, workingDays?: string | string[] | null): boolean {
+  if (!workingDays) return true;
+  const raw = Array.isArray(workingDays) ? workingDays.join(',') : String(workingDays);
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed || trimmed === 'mon - sun' || trimmed === 'all days' || trimmed === 'daily' || trimmed === '24/7') {
+    return true;
+  }
+
+  const todayIdx = nowIst.getDay(); // 0=Sun..6=Sat
+  const todayShort = WEEKDAY_NAMES[todayIdx];
+
+  // Range format: "Mon - Sat" or "Mon - Fri"
+  const rangeMatch = trimmed.match(/^([a-z]{3})\s*[-–to]+\s*([a-z]{3})$/);
+  if (rangeMatch) {
+    const startIdx = WEEKDAY_NAMES.indexOf(rangeMatch[1]);
+    const endIdx = WEEKDAY_NAMES.indexOf(rangeMatch[2]);
+    if (startIdx >= 0 && endIdx >= 0) {
+      if (startIdx <= endIdx) {
+        return todayIdx >= startIdx && todayIdx <= endIdx;
+      }
+      return todayIdx >= startIdx || todayIdx <= endIdx;
+    }
+  }
+
+  // Comma or space-separated list: "Mon, Tue, Wed, Fri"
+  const tokens = trimmed.split(/[,\s/]+/).map((t) => t.slice(0, 3)).filter(Boolean);
+  if (tokens.length > 0 && tokens.some((t) => WEEKDAY_NAMES.includes(t))) {
+    return tokens.includes(todayShort);
+  }
+
+  return true;
+}
+
 const toStatusHistory = (value: unknown): any[] => (Array.isArray(value) ? value : []);
 
 const formatDeliveryAddress = (deliveryAddress?: any): string | null => {
@@ -80,7 +115,7 @@ export class OrderService {
     notes?: string;
     couponCode?: string;
     coinsToUse?: number;
-  }) {
+  }, deviceActorId?: string) {
     // Verify shop exists and is open
     const shop = await prisma.shop.findUnique({ where: { id: data.shopId } });
     if (!shop) throw new AppError('Shop not found.', 404);
@@ -99,9 +134,9 @@ export class OrderService {
       }
     } catch (_) {}
 
-    // Check scheduled holiday / closed dates
+    // Check scheduled holiday / closed dates & working days
     const nowIst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-    const todayDateStr = nowIst.toISOString().slice(0, 10); // YYYY-MM-DD
+    const todayDateStr = `${nowIst.getFullYear()}-${String(nowIst.getMonth() + 1).padStart(2, '0')}-${String(nowIst.getDate()).padStart(2, '0')}`; // YYYY-MM-DD in IST
     let closedDatesList: string[] = [];
     if (Array.isArray(extSettings.closedDates)) {
       closedDatesList = extSettings.closedDates;
@@ -110,6 +145,12 @@ export class OrderService {
     }
     if (closedDatesList.includes(todayDateStr)) {
       throw new AppError(`Shop is closed today (${todayDateStr}) for scheduled holiday. Orders cannot be placed.`, 400);
+    }
+
+    if (extSettings.workingDays && !isDayWithinWorkingDays(nowIst, extSettings.workingDays)) {
+      const dayLabel = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][nowIst.getDay()];
+      const workingLabel = Array.isArray(extSettings.workingDays) ? extSettings.workingDays.join(', ') : extSettings.workingDays;
+      throw new AppError(`Shop is closed today (${dayLabel}). Working days: ${workingLabel}.`, 400);
     }
 
     // Check order acceptance timing window
@@ -183,10 +224,15 @@ export class OrderService {
       const itemTotal = +(actualPrice * item.quantity).toFixed(2);
       subtotal += itemTotal;
 
-      // Product-level booking token or shop-wide default
-      const itemBookingAmount = (typeof product.bookingAmount === 'number' && product.bookingAmount >= 0)
-        ? Math.min(product.bookingAmount, actualPrice)
-        : Math.min(defaultBookingAmount, actualPrice);
+      // Product-level booking token (>0) or shop-wide default
+      const rawProdBooking = typeof product.bookingAmount === 'number' ? product.bookingAmount : 0;
+      const effectiveUnitBooking = rawProdBooking > 0 ? rawProdBooking : defaultBookingAmount;
+      const itemBookingAmount = Math.min(effectiveUnitBooking, actualPrice);
+
+      const itemHoldDuration =
+        typeof (product as any).holdDurationMinutes === 'number' && (product as any).holdDurationMinutes >= 15
+          ? (product as any).holdDurationMinutes
+          : 180;
 
       totalBookingAmount += +(itemBookingAmount * item.quantity).toFixed(2);
 
@@ -196,8 +242,11 @@ export class OrderService {
         price: actualPrice,
         total: itemTotal,
         bookingAmount: itemBookingAmount,
+        holdDurationMinutes: itemHoldDuration,
       };
     });
+
+    const maxOrderHoldMinutes = Math.max(...orderItems.map((i) => i.holdDurationMinutes), 180);
 
     subtotal = +(subtotal.toFixed(2));
     totalBookingAmount = +(totalBookingAmount.toFixed(2));
@@ -209,7 +258,7 @@ export class OrderService {
     let discount = 0;
     let appliedVoucherCode: string | null = null;
     if (data.couponCode) {
-      const voucherResult = await cartService.validateAndApplyVoucher(data.couponCode, userId, data.shopId, subtotal);
+      const voucherResult = await cartService.validateAndApplyVoucher(data.couponCode, userId, data.shopId, subtotal, deviceActorId);
       if (voucherResult.valid) {
         discount = voucherResult.discountAmount;
         appliedVoucherCode = voucherResult.code;
@@ -276,6 +325,7 @@ export class OrderService {
           total,
           bookingAmount: effectiveBookingAmount,
           balanceAmount: balanceAmount,
+          holdDurationMinutes: maxOrderHoldMinutes,
           isDelivery: effectiveDeliveryType === 'DELIVERY',
           deliveryAddress: formatDeliveryAddress(data.deliveryAddress),
           deliveryLatitude:

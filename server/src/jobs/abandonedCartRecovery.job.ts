@@ -171,23 +171,25 @@ export async function processAbandonedCarts(defaultCutoffHours = 24): Promise<Pr
         },
       });
 
-      // 6. Send push & in-app notification to buyer
-      const itemNames = items.map((i) => i.product?.name).filter(Boolean).slice(0, 2).join(', ');
-      const title = `🛒 Special ${discountPercent}% OFF waiting in your cart!`;
-      const body = items.length === 1
-        ? `Your item "${itemNames}" from ${shopName} is waiting! Use code ${voucherCode} within 24h to save ${discountPercent}%.`
-        : `Your items (${itemNames}...) from ${shopName} are waiting! Use code ${voucherCode} within 24h to save ${discountPercent}%.`;
+      // 6. Send push & in-app notification to registered buyer (skip FK notification insert for anon_ device IDs)
+      if (!userId.startsWith('anon_')) {
+        const itemNames = items.map((i) => i.product?.name).filter(Boolean).slice(0, 2).join(', ');
+        const title = `🛒 Special ${discountPercent}% OFF waiting in your cart!`;
+        const body = items.length === 1
+          ? `Your item "${itemNames}" from ${shopName} is waiting! Use code ${voucherCode} within 24h to save ${discountPercent}%.`
+          : `Your items (${itemNames}...) from ${shopName} are waiting! Use code ${voucherCode} within 24h to save ${discountPercent}%.`;
 
-      await notificationService.createNotification(userId, {
-        title,
-        body,
-        type: 'PROMOTION',
-        actionUrl: `/cart?voucher=${voucherCode}`,
-      }).catch((notifErr) => {
-        logger.warn('Failed to send abandoned cart recovery notification:', notifErr);
-      });
+        await notificationService.createNotification(userId, {
+          title,
+          body,
+          type: 'PROMOTION',
+          actionUrl: `/cart?voucher=${voucherCode}`,
+        }).catch((notifErr) => {
+          logger.warn('Failed to send abandoned cart recovery notification:', notifErr);
+        });
 
-      notificationsSent++;
+        notificationsSent++;
+      }
     } catch (groupErr) {
       logger.error(`Error processing recovery for group ${groupKey}:`, groupErr);
     }

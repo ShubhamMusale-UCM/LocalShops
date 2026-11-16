@@ -231,6 +231,32 @@ export class ShopController {
       res.status(error.statusCode || 500).json({ error: error.message });
     }
   }
+
+  async getCartAdders(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const result = await shopService.getShopCartAdders(req.params.id, req.user!.id);
+      res.json({ status: 'success', data: result });
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
+
+  async sendCartDiscount(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { userId, productId, cartItemId, discountPercent, maxDiscount, validHours } = req.body;
+      const result = await shopService.sendCartDiscountToAdders(req.params.id, req.user!.id, {
+        userId,
+        productId,
+        cartItemId,
+        discountPercent: Number(discountPercent) || 10,
+        maxDiscount: maxDiscount ? Number(maxDiscount) : undefined,
+        validHours: validHours ? Number(validHours) : undefined,
+      });
+      res.json({ status: 'success', data: result });
+    } catch (error: any) {
+      res.status(error.statusCode || 400).json({ error: error.message });
+    }
+  }
 }
 
 export default new ShopController();

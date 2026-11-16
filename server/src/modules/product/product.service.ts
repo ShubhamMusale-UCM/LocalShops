@@ -42,6 +42,14 @@ export class ProductService {
       data.bookingAmount = 0;
     }
 
+    // Sanitize holdDurationMinutes
+    if (data.holdDurationMinutes !== undefined) {
+      const hMins = parseInt(String(data.holdDurationMinutes), 10);
+      data.holdDurationMinutes = !isNaN(hMins) && hMins >= 15 ? Math.min(hMins, 10080) : 180;
+    } else {
+      data.holdDurationMinutes = 180;
+    }
+
     if (typeof data.quantity === 'number') {
       data.inStock = data.quantity > 0;
     }
@@ -172,6 +180,12 @@ export class ProductService {
       const bAmount = parseFloat(String(data.bookingAmount));
       const targetPrice = data.price ?? product.price;
       data.bookingAmount = !isNaN(bAmount) && bAmount >= 0 ? Math.min(bAmount, targetPrice) : 0;
+    }
+
+    // Sanitize holdDurationMinutes
+    if (data.holdDurationMinutes !== undefined) {
+      const hMins = parseInt(String(data.holdDurationMinutes), 10);
+      data.holdDurationMinutes = !isNaN(hMins) && hMins >= 15 ? Math.min(hMins, 10080) : 180;
     }
 
     if (typeof data.quantity === 'number') {

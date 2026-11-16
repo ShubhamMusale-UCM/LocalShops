@@ -9,7 +9,9 @@ export class OrderController {
   async create(req: AuthRequest, res: Response): Promise<void> {
     try {
       const validated = createOrderSchema.parse(req.body);
-      const order = await orderService.createOrder(req.user!.id, validated);
+      const rawDevice = req.headers['x-device-id'] ? String(req.headers['x-device-id']).trim() : '';
+      const deviceActorId = rawDevice ? (rawDevice.startsWith('anon_') ? rawDevice : `anon_${rawDevice}`) : undefined;
+      const order = await orderService.createOrder(req.user!.id, validated, deviceActorId);
       res.status(201).json(order);
     } catch (error: any) {
       res.status(error.statusCode || 400).json({ error: error.message, details: error.errors });

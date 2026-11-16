@@ -28,14 +28,14 @@ export const holdExpiryQueue = new Queue('hold-expiry', {
   },
 });
 
-export async function processExpiredHolds(cutoffMinutes = 180): Promise<{ expiredCount: number; expiredOrderIds: string[] }> {
-  const cutoffDate = new Date(Date.now() - cutoffMinutes * 60 * 1000);
+export async function processExpiredHolds(minCheckMinutes = 15): Promise<{ expiredCount: number; expiredOrderIds: string[] }> {
+  const minCutoffDate = new Date(Date.now() - minCheckMinutes * 60 * 1000);
 
   const candidates = await prisma.order.findMany({
     where: {
       isDelivery: false,
       status: { in: ['PLACED', 'CONFIRMED'] },
-      createdAt: { lte: cutoffDate },
+      createdAt: { lte: minCutoffDate },
     },
     include: { items: true },
     take: 100,
@@ -45,8 +45,18 @@ export async function processExpiredHolds(cutoffMinutes = 180): Promise<{ expire
 
   for (const order of candidates) {
     try {
+      const orderHoldMins = (order as any).holdDurationMinutes || 180;
+      const ageMs = Date.now() - new Date(order.createdAt).getTime();
+      if (ageMs < orderHoldMins * 60 * 1000) {
+        continue;
+      }
+
+      const holdLabel = orderHoldMins >= 60
+        ? `${+(orderHoldMins / 60).toFixed(1)}h`
+        : `${orderHoldMins}m`;
+      const expiryNote = `Showroom hold window (${holdLabel}) expired automatically`;
+
       const wasStockDeducted = order.status === 'CONFIRMED';
-      const existingHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
 
       const didExpire = await prisma.$transaction(async (tx) => {
         // Idempotent guard inside transaction
@@ -63,7 +73,7 @@ export async function processExpiredHolds(cutoffMinutes = 180): Promise<{ expire
               ...(Array.isArray(order.statusHistory) ? (order.statusHistory as any[]) : []),
               {
                 status: 'CANCELLED',
-                note: 'Showroom hold window expired automatically',
+                note: expiryNote,
                 cancelledBy: 'SYSTEM',
                 updatedAt: new Date().toISOString(),
               },
@@ -133,13 +143,13 @@ export async function processExpiredHolds(cutoffMinutes = 180): Promise<{ expire
           orderSocket.notifyCustomerOrderUpdate(
             order.id,
             'CANCELLED',
-            'Showroom hold window expired automatically'
+            expiryNote
           );
           orderSocket.notifySellerOrderUpdate(
             order.shopId,
             order.id,
             'CANCELLED',
-            'Showroom hold window expired automatically'
+            expiryNote
           );
         }
       } catch (_) {}
@@ -154,7 +164,7 @@ export async function processExpiredHolds(cutoffMinutes = 180): Promise<{ expire
 const holdExpiryWorker = new Worker(
   'hold-expiry',
   async (_job: Job) => {
-    return processExpiredHolds(180);
+    return processExpiredHolds(15);
   },
   { connection }
 );

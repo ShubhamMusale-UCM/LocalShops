@@ -1487,6 +1487,278 @@ export class ShopService {
 
     return { success: true, count: targetFollowers.length, pushSent: sentCount };
   }
+
+  /**
+   * Identify all shoppers (registered and anonymous sessions) who currently have
+   * this shop's products in their cart, along with active recovery/targeted vouchers.
+   */
+  async getShopCartAdders(shopId: string, ownerId: string) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
+
+    const cartItems = await prisma.cartItem.findMany({
+      where: {
+        OR: [{ shopId }, { product: { shopId } }],
+      },
+      include: {
+        product: {
+          select: {
+            id: true,
+            name: true,
+            price: true,
+            mrp: true,
+            bookingAmount: true,
+            holdDurationMinutes: true,
+            images: true,
+            category: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const uniqueUserIds = Array.from(new Set(cartItems.map((c) => c.userId).filter(Boolean)));
+    const realUserIds = uniqueUserIds.filter((id) => !id.startsWith('anon_'));
+
+    const [users, activeVouchers] = await Promise.all([
+      realUserIds.length > 0
+        ? prisma.user.findMany({
+            where: { id: { in: realUserIds } },
+            select: { id: true, name: true, phone: true, city: true, avatar: true },
+          })
+        : Promise.resolve([]),
+      prisma.cartVoucher.findMany({
+        where: {
+          shopId,
+          isUsed: false,
+          expiresAt: { gte: new Date() },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const voucherByUserAndProd = new Map<string, typeof activeVouchers[0]>();
+    const voucherByUserShop = new Map<string, typeof activeVouchers[0]>();
+
+    for (const v of activeVouchers) {
+      if (v.productId) {
+        const key = `${v.userId}::${v.productId}`;
+        if (!voucherByUserAndProd.has(key)) voucherByUserAndProd.set(key, v);
+      } else if (!voucherByUserShop.has(v.userId)) {
+        voucherByUserShop.set(v.userId, v);
+      }
+    }
+
+    const maskPhone = (phone?: string | null) => {
+      if (!phone || phone.length < 4) return null;
+      return `${phone.slice(0, 2)}••••••${phone.slice(-2)}`;
+    };
+
+    const items = cartItems.map((ci) => {
+      const isAnonymous = ci.userId.startsWith('anon_');
+      const user = !isAnonymous ? userMap.get(ci.userId) : null;
+      const anonSuffix = ci.userId.replace(/^anon_(dev_)?/, '').slice(0, 6).toUpperCase() || 'GUEST';
+      const shopperName = isAnonymous
+        ? `Anonymous Shopper #${anonSuffix}`
+        : user?.name || 'Verified Buyer';
+      const matchedVoucher =
+        voucherByUserAndProd.get(`${ci.userId}::${ci.productId}`) ||
+        voucherByUserShop.get(ci.userId) ||
+        null;
+
+      const unitPrice = Number(ci.product?.price || 0);
+      return {
+        id: ci.id,
+        userId: ci.userId,
+        isAnonymous,
+        shopperName,
+        phoneMasked: maskPhone(user?.phone),
+        city: isAnonymous ? 'Guest Session' : user?.city || shop.city || 'Local Buyer',
+        avatar: user?.avatar || null,
+        productId: ci.productId,
+        productName: ci.product?.name || 'Product',
+        productCategory: ci.product?.category || null,
+        productImage: ci.product?.images?.[0] || null,
+        productPrice: unitPrice,
+        productMrp: ci.product?.mrp || null,
+        bookingAmount: Number(ci.product?.bookingAmount || 0),
+        holdDurationMinutes: Number(ci.product?.holdDurationMinutes || 180),
+        quantity: ci.quantity,
+        lineTotal: +(unitPrice * ci.quantity).toFixed(2),
+        addedAt: ci.createdAt,
+        recoveryNotifiedAt: ci.recoveryNotifiedAt,
+        recoveryVoucherCode: matchedVoucher?.code || ci.recoveryVoucherCode || null,
+        activeVoucher: matchedVoucher
+          ? {
+              id: matchedVoucher.id,
+              code: matchedVoucher.code,
+              discountPercent: matchedVoucher.discountPercent,
+              expiresAt: matchedVoucher.expiresAt,
+              productId: matchedVoucher.productId,
+            }
+          : null,
+      };
+    });
+
+    const totalCartValue = items.reduce((sum, i) => sum + i.lineTotal, 0);
+    const totalItemsInCarts = items.reduce((sum, i) => sum + i.quantity, 0);
+
+    return {
+      summary: {
+        totalCartShoppers: uniqueUserIds.length,
+        registeredShoppersCount: realUserIds.length,
+        anonymousShoppersCount: uniqueUserIds.length - realUserIds.length,
+        totalItemsInCarts,
+        totalCartValue: +totalCartValue.toFixed(2),
+        vouchersActiveCount: activeVouchers.length,
+      },
+      items,
+    };
+  }
+
+  /**
+   * Manually dispatch exclusive discount voucher(s) strictly to shoppers
+   * who currently have the product(s) in their cart.
+   */
+  async sendCartDiscountToAdders(
+    shopId: string,
+    ownerId: string,
+    payload: {
+      userId?: string;
+      productId?: string;
+      cartItemId?: string;
+      discountPercent: number;
+      maxDiscount?: number;
+      validHours?: number;
+    }
+  ) {
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new AppError('Shop not found.', 404);
+    if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
+
+    const discountPercent = Math.min(50, Math.max(1, Math.round(Number(payload.discountPercent) || 10)));
+    const validHours = Math.min(168, Math.max(1, Math.round(Number(payload.validHours) || 24)));
+    const maxDiscount = payload.maxDiscount && Number(payload.maxDiscount) > 0
+      ? Number(payload.maxDiscount)
+      : 500;
+
+    const matchingItems = await prisma.cartItem.findMany({
+      where: {
+        AND: [
+          { OR: [{ shopId }, { product: { shopId } }] },
+          ...(payload.cartItemId ? [{ id: payload.cartItemId }] : []),
+          ...(payload.userId ? [{ userId: payload.userId }] : []),
+          ...(payload.productId ? [{ productId: payload.productId }] : []),
+        ],
+      },
+      include: {
+        product: { select: { id: true, name: true, price: true } },
+      },
+    });
+
+    if (matchingItems.length === 0) {
+      throw new AppError('No active cart shoppers found matching this selection.', 400);
+    }
+
+    const itemsByUser = new Map<string, typeof matchingItems>();
+    for (const item of matchingItems) {
+      if (!item.userId) continue;
+      if (!itemsByUser.has(item.userId)) itemsByUser.set(item.userId, []);
+      itemsByUser.get(item.userId)!.push(item);
+    }
+
+    const expiresAt = new Date(Date.now() + validHours * 60 * 60 * 1000);
+    const createdVouchers: any[] = [];
+    let notificationsSent = 0;
+
+    for (const [targetUserId, userItems] of itemsByUser.entries()) {
+      const targetProductId =
+        payload.productId ||
+        (payload.cartItemId || userItems.length === 1 ? userItems[0].productId : null);
+
+      const existing = await prisma.cartVoucher.findFirst({
+        where: {
+          userId: targetUserId,
+          shopId,
+          isUsed: false,
+          expiresAt: { gte: new Date() },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      let voucher;
+      if (existing) {
+        voucher = await prisma.cartVoucher.update({
+          where: { id: existing.id },
+          data: {
+            discountPercent,
+            maxDiscount,
+            expiresAt,
+            productId: targetProductId,
+          },
+        });
+      } else {
+        const code = `SAVE${discountPercent}-${nanoid(5).toUpperCase()}`;
+        voucher = await prisma.cartVoucher.create({
+          data: {
+            userId: targetUserId,
+            shopId,
+            productId: targetProductId,
+            code,
+            discountPercent,
+            maxDiscount,
+            expiresAt,
+            isUsed: false,
+          },
+        });
+      }
+
+      createdVouchers.push({
+        id: voucher.id,
+        userId: targetUserId,
+        code: voucher.code,
+        discountPercent: voucher.discountPercent,
+        productId: voucher.productId,
+        expiresAt: voucher.expiresAt,
+      });
+
+      await prisma.cartItem.updateMany({
+        where: { id: { in: userItems.map((i) => i.id) } },
+        data: {
+          recoveryNotifiedAt: new Date(),
+          recoveryVoucherCode: voucher.code,
+          shopId,
+        },
+      });
+
+      if (!targetUserId.startsWith('anon_')) {
+        const itemLabel = userItems.map((i) => i.product?.name).filter(Boolean).slice(0, 2).join(', ') || 'cart item';
+        await notificationService
+          .createNotification(targetUserId, {
+            title: `🎁 Exclusive ${discountPercent}% OFF on your cart item!`,
+            body: `${shop.name} sent you a ${discountPercent}% discount on "${itemLabel}" in your cart. Apply code ${voucher.code} within ${validHours}h.`,
+            type: 'PROMOTION',
+            icon: shop.logo || undefined,
+            relatedId: voucher.id,
+            actionUrl: `/cart?voucher=${voucher.code}`,
+          })
+          .then(() => {
+            notificationsSent++;
+          })
+          .catch(() => {});
+      }
+    }
+
+    return {
+      success: true,
+      vouchersIssued: createdVouchers.length,
+      targetShoppersCount: itemsByUser.size,
+      notificationsSent,
+      vouchers: createdVouchers,
+    };
+  }
 }
 
 export default new ShopService();

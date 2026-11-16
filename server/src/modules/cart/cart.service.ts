@@ -11,9 +11,10 @@ export interface CartSyncItemInput {
 export class CartService {
   /**
    * Sync buyer's local cart items to persistent server database.
+   * Supports both authenticated users and anonymous device sessions (anon_...).
    * Preserves original createdAt timestamps so abandoned cart detection is accurate.
    */
-  async syncCart(userId: string, items: CartSyncItemInput[]) {
+  async syncCart(userId: string, items: CartSyncItemInput[], deviceActorId?: string | null) {
     if (!Array.isArray(items)) {
       throw new AppError('Items array required', 400);
     }
@@ -55,6 +56,13 @@ export class CartService {
       });
     }
 
+    // If a logged-in user syncs, remove redundant anonymous cart entries from the same device
+    if (!userId.startsWith('anon_') && deviceActorId && deviceActorId !== userId && validItems.length > 0) {
+      await prisma.cartItem.deleteMany({
+        where: { userId: deviceActorId },
+      }).catch(() => {});
+    }
+
     // Upsert items that exist in database
     for (const item of validItems) {
       const productInfo = validProductMap.get(item.productId);
@@ -86,13 +94,13 @@ export class CartService {
       }
     }
 
-    return this.getCart(userId);
+    return this.getCart(userId, deviceActorId);
   }
 
   /**
-   * Fetch user's persistent cart with product and shop details.
+   * Fetch user's persistent cart with product and voucher details.
    */
-  async getCart(userId: string) {
+  async getCart(userId: string, deviceActorId?: string | null) {
     const items = await prisma.cartItem.findMany({
       where: { userId },
       include: {
@@ -104,6 +112,7 @@ export class CartService {
             mrp: true,
             discount: true,
             bookingAmount: true,
+            holdDurationMinutes: true,
             images: true,
             inStock: true,
             quantity: true,
@@ -115,7 +124,7 @@ export class CartService {
       orderBy: { createdAt: 'desc' },
     });
 
-    const activeVouchers = await this.getUserVouchers(userId);
+    const activeVouchers = await this.getUserVouchers(userId, undefined, deviceActorId);
 
     return {
       items,
@@ -137,12 +146,13 @@ export class CartService {
   }
 
   /**
-   * Get active abandoned cart vouchers available for this buyer
+   * Get active abandoned cart / targeted cart vouchers available for this buyer or anonymous device
    */
-  async getUserVouchers(userId: string, shopId?: string) {
+  async getUserVouchers(userId: string, shopId?: string, deviceActorId?: string | null) {
     const now = new Date();
+    const actorIds = Array.from(new Set([userId, deviceActorId].filter(Boolean) as string[]));
     const where: any = {
-      userId,
+      userId: { in: actorIds },
       isUsed: false,
       expiresAt: { gte: now },
     };
@@ -157,9 +167,16 @@ export class CartService {
   }
 
   /**
-   * Validate and calculate discount for a targeted voucher code
+   * Validate and calculate discount for a targeted voucher code.
+   * Locked to the targeted user/device AND shop AND (if set) requires the targeted product to be in cart.
    */
-  async validateAndApplyVoucher(code: string, userId: string, shopId: string, subtotal: number) {
+  async validateAndApplyVoucher(
+    code: string,
+    userId: string,
+    shopId: string,
+    subtotal: number,
+    deviceActorId?: string | null
+  ) {
     if (!code || !code.trim()) {
       throw new AppError('Voucher code required', 400);
     }
@@ -181,9 +198,13 @@ export class CartService {
       throw new AppError('This exclusive discount voucher has expired', 400);
     }
 
-    // STRICT USER LIMITATION: Only the targeted buyer who abandoned the cart can redeem it
-    if (voucher.userId !== userId) {
-      throw new AppError('This exclusive voucher code was issued for another account and cannot be redeemed on this profile', 403);
+    // STRICT USER/DEVICE LIMITATION: Only the targeted buyer or device who had the product in cart can redeem it
+    const isOwner = voucher.userId === userId || Boolean(deviceActorId && voucher.userId === deviceActorId);
+    if (!isOwner) {
+      throw new AppError(
+        'This exclusive voucher code was issued for another account and cannot be redeemed on this profile',
+        403
+      );
     }
 
     // SHOP LIMITATION: Must match the shop that issued the recovery discount
@@ -191,13 +212,41 @@ export class CartService {
       throw new AppError('This voucher code is only valid for purchases from the issuing shop', 400);
     }
 
-    const rawDiscount = (subtotal * voucher.discountPercent) / 100;
+    // PRODUCT-IN-CART CHECK: If voucher targets a specific product, verify user currently has it in cart
+    let eligibleBaseAmount = subtotal;
+    if (voucher.productId) {
+      const actorIds = Array.from(new Set([userId, deviceActorId, voucher.userId].filter(Boolean) as string[]));
+      const matchingCartItem = await prisma.cartItem.findFirst({
+        where: {
+          userId: { in: actorIds },
+          productId: voucher.productId,
+        },
+        include: {
+          product: { select: { price: true } },
+        },
+      });
+
+      if (!matchingCartItem) {
+        throw new AppError(
+          'This exclusive discount is only valid while the targeted product is in your cart',
+          400
+        );
+      }
+
+      if (matchingCartItem.product?.price) {
+        const productLineTotal = matchingCartItem.product.price * matchingCartItem.quantity;
+        eligibleBaseAmount = Math.min(subtotal, productLineTotal);
+      }
+    }
+
+    const rawDiscount = (eligibleBaseAmount * voucher.discountPercent) / 100;
     const discountAmount = voucher.maxDiscount ? Math.min(rawDiscount, voucher.maxDiscount) : rawDiscount;
     const effectiveDiscount = +(discountAmount.toFixed(2));
 
     return {
       valid: true,
       code: voucher.code,
+      productId: voucher.productId || null,
       discountPercent: voucher.discountPercent,
       discountAmount: effectiveDiscount,
       voucherId: voucher.id,
