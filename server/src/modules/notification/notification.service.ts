@@ -12,13 +12,198 @@ const toStringRecord = (value: Record<string, unknown>): Record<string, string> 
   }, {});
 
 export class NotificationService {
-  async registerFcmToken(userId: string, fcmToken: string) {
-    await prisma.user.update({
-      where: { id: userId },
-      data: { fcmToken },
+  async registerDevice(userId: string, data: { token: string; platform?: string }) {
+    if (!data.token) {
+      throw new AppError('Token is required', 400);
+    }
+
+    const platform = (data.platform || 'ANDROID').toUpperCase();
+
+    // Upsert into user_devices
+    const device = await prisma.userDevice.upsert({
+      where: { token: data.token },
+      update: {
+        userId,
+        platform,
+        lastSeen: new Date(),
+      },
+      create: {
+        userId,
+        token: data.token,
+        platform,
+        lastSeen: new Date(),
+      },
     });
 
+    // Also sync User.fcmToken for legacy single-token lookups
+    await prisma.user.update({
+      where: { id: userId },
+      data: { fcmToken: data.token },
+    }).catch(() => {});
+
+    return { success: true, device };
+  }
+
+  async unregisterDevice(token: string) {
+    if (!token) return { success: true };
+
+    await prisma.userDevice.deleteMany({
+      where: { token },
+    });
+
+    await prisma.user.updateMany({
+      where: { fcmToken: token },
+      data: { fcmToken: null },
+    }).catch(() => {});
+
     return { success: true };
+  }
+
+  async registerFcmToken(userId: string, fcmToken: string, platform?: string) {
+    return this.registerDevice(userId, { token: fcmToken, platform });
+  }
+
+  /**
+   * Send high-priority closed-app push alert to shop owner & staff with custom sound (SEL-4)
+   */
+  async sendHighPriorityOrderAlert(sellerUserIds: string[], order: {
+    id: string;
+    orderNumber?: string;
+    total?: number;
+    items?: any[];
+    shopId?: string;
+  }) {
+    if (!sellerUserIds || sellerUserIds.length === 0) return { sentCount: 0 };
+
+    // 1. Check shop settings for sound alert preference
+    let soundEnabled = true;
+    if (order.shopId) {
+      try {
+        const settings = await prisma.shopSettings.findUnique({
+          where: { shopId: order.shopId },
+          select: { notificationToggles: true },
+        });
+        const toggles = settings?.notificationToggles as any;
+        if (toggles && toggles.soundAlerts === false) {
+          soundEnabled = false;
+        }
+      } catch (_) {}
+    }
+
+    // 2. Fetch all registered devices for seller users
+    const devices = await prisma.userDevice.findMany({
+      where: { userId: { in: sellerUserIds } },
+    });
+
+    // Also check User.fcmToken for any seller users
+    const users = await prisma.user.findMany({
+      where: { id: { in: sellerUserIds } },
+      select: { id: true, fcmToken: true },
+    });
+
+    const tokenMap = new Map<string, { token: string; platform: string; userId: string }>();
+    for (const d of devices) {
+      tokenMap.set(d.token, { token: d.token, platform: d.platform, userId: d.userId });
+    }
+    for (const u of users) {
+      if (u.fcmToken && !tokenMap.has(u.fcmToken)) {
+        tokenMap.set(u.fcmToken, { token: u.fcmToken, platform: 'ANDROID', userId: u.id });
+      }
+    }
+
+    const allTokens = Array.from(tokenMap.values());
+    if (allTokens.length === 0) {
+      return { sentCount: 0, totalDevices: 0 };
+    }
+
+    const orderNum = order.orderNumber || order.id.slice(0, 8);
+    const orderTotal = Math.round(Number(order.total) || 0);
+    const itemsCount = (order.items && order.items.length) || 1;
+    const title = '🚨 New Order Received!';
+    const body = `Order #${orderNum} • ₹${orderTotal} (${itemsCount} ${itemsCount === 1 ? 'item' : 'items'})`;
+    const actionUrl = `/seller/orders?id=${order.id}`;
+
+    const dataPayload: Record<string, string> = {
+      type: 'NEW_ORDER',
+      orderId: order.id,
+      orderNumber: String(orderNum),
+      amount: String(orderTotal),
+      itemsCount: String(itemsCount),
+      actionUrl,
+      clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+    };
+
+    let sentCount = 0;
+    const staleTokens: string[] = [];
+
+    for (const dev of allTokens) {
+      const isIOS = dev.platform.toUpperCase() === 'IOS';
+      const soundName = soundEnabled
+        ? (isIOS ? 'order_bell.aiff' : 'order_bell')
+        : 'default';
+
+      const message: any = {
+        token: dev.token,
+        notification: {
+          title,
+          body,
+        },
+        data: dataPayload,
+        android: {
+          priority: 'high' as const,
+          ttl: 60 * 1000, // 60s
+          notification: {
+            channelId: 'new_orders',
+            sound: soundName,
+            priority: 'max' as const,
+            defaultVibrateTimings: false,
+            vibrateTimingsMillis: [0, 250, 250, 250],
+            clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+          },
+        },
+        apns: {
+          headers: {
+            'apns-priority': '10',
+            'apns-expiration': String(Math.floor(Date.now() / 1000) + 60),
+          },
+          payload: {
+            aps: {
+              alert: { title, body },
+              sound: soundName,
+              badge: 1,
+            },
+          },
+        },
+      };
+
+      try {
+        if (firebaseAdmin && typeof (firebaseAdmin as any).messaging === 'function') {
+          await (firebaseAdmin as any).messaging().send(message);
+          sentCount++;
+        }
+      } catch (err: any) {
+        console.warn(`[OrderAlert] FCM dispatch failed for token ${dev.token.slice(0, 15)}...:`, err?.message || err);
+        const errCode = err?.code || '';
+        if (
+          errCode === 'messaging/registration-token-not-registered' ||
+          errCode === 'messaging/invalid-registration-token'
+        ) {
+          staleTokens.push(dev.token);
+        }
+      }
+    }
+
+    if (staleTokens.length > 0) {
+      await prisma.userDevice.deleteMany({
+        where: { token: { in: staleTokens } },
+      }).catch(() => {});
+      await prisma.user.updateMany({
+        where: { fcmToken: { in: staleTokens } },
+        data: { fcmToken: null },
+      }).catch(() => {});
+    }
+
+    return { sentCount, totalDevices: allTokens.length };
   }
 
   /**

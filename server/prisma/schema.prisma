@@ -94,6 +94,7 @@ model User {
   supportTickets   SupportTicket[]
   searchHistory    UserSearchHistory[]
   buyerWallet      BuyerWallet?
+  devices          UserDevice[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -952,6 +953,20 @@ model ShopClosure {
 
   @@unique([shopId, date])
   @@map("shop_closures")
+}
+
+model UserDevice {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String   @default("android")
+  lastSeen  DateTime @default(now()) @map("last_seen")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("user_devices")
 }
 
 

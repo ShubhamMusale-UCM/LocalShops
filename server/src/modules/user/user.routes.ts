@@ -41,6 +41,7 @@ router.get('/alert-preferences', userController.getAlertPreferences.bind(userCon
 router.put('/alert-preferences', userController.updateAlertPreferences.bind(userController));
 
 // Account Deletion & Data Portability (DPDP & Google Play Compliance)
+router.post('/fcm-token', userController.updateFcmToken.bind(userController));
 router.post('/delete-request', userController.requestAccountDeletion.bind(userController));
 router.post('/me/delete-request', userController.requestAccountDeletion.bind(userController));
 

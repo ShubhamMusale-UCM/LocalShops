@@ -142,6 +142,22 @@ export class UserController {
       res.status(error.statusCode || 500).json({ error: error.message });
     }
   }
+
+  async updateFcmToken(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const token = req.body.token || req.body.fcmToken;
+      const platform = req.body.platform;
+      if (!token) {
+        res.status(400).json({ error: 'FCM token is required' });
+        return;
+      }
+      const notificationService = require('../notification/notification.service').default;
+      const result = await notificationService.registerDevice(req.user!.id, { token, platform });
+      res.json(result);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  }
 }
 
 export default new UserController();

@@ -24,6 +24,8 @@ router.post('/test', notificationController.sendTestNotification.bind(notificati
 
 // Register/update FCM token for the authenticated user
 router.post('/register-token', notificationController.registerToken.bind(notificationController));
+router.post('/register-device', notificationController.registerDevice.bind(notificationController));
+router.post('/unregister-device', notificationController.unregisterDevice.bind(notificationController));
 
 // Broadcast campaigns for sellers
 router.get('/campaigns', notificationController.getCampaigns.bind(notificationController));

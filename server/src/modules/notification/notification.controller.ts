@@ -7,17 +7,53 @@ import { AuthRequest } from '../../middleware/auth.middleware';
 class NotificationController {
   async registerToken(req: AuthRequest, res: Response) {
     const userId = req.user?.id;
-    const { fcmToken } = req.body;
+    const { fcmToken, token, platform } = req.body;
+    const effectiveToken = token || fcmToken;
 
     if (!userId) {
       throw new AppError('Unauthorized', 401);
     }
 
-    if (!fcmToken || typeof fcmToken !== 'string') {
-      throw new AppError('Valid fcmToken is required', 400);
+    if (!effectiveToken || typeof effectiveToken !== 'string') {
+      throw new AppError('Valid token is required', 400);
     }
 
-    const result = await notificationService.registerFcmToken(userId, fcmToken);
+    const result = await notificationService.registerDevice(userId, {
+      token: effectiveToken,
+      platform,
+    });
+    res.json(result);
+  }
+
+  async registerDevice(req: AuthRequest, res: Response) {
+    const userId = req.user?.id;
+    const { token, fcmToken, platform } = req.body;
+    const effectiveToken = token || fcmToken;
+
+    if (!userId) {
+      throw new AppError('Unauthorized', 401);
+    }
+
+    if (!effectiveToken || typeof effectiveToken !== 'string') {
+      throw new AppError('Device token is required', 400);
+    }
+
+    const result = await notificationService.registerDevice(userId, {
+      token: effectiveToken,
+      platform,
+    });
+    res.json(result);
+  }
+
+  async unregisterDevice(req: AuthRequest, res: Response) {
+    const { token, fcmToken } = req.body;
+    const effectiveToken = token || fcmToken;
+
+    if (!effectiveToken || typeof effectiveToken !== 'string') {
+      throw new AppError('Device token is required to unregister', 400);
+    }
+
+    const result = await notificationService.unregisterDevice(effectiveToken);
     res.json(result);
   }
 

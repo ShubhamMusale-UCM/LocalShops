@@ -629,6 +629,17 @@ export class OrderService {
       }).catch(() => {});
     }
 
+    // High-priority closed-app push alert to seller with loud sound (SEL-4)
+    if (shop.ownerId) {
+      notificationService.sendHighPriorityOrderAlert([shop.ownerId], {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        total: order.total,
+        items: order.items,
+        shopId: order.shopId,
+      }).catch((err) => console.warn('[OrderAlert] Seller push failed:', err));
+    }
+
     // Schedule booking reminder 15m before pickup slot (SEL-3)
     if (order.pickupSlotStart) {
       scheduleBookingReminder(order.id, new Date(order.pickupSlotStart)).catch(() => {});
