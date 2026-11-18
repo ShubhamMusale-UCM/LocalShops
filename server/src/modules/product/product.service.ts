@@ -261,7 +261,10 @@ export class ProductService {
     });
 
     await this.invalidateProductAndShopCaches(product.shop.id, productId);
-    await cacheDelete(`shop:${product.shop.id}:ads`);
+    await Promise.all([
+      cacheDelete(`shop:${product.shop.id}:ads:list`),
+      cacheDelete(`shop:${product.shop.id}:ads:analytics`),
+    ]);
     return { success: true, message: 'Product deleted.' };
   }
 

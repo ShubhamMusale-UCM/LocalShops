@@ -129,7 +129,8 @@ export class ShopController {
 
   async getAnalytics(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const days = parseInt(req.query.days as string) || 30;
+      const rawDays = parseInt(req.query.days as string, 10);
+      const days = Number.isFinite(rawDays) ? Math.min(365, Math.max(1, rawDays)) : 30;
       const data = await shopService.getShopAnalytics(req.params.id, req.user!.id, days);
       res.json(data);
     } catch (error: any) {

@@ -872,6 +872,11 @@ export class ShopService {
    * Get shop analytics (for shop owner)
    */
   async getShopAnalytics(shopId: string, ownerId: string, days: number = 30) {
+    const safeDays = Number.isFinite(Number(days))
+      ? Math.min(365, Math.max(1, Math.round(Number(days))))
+      : 30;
+    days = safeDays;
+
     const shop = await prisma.shop.findUnique({ where: { id: shopId } });
     if (!shop) throw new AppError('Shop not found.', 404);
     if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
@@ -891,6 +896,11 @@ export class ShopService {
     } else {
       since = new Date(todayStart.getTime() - (days - 1) * 86400000);
     }
+
+    const weeklyLabels = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(todayStart.getTime() - (6 - i) * 86400000);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone });
+    });
 
     const analytics = await prisma.shopAnalytics.findMany({
       where: { shopId, date: { gte: since } },
@@ -929,7 +939,7 @@ export class ShopService {
 
     const [past7DaysOrdersRaw, past7DaysAnalytics, past7DaysAdRollups] = await Promise.all([
       prisma.$queryRaw<{ day_str: string; revenue: number; cnt: number }[]>`
-        SELECT TO_CHAR("createdAt" AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS day_str,
+        SELECT TO_CHAR(("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS day_str,
                COALESCE(SUM(total), 0)::float AS revenue,
                COUNT(*)::int AS cnt
         FROM "Order"
@@ -975,31 +985,32 @@ export class ShopService {
       const target = new Date(`${aDateStr}T00:00:00+05:30`);
       const diffDays = Math.round((todayStart.getTime() - target.getTime()) / 86400000);
       if (diffDays >= 0 && diffDays < 7) {
-        weeklyViews[6 - diffDays] += (a.views || a.impressions || 0);
+        weeklyViews[6 - diffDays] += (a.views || 0);
       }
     });
 
-    // Top products — real data with daily analytics filtered by selected period
-    const topProductsRaw = await prisma.product.findMany({
-      where: { shopId },
+    // Top products — rank strictly by period sales/views/impressions, then take top 20
+    const allShopProducts = await prisma.product.findMany({
+      where: { shopId, isActive: true },
       orderBy: [{ orderCount: 'desc' }, { viewCount: 'desc' }],
-      take: 20,
+      take: 100,
       include: {
-        promotedListings: { select: { clicks: true, impressions: true } },
         _count: { select: { wishlistedBy: true, cartItems: true } },
       },
     });
 
-    const topProductIds = topProductsRaw.map((p) => p.id);
-    const [topProductsDailyAgg, topProductsOrderItemsAgg] =
-      topProductIds.length > 0
+    const shopProductIds = allShopProducts.map((p) => p.id);
+    const [topProductsDailyAgg, topProductsOrderItemsAgg, productAdRollups] =
+      shopProductIds.length > 0
         ? await Promise.all([
           prisma.productDailyAnalytics.groupBy({
             by: ['productId'],
-            where: { productId: { in: topProductIds }, date: { gte: since } },
+            where: { productId: { in: shopProductIds }, date: { gte: since } },
             _sum: {
               impressions: true,
+              adImpressions: true,
               detailViews: true,
+              adClicks: true,
               cartAdds: true,
               unitsSold: true,
               revenue: true,
@@ -1008,20 +1019,33 @@ export class ShopService {
           prisma.orderItem.groupBy({
             by: ['productId'],
             where: {
-              productId: { in: topProductIds },
-              order: { createdAt: { gte: since }, status: { notIn: ['CANCELLED', 'REFUNDED'] } },
+              productId: { in: shopProductIds },
+              order: { shopId, createdAt: { gte: since }, status: { notIn: ['CANCELLED', 'REFUNDED'] } },
             },
             _sum: { quantity: true, total: true },
           }),
+          prisma.adDailyMetricRollup.findMany({
+            where: {
+              promotedListing: { shopId, productId: { in: shopProductIds } },
+              date: { gte: since },
+            },
+            select: {
+              impressions: true,
+              clicks: true,
+              promotedListing: { select: { productId: true } },
+            },
+          }),
         ])
-        : [[], []];
+        : [[], [], []];
 
     const dailyAggMap = new Map(
       topProductsDailyAgg.map((d) => [
         d.productId,
         {
           impressions: d._sum.impressions || 0,
+          adImpressions: d._sum.adImpressions || 0,
           views: d._sum.detailViews || 0,
+          adClicks: d._sum.adClicks || 0,
           cartAdds: d._sum.cartAdds || 0,
         },
       ])
@@ -1035,84 +1059,101 @@ export class ShopService {
         },
       ])
     );
+    const productAdRollupMap = new Map<string, { impressions: number; clicks: number }>();
+    for (const r of productAdRollups) {
+      const pid = r.promotedListing?.productId;
+      if (!pid) continue;
+      const cur = productAdRollupMap.get(pid) || { impressions: 0, clicks: 0 };
+      cur.impressions += r.impressions || 0;
+      cur.clicks += r.clicks || 0;
+      productAdRollupMap.set(pid, cur);
+    }
 
-    const periodDays = Math.max(1, (now.getTime() - since.getTime()) / 86400000);
+    const periodDays = days;
 
-    const topProducts = topProductsRaw.map(p => {
-      const orderAgg = orderItemsAggMap.get(p.id) || { unitsSold: 0, revenue: 0 };
-      const unitsSold = orderAgg.unitsSold;
-      const revenue = orderAgg.revenue;
+    const topProducts = allShopProducts
+      .map((p) => {
+        const orderAgg = orderItemsAggMap.get(p.id) || { unitsSold: 0, revenue: 0 };
+        const unitsSold = orderAgg.unitsSold;
+        const revenue = orderAgg.revenue;
 
-      // Filter promoted listings to only those active/overlapping with the selected period
-      const activePromotedInPeriod = (p.promotedListings || []).filter(l => {
-        if (!l.startDate) return false;
-        const start = new Date(l.startDate);
-        const end = l.endDate ? new Date(l.endDate) : now;
-        return end >= since && start <= now;
-      });
+        // Period daily telemetry aggregated in PostgreSQL
+        const periodDaily = dailyAggMap.get(p.id) || {
+          impressions: 0,
+          adImpressions: 0,
+          views: 0,
+          adClicks: 0,
+          cartAdds: 0,
+        };
+        const rollupAd = productAdRollupMap.get(p.id) || { impressions: 0, clicks: 0 };
 
-      const adImpressions = activePromotedInPeriod.reduce((a, l) => a + (l.impressions || 0), 0);
-      const adClicks = activePromotedInPeriod.reduce((a, l) => a + (l.clicks || 0), 0);
+        const adImpressions = Math.max(periodDaily.adImpressions, rollupAd.impressions);
+        const adClicks = Math.max(periodDaily.adClicks, rollupAd.clicks);
 
-      // Period daily telemetry aggregated in PostgreSQL
-      const periodDaily = dailyAggMap.get(p.id) || { impressions: 0, views: 0, cartAdds: 0 };
+        const lifetimeViews = p.viewCount ?? 0;
+        const periodViews = periodDaily.views || 0;
+        const periodImpressions = periodDaily.impressions || 0;
 
-      const lifetimeViews = p.viewCount ?? 0;
-      const periodViews = periodDaily.views || 0;
-      const periodImpressions = periodDaily.impressions || 0;
+        // Period views for accurate period analytics report
+        const views = periodViews;
 
-      // Period views for accurate period analytics report
-      const views = periodViews;
+        // Combined impressions and clicks in the selected period
+        const totalPeriodImpressions = periodImpressions + adImpressions;
+        const totalPeriodClicks = periodViews + adClicks;
 
-      // Combined impressions and clicks in the selected period
-      const totalPeriodImpressions = periodImpressions + adImpressions;
-      const totalPeriodClicks = periodViews + adClicks;
+        // Safe impressions ensures impressions >= clicks to avoid >100% or divide-by-zero artifacts
+        const safeImpressions = Math.max(totalPeriodImpressions, totalPeriodClicks);
 
-      // Safe impressions ensures impressions >= clicks to avoid >100% or divide-by-zero artifacts
-      const safeImpressions = Math.max(totalPeriodImpressions, totalPeriodClicks);
+        const ctr = safeImpressions > 0 && totalPeriodClicks > 0
+          ? Math.min(100, Math.max(0, (totalPeriodClicks / safeImpressions) * 100)).toFixed(2)
+          : '0.00';
 
-      const ctr = safeImpressions > 0 && totalPeriodClicks > 0
-        ? Math.min(100, Math.max(0, (totalPeriodClicks / safeImpressions) * 100)).toFixed(2)
-        : '0.00';
+        const dailyVelocity = unitsSold / periodDays;
+        const daysOfStockLeft = p.quantity !== null && p.quantity !== undefined
+          ? (p.quantity <= 0 ? 0 : dailyVelocity > 0 ? Math.floor(p.quantity / dailyVelocity) : null)
+          : null;
 
-      const dailyVelocity = unitsSold / periodDays;
-      const daysOfStockLeft = p.quantity !== null && p.quantity !== undefined
-        ? (p.quantity <= 0 ? 0 : dailyVelocity > 0 ? Math.floor(p.quantity / dailyVelocity) : null)
-        : null;
-
-      return {
-        id: p.id,
-        name: p.name,
-        images: Array.isArray(p.images) ? p.images.slice(0, 1) : [],
-        price: p.price,
-        category: p.category,
-        inStock: p.inStock,
-        quantity: p.quantity,
-        units: unitsSold,
-        orderCount: p.orderCount ?? 0,
-        viewCount: lifetimeViews,
-        views: views,
-        periodViews,
-        periodImpressions,
-        impressions: totalPeriodImpressions,
-        clicks: adClicks,
-        revenue: revenue,
-        ctr,
-        wishlistCount: (p as any)._count?.wishlistedBy || 0,
-        inCartCount: (p as any)._count?.cartItems || 0,
-        daysOfStockLeft,
-      };
-    });
+        return {
+          id: p.id,
+          sku: p.sku || null,
+          name: p.name,
+          images: Array.isArray(p.images) ? p.images.slice(0, 1) : [],
+          price: p.price,
+          category: p.category,
+          inStock: p.inStock,
+          quantity: p.quantity,
+          lowStockThreshold: p.lowStockThreshold ?? 5,
+          units: unitsSold,
+          orderCount: p.orderCount ?? 0,
+          viewCount: lifetimeViews,
+          views: views,
+          periodViews,
+          periodImpressions,
+          impressions: totalPeriodImpressions,
+          clicks: adClicks,
+          revenue: revenue,
+          ctr,
+          wishlistCount: (p as any)._count?.wishlistedBy || 0,
+          inCartCount: (p as any)._count?.cartItems || 0,
+          daysOfStockLeft,
+        };
+      })
+      .sort((a, b) =>
+        (b.revenue - a.revenue) ||
+        (b.units - a.units) ||
+        (b.views - a.views) ||
+        (b.impressions - a.impressions) ||
+        (b.orderCount - a.orderCount)
+      )
+      .slice(0, 20);
 
     // Parallelize all independent database & Redis aggregations for sub-30ms cold execution
-    const periodDurationMs = Math.max(86400000, now.getTime() - since.getTime());
-    const prevPeriodStart = new Date(since.getTime() - periodDurationMs);
+    const prevPeriodStart = new Date(since.getTime() - days * 86400000);
     const { AdsService } = require('../ads/ads.service');
     const adsService = new AdsService();
 
     const [
       adMetrics,
-      cartCount,
       abandonedCartSql,
       orderMetrics,
       orderStatusGroups,
@@ -1121,7 +1162,7 @@ export class ShopService {
       customerRetentionSql,
       oosViewsVal,
       prevOrderMetrics,
-      productViewsAgg,
+      productDailySumAgg,
       activeProductsCount,
       campaignsData,
       initialTopKeywords,
@@ -1130,11 +1171,9 @@ export class ShopService {
         where: { promotedListing: { shopId }, date: { gte: since } },
         _sum: { clicks: true, impressions: true, spend: true },
       }),
-      prisma.orderItem.count({
-        where: { order: { shopId, createdAt: { gte: since } } },
-      }),
-      prisma.$queryRaw<{ cnt: number; val: number }[]>`
-        SELECT COUNT(ci.id)::int AS cnt,
+      prisma.$queryRaw<{ shoppers_cnt: number; items_cnt: number; val: number }[]>`
+        SELECT COUNT(DISTINCT ci."userId")::int AS shoppers_cnt,
+               COUNT(ci.id)::int AS items_cnt,
                COALESCE(SUM(ci.quantity * p.price), 0)::float AS val
         FROM "CartItem" ci
         JOIN "Product" p ON p.id = ci."productId"
@@ -1201,11 +1240,11 @@ export class ShopService {
         _sum: { total: true },
         _count: { id: true },
       }),
-      prisma.product.aggregate({
-        where: { shopId, isActive: true },
-        _sum: { viewCount: true },
+      prisma.productDailyAnalytics.aggregate({
+        where: { shopId, date: { gte: since } },
+        _sum: { impressions: true, detailViews: true, cartAdds: true },
       }),
-      prisma.product.count({ where: { shopId, inStock: true } }),
+      prisma.product.count({ where: { shopId, isActive: true, inStock: true } }),
       adsService.getShopPromotionAnalytics(shopId),
       prisma.searchKeywordStat.groupBy({
         by: ['keyword'],
@@ -1228,9 +1267,9 @@ export class ShopService {
     let realTotalAdImpressions = adMetrics._sum?.impressions ?? 0;
     let realAdSpent = adMetrics._sum?.spend ?? 0;
 
-    const abandonedCartCount = Number(abandonedCartSql[0]?.cnt ?? 0);
+    const abandonedCartShoppers = Number(abandonedCartSql[0]?.shoppers_cnt ?? 0);
+    const abandonedCartItems = Number(abandonedCartSql[0]?.items_cnt ?? 0);
     const abandonedCartValue = Number(abandonedCartSql[0]?.val ?? 0);
-    const activeCartCount = abandonedCartCount;
 
     const realRevenue = orderMetrics._sum.total || 0;
     const realOrdersCount = orderMetrics._count.id || 0;
@@ -1248,12 +1287,13 @@ export class ShopService {
       if (group.status === 'DELIVERED') {
         realizedRevenue += amt;
         deliveredOrdersCount += cnt;
-      } else if (['PLACED', 'CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY'].includes(group.status)) {
-        pendingRevenue += amt;
-        pendingOrdersCount += cnt;
       } else if (['CANCELLED', 'REFUNDED'].includes(group.status)) {
         lostRevenue += amt;
         lostOrdersCount += cnt;
+      } else {
+        // PLACED, CONFIRMED, PREPARING, READY_FOR_PICKUP, OUT_FOR_DELIVERY, or any new active/in-flight status
+        pendingRevenue += amt;
+        pendingOrdersCount += cnt;
       }
     }
 
@@ -1342,49 +1382,64 @@ export class ShopService {
 
     const previousRevenue = prevOrderMetrics._sum.total || 0;
     const previousOrdersCount = prevOrderMetrics._count.id || 0;
+    const isNewRevenueGrowth = previousRevenue === 0 && realRevenue > 0;
     const revenueGrowth = previousRevenue > 0
       ? (((realRevenue - previousRevenue) / previousRevenue) * 100).toFixed(1)
       : realRevenue > 0
         ? '100.0'
         : '0.0';
 
-    const realProductViews = productViewsAgg._sum.viewCount ?? 0;
+    const periodDailySum = {
+      impressions: productDailySumAgg._sum?.impressions ?? 0,
+      detailViews: productDailySumAgg._sum?.detailViews ?? 0,
+      cartAdds: productDailySumAgg._sum?.cartAdds ?? 0,
+    };
 
-    // If adDailyMetricRollup was unpopulated, reconcile with real campaign summary
-    if (campaignsData?.summary) {
-      if (realTotalAdClicks === 0 && campaignsData.summary.totalClicks > 0) {
-        realTotalAdClicks = campaignsData.summary.totalClicks;
-      }
-      if (realTotalAdImpressions === 0 && campaignsData.summary.totalImpressions > 0) {
-        realTotalAdImpressions = campaignsData.summary.totalImpressions;
-      }
-      if (realAdSpent === 0 && campaignsData.summary.totalSpent > 0) {
-        realAdSpent = campaignsData.summary.totalSpent;
+    // Reconcile ad rollups ONLY with campaigns started within this window when period rollups are empty
+    if (
+      realTotalAdImpressions === 0 &&
+      realTotalAdClicks === 0 &&
+      realAdSpent === 0 &&
+      Array.isArray(campaignsData?.campaigns)
+    ) {
+      const inWindowCampaigns = campaignsData.campaigns.filter(
+        (c: any) => c.startDate && new Date(c.startDate) >= since
+      );
+      for (const c of inWindowCampaigns) {
+        realTotalAdImpressions += Number(c.impressions || 0);
+        realTotalAdClicks += Number(c.clicks || 0);
+        realAdSpent += Number(c.spent || 0);
       }
     }
 
-    // Top-of-Funnel Total Store & Catalog Reach (ensures monotonic non-increasing stages)
+    // Unified period-scoped discovery reach, clicks, and CTR
     const rawShopViews = totals.views || 0;
-    const topOfFunnelReach = Math.max(
-      rawShopViews + realTotalAdImpressions + (totals.productImpressions || 0),
-      realProductViews,
-      realOrdersCount
+    const periodOrganicImpressions = Math.max(
+      rawShopViews + (totals.productImpressions || 0),
+      periodDailySum.impressions,
+      periodDailySum.detailViews
     );
+    const periodOrganicClicks = Math.max(
+      totals.productDetailViews || 0,
+      periodDailySum.detailViews
+    );
+    const totalClicks = periodOrganicClicks + realTotalAdClicks;
+    const totalImpressions = Math.max(periodOrganicImpressions + realTotalAdImpressions, totalClicks);
 
-    const periodProductViews = totals.productDetailViews > 0
-      ? Math.max(totals.productDetailViews, realOrdersCount)
-      : Math.max(realProductViews, realOrdersCount);
-    const periodCartAdds = Math.max(totals.cartAdds, activeCartCount, cartCount, realOrdersCount);
+    // Top-of-Funnel Total Store & Catalog Reach (monotonic non-increasing stages)
+    const periodCartAdds = Math.max(totals.cartAdds || 0, periodDailySum.cartAdds, realOrdersCount);
+    const periodProductViews = Math.max(totalClicks, periodCartAdds);
+    const topOfFunnelReach = Math.max(totalImpressions, periodProductViews);
 
     const funnel = [
-      { label: 'Shop Views', value: Math.max(topOfFunnelReach, periodProductViews), color: 'from-blue-500 to-cyan-400' },
+      { label: 'Shop Views', value: topOfFunnelReach, color: 'from-blue-500 to-cyan-400' },
       { label: 'Product Views', value: periodProductViews, color: 'from-purple-500 to-pink-400' },
       { label: 'Add to Cart', value: periodCartAdds, color: 'from-orange-500 to-rose-400' },
       { label: 'Orders Placed', value: realOrdersCount, color: 'from-emerald-500 to-teal-400' },
     ];
 
-    // Traffic sources — calculated from real data including reconciled ad impressions
-    const totalTrafficBase = rawShopViews + realTotalAdImpressions;
+    // Traffic sources — calculated from period organic vs promoted impressions
+    const totalTrafficBase = periodOrganicImpressions + realTotalAdImpressions;
     let trafficSources: { source: string; pct: number; color: string }[] = [];
     if (totalTrafficBase > 0) {
       const promotedPct = Math.round((realTotalAdImpressions / totalTrafficBase) * 100);
@@ -1400,6 +1455,10 @@ export class ShopService {
       : '0.00';
 
     let topKeywordsResult = initialTopKeywords;
+    const keywordsScope: 'period' | 'all_time' =
+      initialTopKeywords.length > 0 ? 'period' : 'period';
+    let resolvedKeywordsScope: 'period' | 'all_time' = keywordsScope;
+
     if (topKeywordsResult.length === 0) {
       const fallbackKeywords = await prisma.searchKeywordStat.groupBy({
         by: ['keyword'],
@@ -1414,6 +1473,9 @@ export class ShopService {
         take: 25
       });
       topKeywordsResult = fallbackKeywords as any;
+      if (topKeywordsResult.length > 0) {
+        resolvedKeywordsScope = 'all_time';
+      }
     }
 
     const keywords = topKeywordsResult.map(k => ({
@@ -1423,13 +1485,18 @@ export class ShopService {
       ctr: k._sum.searches ? (((k._sum.clicks || 0) / k._sum.searches) * 100).toFixed(2) : '0.00'
     }));
 
-    // Real CTR from ad data — strictly 0.00 if no impressions or no clicks
+    // Unified Store CTR + separate Ad CTR
+    const storeCtr = totalImpressions > 0 && totalClicks > 0
+      ? Math.min(100, Math.max(0, (totalClicks / totalImpressions) * 100)).toFixed(2)
+      : '0.00';
+
     const safeAdImpressions = Math.max(realTotalAdImpressions, realTotalAdClicks);
-    const realCtr = safeAdImpressions > 0 && realTotalAdClicks > 0
+    const adCtr = safeAdImpressions > 0 && realTotalAdClicks > 0
       ? Math.min(100, Math.max(0, (realTotalAdClicks / safeAdImpressions) * 100)).toFixed(2)
       : '0.00';
 
-    const safeRoas = realAdSpent > 0 ? (realRevenue / realAdSpent).toFixed(2) : '0.00';
+    const promotedRoas = realAdSpent > 0 ? (promotedRevenue / realAdSpent).toFixed(2) : '0.00';
+    const blendedRoas = realAdSpent > 0 ? (realRevenue / realAdSpent).toFixed(2) : '0.00';
 
     const winningKeywords = keywords.filter((k: any) => k.clicks > 0);
     const searchGaps = keywords.filter((k: any) => k.clicks === 0 && k.searches >= 2);
@@ -1440,23 +1507,28 @@ export class ShopService {
       promotedRevenue,
       promotedOrders,
       adSpend: realAdSpent,
-      promotedRoas: realAdSpent > 0 ? (promotedRevenue / realAdSpent).toFixed(2) : '0.00',
-      blendedRoas: safeRoas,
+      promotedRoas,
+      blendedRoas,
     };
 
     const response = {
-      totalImpressions: totals.views + realTotalAdImpressions,
-      totalClicks: realTotalAdClicks,
-      ctr: realCtr,
-      roas: safeRoas,
+      totalImpressions,
+      totalClicks,
+      ctr: storeCtr,
+      adCtr,
+      adImpressions: realTotalAdImpressions,
+      adClicks: realTotalAdClicks,
+      roas: promotedRoas,
       totalRevenue: realRevenue,
       ordersCount: realOrdersCount,
       previousRevenue,
       previousOrdersCount,
       revenueGrowth,
+      isNewRevenueGrowth,
       activeProductsCount,
       conversionRate,
       weeklyRevenue,
+      weeklyLabels,
       weeklyViews,
       weeklyOrders,
       topProducts,
@@ -1464,6 +1536,7 @@ export class ShopService {
       trafficSources,
       campaigns: campaignsData.campaigns,
       keywords,
+      keywordsScope: resolvedKeywordsScope,
       winningKeywords,
       searchGaps,
       showroomLeads: {
@@ -1481,7 +1554,8 @@ export class ShopService {
         repeatBuyerRate,
       },
       abandonedCarts: {
-        count: abandonedCartCount,
+        count: abandonedCartShoppers,
+        itemsCount: abandonedCartItems,
         value: abandonedCartValue,
       },
       missedOosViews,

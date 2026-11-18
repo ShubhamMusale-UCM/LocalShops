@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { SupportController } from './support.controller';
-import { authenticate, authorizeRole } from '../../middleware/auth.middleware';
+import { authenticate, authorize } from '../../middleware/auth.middleware';
 
 const router = Router();
 const supportController = new SupportController();
@@ -13,7 +13,7 @@ router.post('/:id/reply', authenticate, supportController.replyTicket.bind(suppo
 router.post('/:id/rate', authenticate, supportController.rateTicket.bind(supportController));
 
 // Admin routes
-router.get('/admin/queue', authenticate, authorizeRole(['ADMIN']), supportController.adminGetQueue.bind(supportController));
-router.patch('/admin/:id', authenticate, authorizeRole(['ADMIN']), supportController.adminUpdateTicket.bind(supportController));
+router.get('/admin/queue', authenticate, authorize('ADMIN'), supportController.adminGetQueue.bind(supportController));
+router.patch('/admin/:id', authenticate, authorize('ADMIN'), supportController.adminUpdateTicket.bind(supportController));
 
 export default router;

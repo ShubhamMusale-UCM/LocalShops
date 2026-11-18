@@ -211,7 +211,7 @@ export async function runTelemetrySyncNow() {
         ...Array.from(affectedShopIds).flatMap((sid) => [
           cacheDeletePattern(`shop:${sid}:analytics*`),
           cacheDeletePattern(`cache:shop_analytics:${sid}:*`),
-          cacheDelete(`shop:${sid}:ads`),
+          cacheDeletePattern(`shop:${sid}:ads*`),
           cacheDelete(`shop:${sid}`),
         ]),
         ...Array.from(affectedProductIds).map((pid) => cacheDelete(`product:${pid}`)),

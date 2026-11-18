@@ -23,6 +23,28 @@ const isCampaignLive = (campaign: {
   );
 };
 
+const deriveCampaignLifecycle = (
+  campaign: {
+    isActive: boolean;
+    startDate: Date;
+    endDate: Date;
+    budget: number;
+    spent: number;
+  },
+  productIsActive: boolean | undefined,
+  now: Date = new Date()
+) => {
+  const isExpiredOrExhausted = campaign.endDate < now || campaign.spent >= campaign.budget;
+  const isDeletedProduct = !productIsActive;
+  const isLive = !isDeletedProduct && isCampaignLive(campaign);
+  const state: 'LIVE' | 'PAUSED' | 'COMPLETED' = isLive
+    ? 'LIVE'
+    : (!campaign.isActive && !isExpiredOrExhausted && !isDeletedProduct)
+      ? 'PAUSED'
+      : 'COMPLETED';
+  return { isLive, isDeletedProduct, isExpiredOrExhausted, state };
+};
+
 export class AdsService {
   async createSponsoredListing(
     shopId: string,
@@ -153,7 +175,7 @@ export class AdsService {
     });
 
     await Promise.all([
-      cacheDelete(`shop:${shopId}:ads`),
+      cacheDeletePattern(`shop:${shopId}:ads*`),
       cacheDeletePattern(`shop:${shopId}:analytics*`),
       cacheDelete(`shop:${shopId}:daily-metrics`),
       cacheDelete(`product:${productId}`),
@@ -172,7 +194,7 @@ export class AdsService {
   }
 
   async getShopAds(shopId: string) {
-    const cacheKey = `shop:${shopId}:ads`;
+    const cacheKey = `shop:${shopId}:ads:list`;
     const cached = await cacheGet(cacheKey);
     if (cached) {
       return cached as any[];
@@ -188,15 +210,20 @@ export class AdsService {
       orderBy: { createdAt: 'desc' },
     });
 
+    const now = new Date();
     const adsWithState = ads.map((ad) => {
-      const isDeletedProduct = !ad.product?.isActive;
-      const isLive = !isDeletedProduct && isCampaignLive(ad);
+      const { isLive, isDeletedProduct, isExpiredOrExhausted, state } = deriveCampaignLifecycle(
+        ad,
+        ad.product?.isActive,
+        now
+      );
 
       return {
         ...ad,
         isLive,
         isDeletedProduct,
-        state: isLive ? 'LIVE' : 'HISTORY',
+        isExpiredOrExhausted,
+        state,
       };
     });
 
@@ -231,7 +258,7 @@ export class AdsService {
     });
 
     await Promise.all([
-      cacheDelete(`shop:${updated.shopId}:ads`),
+      cacheDeletePattern(`shop:${updated.shopId}:ads*`),
       cacheDeletePattern(`shop:${updated.shopId}:analytics*`),
       cacheDelete(`shop:${updated.shopId}:daily-metrics`),
       cacheDelete(`product:${updated.productId}`),
@@ -268,7 +295,7 @@ export class AdsService {
     });
 
     await Promise.all([
-      cacheDelete(`shop:${updated.shopId}:ads`),
+      cacheDeletePattern(`shop:${updated.shopId}:ads*`),
       cacheDeletePattern(`shop:${updated.shopId}:analytics*`),
       cacheDelete(`shop:${updated.shopId}:daily-metrics`),
       cacheDelete(`product:${updated.productId}`),
@@ -702,7 +729,7 @@ export class AdsService {
 
       await Promise.all([
         ...shopIds.flatMap(id => [
-          cacheDelete(`shop:${id}:ads`),
+          cacheDeletePattern(`shop:${id}:ads*`),
           cacheDeletePattern(`shop:${id}:analytics*`),
           cacheDelete(`shop:${id}:daily-metrics`),
         ]),
@@ -737,7 +764,7 @@ export class AdsService {
   }
 
   async getShopPromotionAnalytics(shopId: string) {
-    const cacheKey = `shop:${shopId}:ads`;
+    const cacheKey = `shop:${shopId}:ads:analytics`;
     const cached = await cacheGet(cacheKey);
     if (cached) return cached;
 
@@ -783,14 +810,18 @@ export class AdsService {
       }
     }
 
+    const now = new Date();
     const campaignAnalytics = campaigns.map((campaign) => {
       const safeImpressions = Math.max(campaign.impressions || 0, campaign.clicks || 0);
       const rawCtr = safeImpressions > 0 ? (campaign.clicks / safeImpressions) * 100 : 0;
       const ctr = Math.min(100, Math.max(0, rawCtr));
       const budgetRemaining = Math.max(0, campaign.budget - campaign.spent);
       const cpc = campaign.clicks > 0 ? campaign.spent / campaign.clicks : 0;
-      const isDeletedProduct = !campaign.product.isActive;
-      const isLive = !isDeletedProduct && isCampaignLive(campaign);
+      const { isLive, isDeletedProduct, isExpiredOrExhausted, state } = deriveCampaignLifecycle(
+        campaign,
+        campaign.product?.isActive,
+        now
+      );
       
       // Only return real DB keyword stats aggregated across dates via SQL groupBy
       const topKeywords = kwByCampaign.get(campaign.id) || [];
@@ -829,7 +860,8 @@ export class AdsService {
         isActive: campaign.isActive,
         isLive,
         isDeletedProduct,
-        state: isLive ? 'LIVE' : 'HISTORY',
+        isExpiredOrExhausted,
+        state,
         startDate: campaign.startDate,
         endDate: campaign.endDate,
         objective: campaign.objective,
@@ -972,7 +1004,7 @@ export class AdsService {
     });
 
     await Promise.all([
-      cacheDelete(`shop:${updated.shopId}:ads`),
+      cacheDeletePattern(`shop:${updated.shopId}:ads*`),
       cacheDeletePattern(`shop:${updated.shopId}:analytics*`),
       cacheDelete(`shop:${updated.shopId}:daily-metrics`),
       cacheDelete(`product:${updated.productId}`),

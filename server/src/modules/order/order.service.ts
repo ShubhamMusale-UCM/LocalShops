@@ -605,7 +605,7 @@ export class OrderService {
 
     // Invalidate Redis caches for real-time fresh analytics
     await Promise.all([
-      cacheDelete(`shop:${data.shopId}:ads`),
+      cacheDeletePattern(`shop:${data.shopId}:ads*`),
       cacheDeletePattern(`shop:${data.shopId}:analytics*`),
       cacheDelete(`shop:${data.shopId}:daily-metrics`),
     ]).catch(() => {});
@@ -992,7 +992,7 @@ export class OrderService {
       }
       await Promise.all([
         cacheDeletePattern(`shop:${updated.shopId}*`),
-        cacheDelete(`shop:${updated.shopId}:ads`),
+        cacheDeletePattern(`shop:${updated.shopId}:ads*`),
       ]);
     } catch (err) {
       console.error('Failed to invalidate cache on order status update:', err);
@@ -1235,7 +1235,7 @@ export class OrderService {
       }
       await Promise.all([
         cacheDeletePattern(`shop:${result.shopId}*`),
-        cacheDelete(`shop:${result.shopId}:ads`),
+        cacheDeletePattern(`shop:${result.shopId}:ads*`),
       ]);
     } catch (err) {
       console.error('Failed to invalidate cache on order cancellation:', err);
@@ -1365,7 +1365,7 @@ export class OrderService {
 
       await Promise.all([
         cacheDeletePattern(`shop:${returnReq.order.shopId}*`),
-        cacheDelete(`shop:${returnReq.order.shopId}:ads`),
+        cacheDeletePattern(`shop:${returnReq.order.shopId}:ads*`),
       ]).catch(() => {});
 
       // Reverse seller ad wallet credit if coins were credited

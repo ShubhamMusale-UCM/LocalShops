@@ -509,7 +509,8 @@ export const AdsController = {
       });
 
       await Promise.all([
-        cacheDelete(`shop:${existing.shopId}:ads`),
+        cacheDelete(`shop:${existing.shopId}:ads:list`),
+        cacheDelete(`shop:${existing.shopId}:ads:analytics`),
         cacheDelete(`product:${existing.productId}`),
       ]).catch(() => {});
 
@@ -539,7 +540,8 @@ export const AdsController = {
       });
 
       await Promise.all([
-        cacheDelete(`shop:${existing.shopId}:ads`),
+        cacheDelete(`shop:${existing.shopId}:ads:list`),
+        cacheDelete(`shop:${existing.shopId}:ads:analytics`),
         cacheDelete(`product:${existing.productId}`),
       ]).catch(() => {});
 
