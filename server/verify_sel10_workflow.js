@@ -122,7 +122,7 @@ async function runSel10Verification() {
       quantity: 6,
       lowStockThreshold: 4,
       category: 'Home & Living',
-      images: ['https://example.com/pitcher.jpg'],
+      images: ['https://images.unsplash.com/photo-1616046229478-9901c5536a45?auto=format&fit=crop&q=80&w=800'],
     },
   });
 
