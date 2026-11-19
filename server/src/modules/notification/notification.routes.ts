@@ -16,6 +16,9 @@ router.post('/:id/read', notificationController.markAsRead.bind(notificationCont
 // Mark all as read
 router.post('/mark-all-read', notificationController.markAllAsRead.bind(notificationController));
 
+// Clear all read notifications
+router.delete('/clear-read', notificationController.clearReadNotifications.bind(notificationController));
+
 // Delete notification
 router.delete('/:id', notificationController.deleteNotification.bind(notificationController));
 

@@ -43,24 +43,31 @@ export class PaymentController {
         return;
       }
       const shopId = shopIds[0];
+      const rawDevice = req.headers['x-device-id'] ? String(req.headers['x-device-id']).trim() : '';
+      const deviceActorId = rawDevice ? (rawDevice.startsWith('anon_') ? rawDevice : `anon_${rawDevice}`) : undefined;
 
       // Create the order first
-      const order = await orderService.createOrder(req.user!.id, {
-        shopId,
-        items: cartItems.map((item: any) => ({
-          productId: item.productId,
-          quantity: item.quantity,
-          price: item.price,
-          name: item.name || '',
-          campaignId: item.campaignId,
-        })),
-        deliveryType: deliveryType || 'PICKUP',
-        deliveryAddress: deliveryAddress || {},
-        paymentMethod: paymentMethod === 'COD' ? 'COD' : 'ONLINE',
-        notes: req.body.notes,
-        coinsToUse: coinsToUse ? Number(coinsToUse) : 0,
-        couponCode: req.body.couponCode,
-      });
+      const order = await orderService.createOrder(
+        req.user!.id,
+        {
+          shopId,
+          deviceActorId,
+          items: cartItems.map((item: any) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            price: item.price,
+            name: item.name || '',
+            campaignId: item.campaignId,
+          })),
+          deliveryType: deliveryType || 'PICKUP',
+          deliveryAddress: deliveryAddress || {},
+          paymentMethod: paymentMethod === 'COD' ? 'COD' : 'ONLINE',
+          notes: req.body.notes,
+          coinsToUse: coinsToUse ? Number(coinsToUse) : 0,
+          couponCode: req.body.couponCode,
+        },
+        deviceActorId
+      );
 
       // If COD or testing bypass mode, return order directly without Razorpay
       if (paymentMethod === 'COD' || skipPaymentVerification) {

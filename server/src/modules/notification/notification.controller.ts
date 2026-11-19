@@ -1,63 +1,75 @@
-import { Response } from 'express';
+import { Response, NextFunction } from 'express';
 import prisma from '../../config/database';
 import notificationService from './notification.service';
 import { AppError } from '../../middleware/errorHandler.middleware';
 import { AuthRequest } from '../../middleware/auth.middleware';
 
 class NotificationController {
-  async registerToken(req: AuthRequest, res: Response) {
-    const userId = req.user?.id;
-    const { fcmToken, token, platform } = req.body;
-    const effectiveToken = token || fcmToken;
+  async registerToken(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.id;
+      const { fcmToken, token, platform } = req.body;
+      const effectiveToken = token || fcmToken;
 
-    if (!userId) {
-      throw new AppError('Unauthorized', 401);
+      if (!userId) {
+        throw new AppError('Unauthorized', 401);
+      }
+
+      if (!effectiveToken || typeof effectiveToken !== 'string') {
+        throw new AppError('Valid token is required', 400);
+      }
+
+      const result = await notificationService.registerDevice(userId, {
+        token: effectiveToken,
+        platform,
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
     }
-
-    if (!effectiveToken || typeof effectiveToken !== 'string') {
-      throw new AppError('Valid token is required', 400);
-    }
-
-    const result = await notificationService.registerDevice(userId, {
-      token: effectiveToken,
-      platform,
-    });
-    res.json(result);
   }
 
-  async registerDevice(req: AuthRequest, res: Response) {
-    const userId = req.user?.id;
-    const { token, fcmToken, platform } = req.body;
-    const effectiveToken = token || fcmToken;
+  async registerDevice(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.id;
+      const { token, fcmToken, platform } = req.body;
+      const effectiveToken = token || fcmToken;
 
-    if (!userId) {
-      throw new AppError('Unauthorized', 401);
+      if (!userId) {
+        throw new AppError('Unauthorized', 401);
+      }
+
+      if (!effectiveToken || typeof effectiveToken !== 'string') {
+        throw new AppError('Device token is required', 400);
+      }
+
+      const result = await notificationService.registerDevice(userId, {
+        token: effectiveToken,
+        platform,
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
     }
-
-    if (!effectiveToken || typeof effectiveToken !== 'string') {
-      throw new AppError('Device token is required', 400);
-    }
-
-    const result = await notificationService.registerDevice(userId, {
-      token: effectiveToken,
-      platform,
-    });
-    res.json(result);
   }
 
-  async unregisterDevice(req: AuthRequest, res: Response) {
-    const { token, fcmToken } = req.body;
-    const effectiveToken = token || fcmToken;
+  async unregisterDevice(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { token, fcmToken } = req.body;
+      const effectiveToken = token || fcmToken;
 
-    if (!effectiveToken || typeof effectiveToken !== 'string') {
-      throw new AppError('Device token is required to unregister', 400);
+      if (!effectiveToken || typeof effectiveToken !== 'string') {
+        throw new AppError('Device token is required to unregister', 400);
+      }
+
+      const result = await notificationService.unregisterDevice(effectiveToken);
+      res.json(result);
+    } catch (error) {
+      next(error);
     }
-
-    const result = await notificationService.unregisterDevice(effectiveToken);
-    res.json(result);
   }
 
-  async getNotifications(req: AuthRequest, res: Response) {
+  async getNotifications(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const userId = req.user?.id;
       if (!userId) throw new AppError('Unauthorized', 401);
@@ -71,11 +83,11 @@ class NotificationController {
 
       res.json(result);
     } catch (error) {
-      throw error;
+      next(error);
     }
   }
 
-  async markAsRead(req: AuthRequest, res: Response) {
+  async markAsRead(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
       const userId = req.user?.id;
@@ -85,11 +97,11 @@ class NotificationController {
 
       res.json(notification);
     } catch (error) {
-      throw error;
+      next(error);
     }
   }
 
-  async markAllAsRead(req: AuthRequest, res: Response) {
+  async markAllAsRead(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const userId = req.user?.id;
       if (!userId) throw new AppError('Unauthorized', 401);
@@ -98,11 +110,11 @@ class NotificationController {
 
       res.json(result);
     } catch (error) {
-      throw error;
+      next(error);
     }
   }
 
-  async deleteNotification(req: AuthRequest, res: Response) {
+  async deleteNotification(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
       const userId = req.user?.id;
@@ -112,11 +124,24 @@ class NotificationController {
 
       res.json(result);
     } catch (error) {
-      throw error;
+      next(error);
     }
   }
 
-  async sendTestNotification(req: AuthRequest, res: Response) {
+  async clearReadNotifications(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) throw new AppError('Unauthorized', 401);
+
+      const result = await notificationService.clearReadNotifications(userId);
+
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async sendTestNotification(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const userId = req.user?.id;
       if (!userId) throw new AppError('Unauthorized', 401);
@@ -130,11 +155,11 @@ class NotificationController {
 
       res.json(notification);
     } catch (error) {
-      throw error;
+      next(error);
     }
   }
 
-  async getCampaigns(req: AuthRequest, res: Response) {
+  async getCampaigns(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const userId = req.user?.id;
       if (!userId) throw new AppError('Unauthorized', 401);
@@ -178,19 +203,19 @@ class NotificationController {
 
       res.json({ status: 'success', data: campaigns });
     } catch (error) {
-      throw error;
+      next(error);
     }
   }
 
-  async cancelCampaign(req: AuthRequest, res: Response) {
+  async cancelCampaign(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       res.json({ status: 'success', message: 'Campaign cancelled' });
     } catch (error) {
-      throw error;
+      next(error);
     }
   }
 
-  async deleteCampaign(req: AuthRequest, res: Response) {
+  async deleteCampaign(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const userId = req.user?.id;
       if (!userId) throw new AppError('Unauthorized', 401);
@@ -213,7 +238,7 @@ class NotificationController {
 
       res.json({ status: 'success', message: 'Campaign deleted' });
     } catch (error) {
-      throw error;
+      next(error);
     }
   }
 }

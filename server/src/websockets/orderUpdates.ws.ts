@@ -3,11 +3,14 @@ import jwt from 'jsonwebtoken';
 import prisma from '../config/database';
 import { env } from '../config/env';
 
+let orderSocketInstance: OrderUpdatesSocket | null = null;
+
 class OrderUpdatesSocket {
   private io: SocketIOServer;
 
   constructor(io: SocketIOServer) {
     this.io = io;
+    orderSocketInstance = this;
     this.setupAuthMiddleware();
     this.setupEventHandlers();
   }
@@ -40,6 +43,21 @@ class OrderUpdatesSocket {
   private setupEventHandlers() {
     this.io.on('connection', (socket: Socket) => {
       console.log(`Order tracking client connected: ${socket.id}`);
+
+      // Automatically join authenticated user room for real-time notifications
+      const authUser = (socket as any).user;
+      if (authUser?.id) {
+        socket.join(`user:${authUser.id}`);
+        console.log(`Socket client joined user notification room: user:${authUser.id}`);
+      }
+
+      socket.on('user:subscribe', (data) => {
+        const userId = data?.userId || authUser?.id;
+        if (userId) {
+          socket.join(`user:${userId}`);
+          console.log(`Client explicitly subscribed to user notification room: user:${userId}`);
+        }
+      });
 
       /**
        * Subscribe to order updates
@@ -168,5 +186,7 @@ class OrderUpdatesSocket {
     return this.io;
   }
 }
+
+export const getOrderSocket = (): OrderUpdatesSocket | null => orderSocketInstance;
 
 export default OrderUpdatesSocket;

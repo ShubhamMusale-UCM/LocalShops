@@ -47,13 +47,13 @@ export const CartController = {
 
   clearCart: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const { primaryId } = resolveCartActorIds(req);
+      const { primaryId, deviceActorId } = resolveCartActorIds(req);
       if (!primaryId) {
         res.json({ status: 'success', data: { success: true } });
         return;
       }
       const shopId = req.query.shopId as string | undefined;
-      const result = await cartService.clearCart(primaryId, shopId);
+      const result = await cartService.clearCart(primaryId, shopId, deviceActorId);
       res.json({
         status: 'success',
         data: result,
@@ -71,7 +71,12 @@ export const CartController = {
         return;
       }
       const shopId = req.query.shopId as string | undefined;
-      const vouchers = await cartService.getUserVouchers(primaryId, shopId, deviceActorId);
+      const productIdsParam = req.query.productIds as string | undefined;
+      const cartProductIds = productIdsParam
+        ? productIdsParam.split(',').map((s) => s.trim()).filter(Boolean)
+        : undefined;
+
+      const vouchers = await cartService.getUserVouchers(primaryId, shopId, deviceActorId, cartProductIds);
       res.json({
         status: 'success',
         data: vouchers,
@@ -89,7 +94,7 @@ export const CartController = {
         return;
       }
 
-      const { code, shopId, subtotal } = req.body;
+      const { code, shopId, subtotal, cartItems, items } = req.body;
       const parsedSubtotal = parseFloat(subtotal);
       if (isNaN(parsedSubtotal) || parsedSubtotal < 0) {
         res.status(400).json({ status: 'fail', message: 'Valid subtotal required' });
@@ -100,7 +105,15 @@ export const CartController = {
         return;
       }
 
-      const result = await cartService.validateAndApplyVoucher(code, primaryId, shopId, parsedSubtotal, deviceActorId);
+      const resolvedItems = Array.isArray(cartItems) ? cartItems : (Array.isArray(items) ? items : undefined);
+      const result = await cartService.validateAndApplyVoucher(
+        code,
+        primaryId,
+        shopId,
+        parsedSubtotal,
+        deviceActorId,
+        resolvedItems
+      );
       res.json({
         status: 'success',
         data: result,

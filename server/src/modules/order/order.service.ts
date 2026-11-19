@@ -294,7 +294,14 @@ export class OrderService {
     let discount = 0;
     let appliedVoucherCode: string | null = null;
     if (data.couponCode) {
-      const voucherResult = await cartService.validateAndApplyVoucher(data.couponCode, userId, data.shopId, subtotal, deviceActorId);
+      const voucherResult = await cartService.validateAndApplyVoucher(
+        data.couponCode,
+        userId,
+        data.shopId,
+        subtotal,
+        deviceActorId,
+        data.items.map((i) => ({ productId: i.productId, quantity: i.quantity, price: i.price }))
+      );
       if (voucherResult.valid) {
         discount = voucherResult.discountAmount;
         appliedVoucherCode = voucherResult.code;
@@ -586,11 +593,17 @@ export class OrderService {
       });
     }
 
-    // Clean up purchased items from user's persistent CartItem records
+    // Clean up purchased items from user's persistent CartItem records (both authenticated and device session)
     const purchasedProductIds = data.items.map(i => i.productId);
+    const cleanupUserIds = Array.from(new Set([
+      userId,
+      (data as any).deviceActorId,
+      (data as any).deviceId,
+    ].filter((id): id is string => Boolean(id && typeof id === 'string'))));
+
     await prisma.cartItem.deleteMany({
       where: {
-        userId,
+        userId: { in: cleanupUserIds },
         productId: { in: purchasedProductIds },
       },
     }).catch(err => {

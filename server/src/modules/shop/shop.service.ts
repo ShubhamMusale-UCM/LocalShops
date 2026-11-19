@@ -1000,7 +1000,7 @@ export class ShopService {
     });
 
     const shopProductIds = allShopProducts.map((p) => p.id);
-    const [topProductsDailyAgg, topProductsOrderItemsAgg, productAdRollups] =
+    const [topProductsDailyAgg, topProductsOrderItemsAgg, productAdRollups, productActiveCartsAgg] =
       shopProductIds.length > 0
         ? await Promise.all([
           prisma.productDailyAnalytics.groupBy({
@@ -1035,8 +1035,34 @@ export class ShopService {
               promotedListing: { select: { productId: true } },
             },
           }),
+          prisma.$queryRaw<{ product_id: string; cnt: number }[]>`
+            SELECT ci."productId" AS product_id,
+                   COALESCE(SUM(ci.quantity), 0)::int AS cnt
+            FROM "CartItem" ci
+            JOIN "Product" p ON p.id = ci."productId"
+            WHERE p."shopId" = ${shopId}
+              AND p."isActive" = true
+              AND (
+                (ci."userId" LIKE 'anon_%' AND ci."updatedAt" >= NOW() - INTERVAL '48 hours')
+                OR
+                (ci."userId" NOT LIKE 'anon_%' AND ci."updatedAt" >= NOW() - INTERVAL '7 days')
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM "OrderItem" oi
+                JOIN "Order" o ON o.id = oi."orderId"
+                WHERE oi."productId" = ci."productId"
+                  AND o."userId" = ci."userId"
+                  AND o."createdAt" >= ci."createdAt"
+                  AND o.status NOT IN ('CANCELLED', 'REFUNDED')
+              )
+            GROUP BY ci."productId"
+          `,
         ])
-        : [[], [], []];
+        : [[], [], [], []];
+
+    const activeProductCartMap = new Map(
+      productActiveCartsAgg.map((r) => [r.product_id, Number(r.cnt || 0)])
+    );
 
     const dailyAggMap = new Map(
       topProductsDailyAgg.map((d) => [
@@ -1134,7 +1160,7 @@ export class ShopService {
           revenue: revenue,
           ctr,
           wishlistCount: (p as any)._count?.wishlistedBy || 0,
-          inCartCount: (p as any)._count?.cartItems || 0,
+          inCartCount: activeProductCartMap.get(p.id) || 0,
           daysOfStockLeft,
         };
       })
@@ -1173,11 +1199,25 @@ export class ShopService {
       }),
       prisma.$queryRaw<{ shoppers_cnt: number; items_cnt: number; val: number }[]>`
         SELECT COUNT(DISTINCT ci."userId")::int AS shoppers_cnt,
-               COUNT(ci.id)::int AS items_cnt,
+               COALESCE(SUM(ci.quantity), 0)::int AS items_cnt,
                COALESCE(SUM(ci.quantity * p.price), 0)::float AS val
         FROM "CartItem" ci
         JOIN "Product" p ON p.id = ci."productId"
         WHERE p."shopId" = ${shopId}
+          AND p."isActive" = true
+          AND (
+            (ci."userId" LIKE 'anon_%' AND ci."updatedAt" >= NOW() - INTERVAL '48 hours')
+            OR
+            (ci."userId" NOT LIKE 'anon_%' AND ci."updatedAt" >= NOW() - INTERVAL '7 days')
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM "OrderItem" oi
+            JOIN "Order" o ON o.id = oi."orderId"
+            WHERE oi."productId" = ci."productId"
+              AND o."userId" = ci."userId"
+              AND o."createdAt" >= ci."createdAt"
+              AND o.status NOT IN ('CANCELLED', 'REFUNDED')
+          )
       `,
       prisma.order.aggregate({
         where: {
@@ -1553,6 +1593,8 @@ export class ShopService {
         repeatBuyers,
         repeatBuyerRate,
       },
+      activeCartItemsCount: abandonedCartItems,
+      activeCartShoppersCount: abandonedCartShoppers,
       abandonedCarts: {
         count: abandonedCartShoppers,
         itemsCount: abandonedCartItems,
@@ -1737,9 +1779,58 @@ export class ShopService {
     if (!shop) throw new AppError('Shop not found.', 404);
     if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
 
+    // Auto-purge cart items that were already successfully ordered
+    await prisma.$executeRaw`
+      DELETE FROM "CartItem" ci
+      WHERE EXISTS (
+        SELECT 1 FROM "OrderItem" oi
+        JOIN "Order" o ON o.id = oi."orderId"
+        WHERE oi."productId" = ci."productId"
+          AND o."userId" = ci."userId"
+          AND o."createdAt" >= ci."createdAt"
+          AND o.status NOT IN ('CANCELLED', 'REFUNDED')
+      )
+    `.catch(() => {});
+
+    // Auto-purge stale anonymous carts older than 48 hours and registered carts older than 14 days
+    const staleAnonCutoff = new Date(Date.now() - 48 * 3600 * 1000);
+    const staleUserCutoff = new Date(Date.now() - 14 * 86400 * 1000);
+    await Promise.all([
+      prisma.cartItem.deleteMany({
+        where: {
+          userId: { startsWith: 'anon_' },
+          updatedAt: { lt: staleAnonCutoff },
+        },
+      }),
+      prisma.cartItem.deleteMany({
+        where: {
+          updatedAt: { lt: staleUserCutoff },
+        },
+      }),
+    ]).catch(() => {});
+
+    // Freshness cutoff: 48 hours for anonymous/guest sessions, 7 days for registered users
+    const activeCutoffAnon = new Date(Date.now() - 48 * 3600 * 1000);
+    const activeCutoffUser = new Date(Date.now() - 7 * 86400 * 1000);
+
     const cartItems = await prisma.cartItem.findMany({
       where: {
         OR: [{ shopId }, { product: { shopId } }],
+        product: { isActive: true },
+        AND: [
+          {
+            OR: [
+              {
+                userId: { startsWith: 'anon_' },
+                updatedAt: { gte: activeCutoffAnon },
+              },
+              {
+                NOT: { userId: { startsWith: 'anon_' } },
+                updatedAt: { gte: activeCutoffUser },
+              },
+            ],
+          },
+        ],
       },
       include: {
         product: {
@@ -1755,7 +1846,7 @@ export class ShopService {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { updatedAt: 'desc' },
     });
 
     const uniqueUserIds = Array.from(new Set(cartItems.map((c) => c.userId).filter(Boolean)));

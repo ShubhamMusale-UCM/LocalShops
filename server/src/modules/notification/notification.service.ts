@@ -310,6 +310,14 @@ export class NotificationService {
       console.warn('Push notification failed, but in-app notification created');
     }
 
+    // In-app real-time socket delivery to authenticated user room
+    try {
+      const { orderSocket } = require('../../app');
+      if (orderSocket && typeof orderSocket.getIO === 'function') {
+        orderSocket.getIO().to(`user:${userId}`).emit('notification:new', notification);
+      }
+    } catch (_) {}
+
     // Invalidate cache
     await cacheDelete(`user:${userId}:notifications`);
 
@@ -402,6 +410,19 @@ export class NotificationService {
     await cacheDelete(`user:${userId}:notifications`);
 
     return { success: true };
+  }
+
+  /**
+   * Clear all read notifications for user
+   */
+  async clearReadNotifications(userId: string) {
+    const result = await prisma.notification.deleteMany({
+      where: { userId, isRead: true },
+    });
+
+    await cacheDelete(`user:${userId}:notifications`);
+
+    return { success: true, count: result.count };
   }
 
   /**
