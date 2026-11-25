@@ -42,18 +42,47 @@ async function ensureArchivedOrdersTables(): Promise<void> {
 /**
  * Shared atomic stock deduction helper for both createOrder auto-confirm
  * and manual seller confirmOrderTx (SEL-1).
+ * Locks product rows, enforces availability when !allowPrebook, and returns exact
+ * physical deducted vs pre-booked quantities so cancellation never invents phantom stock.
  */
 export async function deductOrderStockTx(
   tx: any,
-  items: Array<{ productId: string; quantity: number }>
-) {
+  items: Array<{ id?: string; productId: string; quantity: number }>,
+  enforceAvailability: boolean = true
+): Promise<Array<{ productId: string; stockDeductedQty: number; prebookQuantity: number; isPrebook: boolean; prebookEtaDays: number }>> {
+  const results: Array<{ productId: string; stockDeductedQty: number; prebookQuantity: number; isPrebook: boolean; prebookEtaDays: number }> = [];
+
   for (const item of items) {
+    await tx.$queryRawUnsafe(`SELECT id FROM "Product" WHERE id = $1 FOR UPDATE`, item.productId);
     const product = await tx.product.findUnique({
       where: { id: item.productId },
       include: { shop: true },
     });
-    if (product && typeof product.quantity === 'number') {
-      const newQuantity = Math.max(0, product.quantity - item.quantity);
+
+    if (!product || !product.isActive) {
+      throw new AppError('Some products are no longer available.', 400);
+    }
+
+    const hasNumericQty = typeof product.quantity === 'number';
+    const availableQty = product.inStock ? (hasNumericQty ? Math.max(0, product.quantity) : item.quantity) : 0;
+
+    if (!product.allowPrebook && enforceAvailability) {
+      if (!product.inStock || (hasNumericQty && product.quantity <= 0)) {
+        throw new AppError(`Out of stock: ${product.name}`, 400);
+      }
+      if (hasNumericQty && product.quantity < item.quantity) {
+        throw new AppError(`Insufficient stock for: ${product.name} (only ${product.quantity} left)`, 400);
+      }
+    }
+
+    const deductQty = hasNumericQty
+      ? Math.min(item.quantity, availableQty)
+      : (product.inStock ? item.quantity : 0);
+    const prebookQty = Math.max(0, item.quantity - deductQty);
+    const itemIsPrebook = prebookQty > 0;
+
+    if (hasNumericQty && deductQty > 0) {
+      const newQuantity = Math.max(0, product.quantity - deductQty);
       await tx.product.update({
         where: { id: item.productId },
         data: {
@@ -69,6 +98,58 @@ export async function deductOrderStockTx(
           await notificationService.notifyLowStock(item.productId);
         } catch {}
       }
+    }
+
+    if (item.id) {
+      await tx.orderItem.update({
+        where: { id: item.id },
+        data: {
+          stockDeductedQty: deductQty,
+          prebookQuantity: prebookQty,
+          isPrebook: itemIsPrebook,
+        },
+      });
+    }
+
+    results.push({
+      productId: item.productId,
+      stockDeductedQty: deductQty,
+      prebookQuantity: prebookQty,
+      isPrebook: itemIsPrebook,
+      prebookEtaDays: typeof product.prebookEtaDays === 'number' && product.prebookEtaDays > 0 ? product.prebookEtaDays : 3,
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Shared stock restoration helper for order cancellation & hold expiry.
+ * Restores ONLY physical stock that was actually deducted at confirmation.
+ */
+export async function restoreOrderStockTx(
+  tx: any,
+  items: Array<{ productId: string; quantity: number; isPrebook?: boolean; stockDeductedQty?: number }>
+) {
+  for (const item of items) {
+    const restoreQty = item.isPrebook
+      ? Math.max(0, Number(item.stockDeductedQty) || 0)
+      : (typeof item.stockDeductedQty === 'number' && item.stockDeductedQty > 0
+          ? item.stockDeductedQty
+          : item.quantity);
+
+    if (restoreQty <= 0) continue;
+
+    const product = await tx.product.findUnique({ where: { id: item.productId } });
+    if (product && typeof product.quantity === 'number') {
+      const newQuantity = product.quantity + restoreQty;
+      await tx.product.update({
+        where: { id: item.productId },
+        data: {
+          quantity: newQuantity,
+          inStock: newQuantity > 0,
+        },
+      });
     }
   }
 }
@@ -226,14 +307,16 @@ export class OrderService {
       throw new AppError('Some products are unavailable or do not belong to this shop.', 400);
     }
 
-    const outOfStock = products.filter(p => !p.inStock || (typeof p.quantity === 'number' && p.quantity <= 0));
+    const outOfStock = products.filter(
+      p => !p.allowPrebook && (!p.inStock || (typeof p.quantity === 'number' && p.quantity <= 0))
+    );
     if (outOfStock.length > 0) {
       throw new AppError(`Out of stock: ${outOfStock.map(p => p.name).join(', ')}`, 400);
     }
 
     const insufficientStock = data.items.filter(item => {
       const p = products.find(prod => prod.id === item.productId);
-      return p && typeof p.quantity === 'number' && p.quantity < item.quantity;
+      return p && !p.allowPrebook && typeof p.quantity === 'number' && p.quantity < item.quantity;
     });
     if (insufficientStock.length > 0) {
       const names = insufficientStock.map(item => {
@@ -250,6 +333,8 @@ export class OrderService {
     // Calculate totals using actual DB prices (not client-submitted prices) and booking amount
     let subtotal = 0;
     let totalBookingAmount = 0;
+    let orderHasPrebook = false;
+    let maxPrebookEtaDays = 0;
     const orderItems = data.items.map(item => {
       const product = products.find(p => p.id === item.productId)!;
       let actualPrice = product.price;
@@ -270,6 +355,20 @@ export class OrderService {
           ? (product as any).holdDurationMinutes
           : 180;
 
+      const availableFloor = product.inStock
+        ? (typeof product.quantity === 'number' ? Math.max(0, product.quantity) : item.quantity)
+        : 0;
+      const immediateQty = Math.min(item.quantity, availableFloor);
+      const prebookQty = Math.max(0, item.quantity - immediateQty);
+      const itemIsPrebook = prebookQty > 0;
+      if (itemIsPrebook) {
+        orderHasPrebook = true;
+        const eta = typeof (product as any).prebookEtaDays === 'number' && (product as any).prebookEtaDays > 0
+          ? (product as any).prebookEtaDays
+          : 3;
+        if (eta > maxPrebookEtaDays) maxPrebookEtaDays = eta;
+      }
+
       totalBookingAmount += +(itemBookingAmount * item.quantity).toFixed(2);
 
       return {
@@ -279,8 +378,15 @@ export class OrderService {
         total: itemTotal,
         bookingAmount: itemBookingAmount,
         holdDurationMinutes: itemHoldDuration,
+        isPrebook: itemIsPrebook,
+        prebookQuantity: prebookQty,
+        stockDeductedQty: 0,
       };
     });
+
+    const prebookExpectedDate = orderHasPrebook
+      ? new Date(Date.now() + Math.max(1, maxPrebookEtaDays) * 24 * 60 * 60 * 1000)
+      : null;
 
     const maxOrderHoldMinutes = Math.max(...orderItems.map((i) => i.holdDurationMinutes), 180);
 
@@ -412,12 +518,61 @@ export class OrderService {
         }
       }
 
+      // Lock product rows inside transaction & deduct stock atomically if auto-confirmed
+      let txOrderHasPrebook = orderHasPrebook;
+      let txPrebookExpectedDate = prebookExpectedDate;
+      let txOrderItems = orderItems;
+
+      if (isAutoConfirmTx) {
+        const deductResults = await deductOrderStockTx(tx, orderItems, true);
+        let maxEta = 0;
+        txOrderHasPrebook = false;
+        txOrderItems = orderItems.map((oi) => {
+          const match = deductResults.find((r) => r.productId === oi.productId);
+          if (!match) return oi;
+          if (match.isPrebook) {
+            txOrderHasPrebook = true;
+            if (match.prebookEtaDays > maxEta) maxEta = match.prebookEtaDays;
+          }
+          return {
+            ...oi,
+            isPrebook: match.isPrebook,
+            prebookQuantity: match.prebookQuantity,
+            stockDeductedQty: match.stockDeductedQty,
+          };
+        });
+        txPrebookExpectedDate = txOrderHasPrebook
+          ? new Date(Date.now() + Math.max(1, maxEta) * 24 * 60 * 60 * 1000)
+          : null;
+      } else {
+        // Still lock & verify availability atomically for non-prebook PLACED orders
+        for (const oi of orderItems) {
+          await tx.$queryRawUnsafe(`SELECT id FROM "Product" WHERE id = $1 FOR UPDATE`, oi.productId);
+          const freshProd = await tx.product.findUnique({ where: { id: oi.productId } });
+          if (!freshProd || !freshProd.isActive) {
+            throw new AppError('Some products are no longer available.', 400);
+          }
+          if (!freshProd.allowPrebook) {
+            if (!freshProd.inStock || (typeof freshProd.quantity === 'number' && freshProd.quantity < oi.quantity)) {
+              throw new AppError(
+                typeof freshProd.quantity === 'number' && freshProd.quantity > 0
+                  ? `Insufficient stock for: ${freshProd.name} (only ${freshProd.quantity} left)`
+                  : `Out of stock: ${freshProd.name}`,
+                400
+              );
+            }
+          }
+        }
+      }
+
       const newOrder = await tx.order.create({
         data: {
           orderNumber,
           userId,
           shopId: data.shopId,
           status: isAutoConfirmTx ? 'CONFIRMED' : 'PLACED',
+          isPrebook: txOrderHasPrebook,
+          prebookExpectedDate: txPrebookExpectedDate,
           statusHistory: initialStatusHistory as any,
           subtotal,
           deliveryFee,
@@ -444,18 +599,13 @@ export class OrderService {
           coinsCredited,
           buyerNote: data.notes || null,
           adCampaignId: orderCampaignId || null,
-          items: { create: orderItems },
+          items: { create: txOrderItems },
         },
         include: {
           items: true,
           shop: { select: { id: true, name: true, phone: true } },
         },
       });
-
-      // Deduct stock immediately if auto-confirmed (atomic stock reservation via shared helper)
-      if (isAutoConfirmTx) {
-        await deductOrderStockTx(tx, orderItems);
-      }
 
       const today = new Date();
       today.setUTCHours(0, 0, 0, 0);
@@ -616,11 +766,17 @@ export class OrderService {
       sendOrderConfirmationEmail(user.email, orderNumber, total).catch(() => { });
     }
 
-    // Invalidate Redis caches for real-time fresh analytics
+    // Invalidate Redis caches for real-time fresh analytics & inventory
     await Promise.all([
       cacheDeletePattern(`shop:${data.shopId}:ads*`),
       cacheDeletePattern(`shop:${data.shopId}:analytics*`),
       cacheDelete(`shop:${data.shopId}:daily-metrics`),
+      ...(isAutoConfirm
+        ? [
+            ...orderItems.map((oi) => cacheDelete(`product:${oi.productId}`)),
+            cacheDeletePattern('*products*'),
+          ]
+        : []),
     ]).catch(() => {});
 
     // Notify seller and customer in real-time
@@ -703,7 +859,7 @@ export class OrderService {
         include: {
           items: {
             include: {
-              product: { select: { id: true, name: true, images: true, price: true, mrp: true, bookingAmount: true } },
+              product: { select: { id: true, name: true, images: true, price: true, mrp: true, bookingAmount: true, inStock: true, quantity: true, isActive: true, allowPrebook: true, prebookEtaDays: true, prebookNote: true } },
             },
           },
           shop: { select: { id: true, name: true, slug: true, phone: true } },
@@ -792,7 +948,7 @@ export class OrderService {
         include: {
           items: {
             include: {
-              product: { select: { id: true, name: true, images: true, price: true, mrp: true, bookingAmount: true } },
+              product: { select: { id: true, name: true, images: true, price: true, mrp: true, bookingAmount: true, inStock: true, quantity: true, isActive: true, allowPrebook: true, prebookEtaDays: true, prebookNote: true } },
             },
           },
           user: { select: { id: true, name: true, phone: true } },
@@ -889,24 +1045,25 @@ export class OrderService {
 
       // Deduct stock when confirming (shared helper SEL-1)
       if (status === 'CONFIRMED' && order.status === 'PLACED') {
-        await deductOrderStockTx(tx, updatedOrder.items);
+        const deductResults = await deductOrderStockTx(tx, updatedOrder.items, true);
+        const hasPrebookItem = deductResults.some((r) => r.isPrebook);
+        if (hasPrebookItem !== Boolean((updatedOrder as any).isPrebook)) {
+          const maxEta = Math.max(0, ...deductResults.filter((r) => r.isPrebook).map((r) => r.prebookEtaDays));
+          await tx.order.update({
+            where: { id: orderId },
+            data: {
+              isPrebook: hasPrebookItem,
+              prebookExpectedDate: hasPrebookItem
+                ? new Date(Date.now() + Math.max(1, maxEta) * 24 * 60 * 60 * 1000)
+                : null,
+            },
+          });
+        }
       }
 
       // Restore stock when cancelling an already confirmed order
       if (status === 'CANCELLED' && ['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY'].includes(order.status)) {
-        for (const item of updatedOrder.items) {
-          const product = await tx.product.findUnique({ where: { id: item.productId } });
-          if (product && typeof product.quantity === 'number') {
-            const newQuantity = product.quantity + item.quantity;
-            await tx.product.update({
-              where: { id: item.productId },
-              data: {
-                quantity: newQuantity,
-                inStock: newQuantity > 0
-              }
-            });
-          }
-        }
+        await restoreOrderStockTx(tx, updatedOrder.items as any);
       }
 
       // Release slot capacity when cancelling (SEL-2)
@@ -995,13 +1152,14 @@ export class OrderService {
 
     // Always invalidate shop analytics & ads cache on any status change (PLACED -> CONFIRMED -> DELIVERED -> CANCELLED)
     try {
-      if (
+      const stockChanged =
         (status === 'CONFIRMED' && order.status === 'PLACED') ||
-        (status === 'CANCELLED' && ['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY'].includes(order.status))
-      ) {
+        (status === 'CANCELLED' && ['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY'].includes(order.status));
+      if (stockChanged) {
         for (const item of updated.items) {
           await cacheDelete(`product:${item.productId}`);
         }
+        await cacheDeletePattern('*products*');
       }
       await Promise.all([
         cacheDeletePattern(`shop:${updated.shopId}*`),
@@ -1134,23 +1292,11 @@ export class OrderService {
 
       // Restore stock if stock was already deducted (CONFIRMED, PREPARING, READY_FOR_PICKUP)
       if (['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP'].includes(order.status)) {
-        for (const item of updatedOrder.items) {
-          const product = await tx.product.findUnique({ where: { id: item.productId } });
-          if (product && typeof (product as any).quantity === 'number') {
-            const newQuantity = (product as any).quantity + item.quantity;
-            await tx.product.update({
-              where: { id: item.productId },
-              data: {
-                quantity: newQuantity,
-                inStock: newQuantity > 0
-              }
-            });
-          }
-        }
+        await restoreOrderStockTx(tx, updatedOrder.items as any);
       }
 
       // Release slot capacity when cancelling (SEL-2)
-      if (status === 'CANCELLED' && order.pickupSlotStart) {
+      if (order.pickupSlotStart) {
         await tx.$executeRawUnsafe(`
           UPDATE shop_slot_counters
           SET booked = GREATEST(0, booked - 1)
@@ -1245,6 +1391,7 @@ export class OrderService {
         for (const item of result.items) {
           await cacheDelete(`product:${item.productId}`);
         }
+        await cacheDeletePattern('*products*');
       }
       await Promise.all([
         cacheDeletePattern(`shop:${result.shopId}*`),

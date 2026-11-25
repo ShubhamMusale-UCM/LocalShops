@@ -112,7 +112,7 @@ export class SearchService {
       },
       skip: offset,
       take: limit,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ inStock: 'desc' }, { allowPrebook: 'desc' }, { createdAt: 'desc' }],
     });
 
     let filtered = products;
@@ -195,7 +195,7 @@ export class SearchService {
     const products = await prisma.product.findMany({
       where: {
         isActive: true,
-        inStock: true,
+        OR: [{ inStock: true }, { allowPrebook: true }],
         ...(category ? { category } : {}),
         shop: {
           isActive: true,

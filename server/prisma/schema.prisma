@@ -220,10 +220,13 @@ model Product {
   brand       String?
 
   // Inventory
-  inStock  Boolean @default(true)
-  quantity Int?
-  lowStockThreshold Int? @default(5)
-  unit     String?
+  inStock           Boolean @default(true)
+  quantity          Int?
+  lowStockThreshold Int?    @default(5)
+  unit              String?
+  allowPrebook      Boolean @default(false)
+  prebookEtaDays    Int?    @default(3)
+  prebookNote       String?
 
   // Search
   searchVector String?
@@ -280,8 +283,10 @@ model Order {
   pickupSlotEnd       DateTime? @map("pickup_slot_end")
 
   // Status
-  status        OrderStatus @default(PLACED)
-  statusHistory Json[]
+  status              OrderStatus @default(PLACED)
+  statusHistory       Json[]
+  isPrebook           Boolean     @default(false)
+  prebookExpectedDate DateTime?
 
   // Delivery
   isDelivery        Boolean   @default(false)
@@ -335,6 +340,9 @@ model OrderItem {
   total               Float
   bookingAmount       Float   @default(0)
   holdDurationMinutes Int     @default(180)
+  isPrebook           Boolean @default(false)
+  prebookQuantity     Int     @default(0)
+  stockDeductedQty    Int     @default(0)
 
   @@index([productId])
   @@index([orderId])

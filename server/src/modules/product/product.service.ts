@@ -47,12 +47,6 @@ export class ProductService {
     if (data.holdDurationMinutes !== undefined) {
       const hMins = parseInt(String(data.holdDurationMinutes), 10);
       data.holdDurationMinutes = !isNaN(hMins) && hMins >= 15 ? Math.min(hMins, 10080) : 180;
-    }
-
-    // Sanitize lowStockThreshold
-    if (data.lowStockThreshold !== undefined) {
-      const lst = parseInt(String(data.lowStockThreshold), 10);
-      data.lowStockThreshold = !isNaN(lst) && lst >= 0 ? lst : 5;
     } else {
       data.holdDurationMinutes = 180;
     }
@@ -63,6 +57,20 @@ export class ProductService {
       data.lowStockThreshold = !isNaN(lst) && lst >= 0 ? lst : 5;
     } else {
       data.lowStockThreshold = 5;
+    }
+
+    // Sanitize pre-book fields
+    data.allowPrebook = Boolean(data.allowPrebook);
+    if (data.prebookEtaDays !== undefined && data.prebookEtaDays !== null) {
+      const eta = parseInt(String(data.prebookEtaDays), 10);
+      data.prebookEtaDays = !isNaN(eta) && eta >= 1 ? Math.min(eta, 90) : 3;
+    } else {
+      data.prebookEtaDays = 3;
+    }
+    if (typeof data.prebookNote === 'string') {
+      data.prebookNote = data.prebookNote.trim().slice(0, 200) || null;
+    } else if (data.prebookNote !== undefined) {
+      data.prebookNote = null;
     }
 
     if (typeof data.quantity === 'number') {
@@ -209,6 +217,24 @@ export class ProductService {
       data.lowStockThreshold = !isNaN(lst) && lst >= 0 ? lst : 5;
     }
 
+    // Sanitize pre-book fields
+    if (data.allowPrebook !== undefined) {
+      data.allowPrebook = Boolean(data.allowPrebook);
+    }
+    if (data.prebookEtaDays !== undefined) {
+      if (data.prebookEtaDays === null) {
+        data.prebookEtaDays = 3;
+      } else {
+        const eta = parseInt(String(data.prebookEtaDays), 10);
+        data.prebookEtaDays = !isNaN(eta) && eta >= 1 ? Math.min(eta, 90) : 3;
+      }
+    }
+    if (data.prebookNote !== undefined) {
+      data.prebookNote = typeof data.prebookNote === 'string'
+        ? (data.prebookNote.trim().slice(0, 200) || null)
+        : null;
+    }
+
     if (typeof data.quantity === 'number') {
       data.inStock = data.quantity > 0;
     }
@@ -224,10 +250,39 @@ export class ProductService {
       data.searchVector = [merged.name, merged.description, merged.brand, ...(merged.tags || [])].filter(Boolean).join(' ');
     }
 
+    const wasOutOfStock = !product.inStock || (typeof product.quantity === 'number' && product.quantity <= 0);
     const updated = await prisma.product.update({ where: { id: productId }, data });
+    const isNowInStock = updated.inStock && (typeof updated.quantity !== 'number' || updated.quantity > 0);
+
+    // Notify buyers who hold active pre-bookings when item is restocked
+    if (wasOutOfStock && isNowInStock) {
+      this.notifyPrebookRestock(productId, updated.name).catch(() => {});
+    }
 
     await this.invalidateProductAndShopCaches(product.shopId, productId);
     return updated;
+  }
+
+  private async notifyPrebookRestock(productId: string, productName: string) {
+    const prebookOrders = await prisma.order.findMany({
+      where: {
+        isPrebook: true,
+        status: { in: ['PLACED', 'CONFIRMED', 'PREPARING'] },
+        items: { some: { productId, isPrebook: true } },
+      },
+      select: { id: true, userId: true, orderNumber: true },
+      take: 50,
+    });
+    if (prebookOrders.length === 0) return;
+    await prisma.notification.createMany({
+      data: prebookOrders.map((o) => ({
+        userId: o.userId,
+        title: 'Pre-Booked Item Back in Stock!',
+        body: `"${productName}" is now in stock for order #${o.orderNumber}.`,
+        type: 'ORDER_UPDATE',
+        data: { orderId: o.id, productId, status: 'RESTOCKED' },
+      })),
+    }).catch(() => {});
   }
 
   /**
@@ -573,6 +628,9 @@ export class ProductService {
                 bookingAmount: row.bookingAmount,
                 quantity: row.quantity,
                 inStock: row.inStock,
+                allowPrebook: row.allowPrebook,
+                prebookEtaDays: row.prebookEtaDays,
+                prebookNote: row.prebookNote ?? null,
                 category: row.category,
                 subCategory: row.subCategory,
                 brand: row.brand,
@@ -593,6 +651,9 @@ export class ProductService {
                 bookingAmount: row.bookingAmount,
                 quantity: row.quantity,
                 inStock: row.inStock,
+                allowPrebook: row.allowPrebook,
+                prebookEtaDays: row.prebookEtaDays,
+                prebookNote: row.prebookNote ?? null,
                 category: row.category,
                 subCategory: row.subCategory,
                 brand: row.brand,
@@ -615,6 +676,9 @@ export class ProductService {
                 bookingAmount: row.bookingAmount,
                 quantity: row.quantity,
                 inStock: row.inStock,
+                allowPrebook: row.allowPrebook,
+                prebookEtaDays: row.prebookEtaDays,
+                prebookNote: row.prebookNote ?? null,
                 category: row.category,
                 subCategory: row.subCategory,
                 brand: row.brand,
@@ -896,6 +960,13 @@ export class ProductService {
           data.inStock = update.quantity > 0;
         } else if (update.inStock !== undefined) {
           data.inStock = update.inStock;
+        }
+        if (update.allowPrebook !== undefined) data.allowPrebook = Boolean(update.allowPrebook);
+        if (update.prebookEtaDays !== undefined) {
+          data.prebookEtaDays = update.prebookEtaDays === null ? 3 : Math.min(90, Math.max(1, parseInt(String(update.prebookEtaDays), 10) || 3));
+        }
+        if (update.prebookNote !== undefined) {
+          data.prebookNote = typeof update.prebookNote === 'string' ? (update.prebookNote.trim().slice(0, 200) || null) : null;
         }
 
         // Recalculate discount

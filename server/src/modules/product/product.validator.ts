@@ -16,7 +16,11 @@ const baseProductSchema = z.object({
   tags: z.array(z.string()).optional(),
   brand: z.string().max(100).optional(),
   quantity: z.number().int().min(0).optional(),
+  lowStockThreshold: z.number().int().min(0).max(500).optional(),
   unit: z.string().max(20).optional(),
+  allowPrebook: z.boolean().optional(),
+  prebookEtaDays: z.number().int().min(1).max(90).nullable().optional(),
+  prebookNote: z.string().max(200).nullable().optional(),
 });
 
 export const createProductSchema = baseProductSchema.refine(
@@ -44,6 +48,7 @@ export const productSearchSchema = z.object({
   subCategory: z.string().optional(),
   brand: z.string().optional(),
   inStock: z.string().transform(v => v === 'true').optional(),
+  allowPrebook: z.string().transform(v => v === 'true').optional(),
   sort: z.enum(['distance', 'price_asc', 'price_desc', 'rating', 'popularity', 'newest', 'relevance']).optional(),
   page: z.string().transform(Number).pipe(z.number().positive()).optional(),
   limit: z.string().transform(Number).pipe(z.number().positive().max(100)).optional(),
@@ -58,5 +63,8 @@ export const bulkUpdateProductsSchema = z.object({
     holdDurationMinutes: z.number().int().min(15).max(10080).optional(),
     quantity: z.number().int().min(0).optional(),
     inStock: z.boolean().optional(),
+    allowPrebook: z.boolean().optional(),
+    prebookEtaDays: z.number().int().min(1).max(90).nullable().optional(),
+    prebookNote: z.string().max(200).nullable().optional(),
   })).min(1, 'At least one update is required').max(100, 'Cannot update more than 100 products at once'),
 });

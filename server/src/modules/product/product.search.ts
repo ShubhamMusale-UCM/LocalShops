@@ -144,16 +144,16 @@ export const searchProducts = async (params: SearchParams) => {
   if (brand) where.brand = { contains: brand, mode: 'insensitive' };
   if (inStock !== undefined) where.inStock = inStock;
 
-  // Sort
+  // Sort (prioritize in-stock and pre-bookable items above sold-out items on default discovery feeds)
   let orderBy: any;
   switch (sort) {
     case 'price_asc': orderBy = { price: 'asc' }; break;
     case 'price_desc': orderBy = { price: 'desc' }; break;
     case 'rating': orderBy = { averageRating: 'desc' }; break;
     case 'popularity': orderBy = { orderCount: 'desc' }; break;
-    case 'newest': orderBy = { createdAt: 'desc' }; break;
-    case 'relevance': orderBy = { createdAt: 'desc' }; break;
-    default: orderBy = { createdAt: 'desc' };
+    case 'newest': orderBy = [{ inStock: 'desc' }, { allowPrebook: 'desc' }, { createdAt: 'desc' }]; break;
+    case 'relevance': orderBy = [{ inStock: 'desc' }, { allowPrebook: 'desc' }, { createdAt: 'desc' }]; break;
+    default: orderBy = [{ inStock: 'desc' }, { allowPrebook: 'desc' }, { createdAt: 'desc' }];
   }
 
   const fetchWithWhere = (effectiveWhere: any) => Promise.all([

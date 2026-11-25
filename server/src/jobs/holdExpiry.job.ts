@@ -34,6 +34,7 @@ export async function processExpiredHolds(minCheckMinutes = 15): Promise<{ expir
   const candidates = await prisma.order.findMany({
     where: {
       isDelivery: false,
+      isPrebook: false,
       status: { in: ['PLACED', 'CONFIRMED'] },
       createdAt: { lte: minCutoffDate },
     },
@@ -81,12 +82,18 @@ export async function processExpiredHolds(minCheckMinutes = 15): Promise<{ expir
           },
         });
 
-        // Restore stock ONLY if stock was deducted on CONFIRMED
+        // Restore stock ONLY if physical stock was deducted on CONFIRMED
         if (wasStockDeducted) {
           for (const item of order.items) {
+            const restoreQty = (item as any).isPrebook
+              ? Math.max(0, Number((item as any).stockDeductedQty) || 0)
+              : (typeof (item as any).stockDeductedQty === 'number' && (item as any).stockDeductedQty > 0
+                  ? (item as any).stockDeductedQty
+                  : item.quantity);
+            if (restoreQty <= 0) continue;
             const product = await tx.product.findUnique({ where: { id: item.productId } });
             if (product && typeof product.quantity === 'number') {
-              const newQty = product.quantity + item.quantity;
+              const newQty = product.quantity + restoreQty;
               await tx.product.update({
                 where: { id: item.productId },
                 data: { quantity: newQty, inStock: newQty > 0 },
@@ -121,6 +128,7 @@ export async function processExpiredHolds(minCheckMinutes = 15): Promise<{ expir
         await cacheDelete(`product:${item.productId}`).catch(() => {});
       }
       await cacheDeletePattern(`shop:${order.shopId}*`).catch(() => {});
+      await cacheDeletePattern('*products*').catch(() => {});
 
       // Audit log
       await recordAuditLog({

@@ -13,6 +13,9 @@ export interface NormalizedProductRow {
   bookingAmount: number;
   quantity: number;
   inStock: boolean;
+  allowPrebook: boolean;
+  prebookEtaDays: number;
+  prebookNote?: string;
   category: string;
   subCategory?: string;
   brand?: string;
@@ -44,6 +47,9 @@ export const HEADER_ALIASES: Record<string, string[]> = {
   tags: ['tags', 'keywords', 'labels', 'search_tags'],
   bookingAmount: ['booking_amount', 'token_amount', 'advance_amount', 'bookingamount', 'tokenamount'],
   brand: ['brand', 'manufacturer', 'make'],
+  allowPrebook: ['allow_prebook', 'prebook', 'pre_book', 'preorder', 'allowprebook'],
+  prebookEtaDays: ['prebook_eta_days', 'prebook_days', 'restock_days', 'eta_days'],
+  prebookNote: ['prebook_note', 'restock_note'],
 };
 
 /**
@@ -165,6 +171,11 @@ export function validateAndParseRow(
     ? Math.max(0, parseInt(String(rawQty).replace(/[^0-9]/g, ''), 10) || 0)
     : 10;
   const inStock = quantity > 0;
+  const allowPrebookRaw = String(row.allowPrebook || '').trim().toLowerCase();
+  const allowPrebook = ['true', '1', 'yes', 'y', 'on'].includes(allowPrebookRaw);
+  const parsedEta = parseInt(String(row.prebookEtaDays || ''), 10);
+  const prebookEtaDays = !isNaN(parsedEta) && parsedEta >= 1 ? Math.min(parsedEta, 90) : 3;
+  const prebookNote = row.prebookNote ? String(row.prebookNote).trim().slice(0, 200) : undefined;
 
   const description = row.description
     ? String(row.description).trim()
@@ -194,6 +205,9 @@ export function validateAndParseRow(
       bookingAmount: cleanBookingAmount,
       quantity,
       inStock,
+      allowPrebook,
+      prebookEtaDays,
+      prebookNote,
       category,
       subCategory,
       brand,

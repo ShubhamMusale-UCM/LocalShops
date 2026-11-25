@@ -1155,7 +1155,10 @@ export class AdsService {
       endDate: { gte: new Date() },
     };
 
-    const productQuery: any = { isActive: true };
+    const productQuery: any = {
+      isActive: true,
+      AND: [{ OR: [{ inStock: true }, { allowPrebook: true }] }],
+    };
     if (category && category !== 'all') productQuery.category = { equals: category, mode: 'insensitive' };
     
     const searchTerms = [];
