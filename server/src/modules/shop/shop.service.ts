@@ -881,7 +881,7 @@ export class ShopService {
     if (!shop) throw new AppError('Shop not found.', 404);
     if (shop.ownerId !== ownerId) throw new AppError('Not authorized.', 403);
 
-    const cacheKey = `shop:${shopId}:analytics:${days}`;
+    const cacheKey = `shop:${shopId}:analytics:v3:${days}`;
     const cachedData = await cacheGet(cacheKey);
     if (cachedData) return cachedData;
 
@@ -896,6 +896,8 @@ export class ShopService {
     } else {
       since = new Date(todayStart.getTime() - (days - 1) * 86400000);
     }
+    const sinceDateStr = since.toLocaleDateString('en-CA', { timeZone });
+    const sinceDbDate = new Date(`${sinceDateStr}T00:00:00.000Z`);
 
     const weeklyLabels = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(todayStart.getTime() - (6 - i) * 86400000);
@@ -903,7 +905,7 @@ export class ShopService {
     });
 
     const analytics = await prisma.shopAnalytics.findMany({
-      where: { shopId, date: { gte: since } },
+      where: { shopId, date: { gte: sinceDbDate } },
       orderBy: { date: 'asc' },
     });
 
@@ -934,60 +936,164 @@ export class ShopService {
       }
     );
 
-    // Calculate 7-day trailing data (ALWAYS 7 days regardless of the top filter) using SQL groupBy / bounded daily rollups
-    const sevenDaysAgoStart = new Date(todayStart.getTime() - 6 * 86400000);
+    // Calculate trailing 30-day daily activity (last 7 days exposed as weekly* arrays + full 30d series)
+    const thirtyDaysAgoStart = new Date(todayStart.getTime() - 29 * 86400000);
+    const thirtyDaysAgoDateStr = thirtyDaysAgoStart.toLocaleDateString('en-CA', { timeZone });
+    const thirtyDaysAgoDbDate = new Date(`${thirtyDaysAgoDateStr}T00:00:00.000Z`);
 
-    const [past7DaysOrdersRaw, past7DaysAnalytics, past7DaysAdRollups] = await Promise.all([
+    const [past30DaysOrdersRaw, past30DaysShopAnalytics, past30DaysProductDaily, past30DaysAdRollups] = await Promise.all([
       prisma.$queryRaw<{ day_str: string; revenue: number; cnt: number }[]>`
         SELECT TO_CHAR(("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS day_str,
                COALESCE(SUM(total), 0)::float AS revenue,
                COUNT(*)::int AS cnt
         FROM "Order"
         WHERE "shopId" = ${shopId}
-          AND "createdAt" >= ${sevenDaysAgoStart}
+          AND "createdAt" >= ${thirtyDaysAgoStart}
           AND status NOT IN ('CANCELLED', 'REFUNDED')
         GROUP BY day_str
       `,
       prisma.shopAnalytics.findMany({
-        where: { shopId, date: { gte: sevenDaysAgoStart } },
-        select: { date: true, views: true },
+        where: { shopId, date: { gte: thirtyDaysAgoDbDate } },
+        select: {
+          date: true,
+          views: true,
+          productImpressions: true,
+          productDetailViews: true,
+          cartAdds: true,
+        },
+      }),
+      prisma.productDailyAnalytics.groupBy({
+        by: ['date'],
+        where: { shopId, date: { gte: thirtyDaysAgoDbDate } },
+        _sum: {
+          impressions: true,
+          adImpressions: true,
+          detailViews: true,
+          adClicks: true,
+          cartAdds: true,
+        },
       }),
       prisma.adDailyMetricRollup.findMany({
-        where: { promotedListing: { shopId }, date: { gte: sevenDaysAgoStart } },
-        select: { date: true, views: true, impressions: true },
+        where: { promotedListing: { shopId }, date: { gte: thirtyDaysAgoDbDate } },
+        select: { date: true, impressions: true, clicks: true, views: true, cartAdds: true },
       }),
     ]);
 
-    const weeklyRevenue = Array(7).fill(0);
-    const weeklyOrders = Array(7).fill(0);
-    const weeklyViews = Array(7).fill(0);
+    type DailyBucket = {
+      orders: number;
+      revenue: number;
+      saViews: number;
+      saProdImps: number;
+      saProdClicks: number;
+      saCartAdds: number;
+      pdaImps: number;
+      pdaAdImps: number;
+      pdaClicks: number;
+      pdaAdClicks: number;
+      pdaCartAdds: number;
+      adImps: number;
+      adViews: number;
+      adClicks: number;
+      adCartAdds: number;
+    };
 
-    past7DaysOrdersRaw.forEach((row) => {
-      const target = new Date(`${row.day_str}T00:00:00+05:30`);
+    const emptyBucket = (): DailyBucket => ({
+      orders: 0,
+      revenue: 0,
+      saViews: 0,
+      saProdImps: 0,
+      saProdClicks: 0,
+      saCartAdds: 0,
+      pdaImps: 0,
+      pdaAdImps: 0,
+      pdaClicks: 0,
+      pdaAdClicks: 0,
+      pdaCartAdds: 0,
+      adImps: 0,
+      adViews: 0,
+      adClicks: 0,
+      adCartAdds: 0,
+    });
+
+    const dailyBuckets = Array.from({ length: 30 }, emptyBucket);
+    const resolveDayIndex = (dateStr: string): number => {
+      const target = new Date(`${dateStr}T00:00:00+05:30`);
       const diffDays = Math.round((todayStart.getTime() - target.getTime()) / 86400000);
-      if (diffDays >= 0 && diffDays < 7) {
-        weeklyRevenue[6 - diffDays] += Number(row.revenue || 0);
-        weeklyOrders[6 - diffDays] += Number(row.cnt || 0);
+      if (diffDays >= 0 && diffDays < 30) return 29 - diffDays;
+      return -1;
+    };
+
+    past30DaysOrdersRaw.forEach((row) => {
+      const idx = resolveDayIndex(row.day_str);
+      if (idx !== -1) {
+        dailyBuckets[idx].revenue += Number(row.revenue || 0);
+        dailyBuckets[idx].orders += Number(row.cnt || 0);
       }
     });
 
-    past7DaysAnalytics.forEach((a) => {
-      const aDateStr = new Date(a.date).toLocaleDateString('en-CA', { timeZone });
-      const target = new Date(`${aDateStr}T00:00:00+05:30`);
-      const diffDays = Math.round((todayStart.getTime() - target.getTime()) / 86400000);
-      if (diffDays >= 0 && diffDays < 7) {
-        weeklyViews[6 - diffDays] += a.views;
+    past30DaysShopAnalytics.forEach((a) => {
+      const idx = resolveDayIndex(new Date(a.date).toISOString().slice(0, 10));
+      if (idx !== -1) {
+        dailyBuckets[idx].saViews += a.views || 0;
+        dailyBuckets[idx].saProdImps += (a as any).productImpressions || 0;
+        dailyBuckets[idx].saProdClicks += (a as any).productDetailViews || 0;
+        dailyBuckets[idx].saCartAdds += (a as any).cartAdds || 0;
       }
     });
 
-    past7DaysAdRollups.forEach((a) => {
-      const aDateStr = new Date(a.date).toLocaleDateString('en-CA', { timeZone });
-      const target = new Date(`${aDateStr}T00:00:00+05:30`);
-      const diffDays = Math.round((todayStart.getTime() - target.getTime()) / 86400000);
-      if (diffDays >= 0 && diffDays < 7) {
-        weeklyViews[6 - diffDays] += (a.views || 0);
+    past30DaysProductDaily.forEach((a) => {
+      const idx = resolveDayIndex(new Date(a.date).toISOString().slice(0, 10));
+      if (idx !== -1) {
+        dailyBuckets[idx].pdaImps += a._sum.impressions || 0;
+        dailyBuckets[idx].pdaAdImps += a._sum.adImpressions || 0;
+        dailyBuckets[idx].pdaClicks += a._sum.detailViews || 0;
+        dailyBuckets[idx].pdaAdClicks += a._sum.adClicks || 0;
+        dailyBuckets[idx].pdaCartAdds += a._sum.cartAdds || 0;
       }
     });
+
+    past30DaysAdRollups.forEach((a) => {
+      const idx = resolveDayIndex(new Date(a.date).toISOString().slice(0, 10));
+      if (idx !== -1) {
+        dailyBuckets[idx].adImps += a.impressions || 0;
+        dailyBuckets[idx].adViews += a.views || 0;
+        dailyBuckets[idx].adClicks += a.clicks || 0;
+        dailyBuckets[idx].adCartAdds += a.cartAdds || 0;
+      }
+    });
+
+    const dailyActivity30d = dailyBuckets.map((b, idx) => {
+      const d = new Date(todayStart.getTime() - (29 - idx) * 86400000);
+      const dateIso = d.toLocaleDateString('en-CA', { timeZone });
+      const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone });
+      const weekday = d.toLocaleDateString('en-US', { weekday: 'short', timeZone });
+      const organicClicks = Math.max(b.saProdClicks, b.pdaClicks);
+      const promotedClicks = Math.max(b.adClicks, b.pdaAdClicks);
+      const clicks = organicClicks + promotedClicks;
+      const cartAdds = Math.max(b.saCartAdds, b.pdaCartAdds, b.adCartAdds, b.orders);
+      const organicReach = Math.max(b.saViews + b.saProdImps, b.pdaImps, b.pdaClicks);
+      const promotedReach = Math.max(b.adImps, b.adViews, b.pdaAdImps);
+      const views = Math.max(organicReach + promotedReach, clicks, cartAdds);
+
+      return {
+        date: dateIso,
+        label,
+        shortLabel: idx === 29 ? 'Today' : weekday,
+        isToday: idx === 29,
+        orders: b.orders,
+        revenue: b.revenue,
+        clicks,
+        views,
+        cartAdds,
+      };
+    });
+
+    const last7Activity = dailyActivity30d.slice(23);
+    const weeklyRevenue = last7Activity.map((d) => d.revenue);
+    const weeklyOrders = last7Activity.map((d) => d.orders);
+    const weeklyViews = last7Activity.map((d) => d.views);
+    const weeklyClicks = last7Activity.map((d) => d.clicks);
+    const weeklyCartAdds = last7Activity.map((d) => d.cartAdds);
 
     // Top products — rank strictly by period sales/views/impressions, then take top 20
     const allShopProducts = await prisma.product.findMany({
@@ -1005,7 +1111,7 @@ export class ShopService {
         ? await Promise.all([
           prisma.productDailyAnalytics.groupBy({
             by: ['productId'],
-            where: { productId: { in: shopProductIds }, date: { gte: since } },
+            where: { productId: { in: shopProductIds }, date: { gte: sinceDbDate } },
             _sum: {
               impressions: true,
               adImpressions: true,
@@ -1027,7 +1133,7 @@ export class ShopService {
           prisma.adDailyMetricRollup.findMany({
             where: {
               promotedListing: { shopId, productId: { in: shopProductIds } },
-              date: { gte: since },
+              date: { gte: sinceDbDate },
             },
             select: {
               impressions: true,
@@ -1194,7 +1300,7 @@ export class ShopService {
       initialTopKeywords,
     ] = await Promise.all([
       prisma.adDailyMetricRollup.aggregate({
-        where: { promotedListing: { shopId }, date: { gte: since } },
+        where: { promotedListing: { shopId }, date: { gte: sinceDbDate } },
         _sum: { clicks: true, impressions: true, spend: true },
       }),
       prisma.$queryRaw<{ shoppers_cnt: number; items_cnt: number; val: number }[]>`
@@ -1281,7 +1387,7 @@ export class ShopService {
         _count: { id: true },
       }),
       prisma.productDailyAnalytics.aggregate({
-        where: { shopId, date: { gte: since } },
+        where: { shopId, date: { gte: sinceDbDate } },
         _sum: { impressions: true, detailViews: true, cartAdds: true },
       }),
       prisma.product.count({ where: { shopId, isActive: true, inStock: true } }),
@@ -1290,7 +1396,7 @@ export class ShopService {
         by: ['keyword'],
         where: {
           shopId,
-          date: { gte: since },
+          date: { gte: sinceDbDate },
         },
         _sum: {
           searches: true,
@@ -1571,6 +1677,9 @@ export class ShopService {
       weeklyLabels,
       weeklyViews,
       weeklyOrders,
+      weeklyClicks,
+      weeklyCartAdds,
+      dailyActivity30d,
       topProducts,
       funnel,
       trafficSources,
