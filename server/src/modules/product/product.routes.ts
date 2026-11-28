@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import productController from './product.controller';
-import { authenticate, authorize } from '../../middleware/auth.middleware';
+import { authenticate, authorize, optionalAuth } from '../../middleware/auth.middleware';
 import { searchLimiter, uploadLimiter } from '../../middleware/rateLimiter.middleware';
 import { uploadMultiple, handleUploadError, uploadCsv } from '../../middleware/upload.middleware';
 import { cacheMiddleware } from '../../middleware/cache.middleware';
@@ -10,6 +10,7 @@ const router = Router();
 // Public routes
 router.get('/search', searchLimiter, cacheMiddleware(180), productController.searchProducts.bind(productController));
 router.get('/trending', cacheMiddleware(180), productController.getTrending.bind(productController));
+router.post('/personalized', optionalAuth, productController.getPersonalizedCandidates.bind(productController));
 router.get('/shop/:shopId', cacheMiddleware(180), productController.getShopProducts.bind(productController));
 router.post('/:id/click', productController.logProductClick.bind(productController));
 router.get('/:id', productController.getProduct.bind(productController));

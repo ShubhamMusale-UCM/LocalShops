@@ -1,7 +1,7 @@
 import prisma from '../../config/database';
 import { AppError } from '../../middleware/errorHandler.middleware';
 import redis, { cacheGet, cacheSet, cacheDelete, cacheDeletePattern } from '../../config/redis';
-import { searchProducts, getComparableProducts } from './product.search';
+import { searchProducts, getComparableProducts, getPersonalizedCandidates } from './product.search';
 import adsService from '../ads/ads.service';
 import { persistImagesArray } from '../../utils/imageProcessor';
 import { getPlanLimits } from '../../config/plans';
@@ -172,6 +172,13 @@ export class ProductService {
    */
   async search(params: any) {
     return searchProducts(params);
+  }
+
+  /**
+   * Retrieve scalable personalized product candidates for a buyer
+   */
+  async getPersonalizedCandidates(params: any) {
+    return getPersonalizedCandidates(params);
   }
 
   /**

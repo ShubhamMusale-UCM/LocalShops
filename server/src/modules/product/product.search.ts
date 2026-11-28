@@ -54,6 +54,42 @@ const isSponsoredActive = (listing: any): boolean => {
   return Boolean(listing.isActive) && withinWindow && hasBudget;
 };
 
+const SEARCH_CATEGORY_ALIASES: Record<string, string[]> = {
+  grocery: ['grocery', 'groceries', 'pantry', 'produce', 'organic pantry', 'organic pantry & grocery'],
+  dairy: ['dairy', 'milk', 'eggs', 'dairy & eggs', 'dairy & pasture eggs'],
+  bakery: ['bakery', 'boulangerie', 'breads', 'artisan bakery'],
+  snacks: ['snacks', 'roasters', 'spices', 'pantry essentials', 'roasters & snacks', 'roasters, spices & snacks'],
+  beverages: ['beverages', 'drinks', 'tonics', 'coffee', 'cold brews & beverages'],
+  food: ['food', 'restaurants', 'restaurant', 'cafe', 'dining', 'restaurants & cafe', 'restaurants, cafes & dining'],
+  electronics: ['electronics', 'tech', 'tech gear', 'gadgets', 'cameras & tech', 'tech gear & electronics'],
+  audio: ['audio', 'audio gear', 'hifi', 'headphones', 'speakers', 'spatial audio & hi-fi'],
+  wearable: ['wearable', 'wearables', 'smartwatch', 'watches', 'wearables & spatial tech'],
+  accessories: ['accessories', 'tech accessories', 'cables', 'chargers', 'tech accessories & edc'],
+  furniture: ['furniture', 'home', 'home living', 'home & living', 'home & furniture', 'decor', 'living', 'home living & furniture'],
+  kitchen: ['kitchen', 'ceramics', 'tableware', 'diningware', 'ceramics & kitchen', 'ceramics, kitchen & dining'],
+  design: ['design', 'smart home', 'lighting', 'architectural', 'smart home & architectural'],
+  art: ['art', 'crafts', 'artisanal', 'artisanal crafts', 'artisanal crafts & fine art'],
+  garden: ['garden', 'botanicals', 'plants', 'home & garden', 'botanicals & home garden'],
+  clothing: ['clothing', 'fashion', 'apparel', 'footwear', 'fashion & apparel', 'fashion & studio apparel'],
+  jewellery: ['jewellery', 'jewelry', 'gems', 'fine & artisan jewellery'],
+  beauty: ['beauty', 'spa', 'cosmetics', 'salon', 'beauty & spa', 'beauty & makeup', 'beauty, salon & spa'],
+  care: ['care', 'body', 'apothecary', 'skincare', 'botanical apothecary & body'],
+  health: ['health', 'wellness', 'pharmacy', 'fitness', 'health & wellness', 'wellness & health', 'health, wellness & pharmacy'],
+  sports: ['sports', 'gym', 'cycling', 'athletics', 'sports & outdoors', 'sports & gear', 'sports, cycling & fitness'],
+  books: ['books', 'stationery', 'bookstore', 'books & media', 'books & paper', 'books, vinyl & stationery'],
+  toys: ['toys', 'games', 'board games', 'toys & games', 'toys, board games & stem'],
+  education: ['education', 'workshops', 'courses', 'classes', 'education & labs', 'workshops, courses & labs'],
+  pets: ['pets', 'pet', 'pet care', 'pet supplies', 'pet care & barkery'],
+  hardware: ['hardware', 'tools', 'hardware & precision tools'],
+  automotive: ['automotive', 'vehicles', 'vehicle', 'moto', 'auto', 'moto & auto', 'automotive & moto atelier'],
+  secondhand: ['secondhand', 'refurbished', 'used', 'pre-owned', 'refurbished goods', 'second hand market', 'refurbished & pre-owned'],
+  property: ['property', 'real-estate', 'real estate', 'rentals', 'real estate & studio lofts'],
+  hotels: ['hotels', 'hotel', 'stays', 'lodges', 'hotels & stays', 'boutique hotels & stays'],
+  tours: ['tours', 'treks', 'tour packages', 'tours & treks', 'tours, treks & heritage walks'],
+  places: ['places', 'landmarks', 'places to visit', 'landmarks & cultural venues'],
+  services: ['services', 'service', 'home services', 'local services', 'pro services', 'home & atelier pro services'],
+};
+
 interface SearchParams {
   query?: string;
   latitude?: number;
@@ -138,9 +174,32 @@ export const searchProducts = async (params: SearchParams) => {
   if (minPrice !== undefined) where.price = { ...where.price, gte: minPrice };
   if (maxPrice !== undefined) where.price = { ...where.price, lte: maxPrice };
 
-  // Category filter
-  if (category && category !== 'all') where.category = { equals: category, mode: 'insensitive' };
-  if (subCategory) where.subCategory = { equals: subCategory, mode: 'insensitive' };
+  // Category & Subcategory filter (with canonical alias expansion so buyer & seller categories always link)
+  if (category && category !== 'all') {
+    const key = category.trim().toLowerCase();
+    const aliases = Array.from(new Set([category.trim(), key, ...(SEARCH_CATEGORY_ALIASES[key] || [])]));
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      {
+        OR: aliases.map(alias => ({
+          category: { equals: alias, mode: 'insensitive' as const },
+        })),
+      },
+    ];
+  }
+  if (subCategory && subCategory !== 'all' && subCategory !== 'All') {
+    const cleanSub = subCategory.trim();
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      {
+        OR: [
+          { subCategory: { equals: cleanSub, mode: 'insensitive' as const } },
+          { subCategory: { contains: cleanSub, mode: 'insensitive' as const } },
+          { name: { contains: cleanSub, mode: 'insensitive' as const } },
+        ],
+      },
+    ];
+  }
   if (brand) where.brand = { contains: brand, mode: 'insensitive' };
   if (inStock !== undefined) where.inStock = inStock;
 
@@ -411,4 +470,210 @@ export const getComparableProducts = async (
         : undefined,
     };
   });
+};
+
+export interface PersonalizedCandidatesParams {
+  userId?: string;
+  categories?: string[];
+  subCategories?: string[];
+  keywords?: string[];
+  shopIds?: string[];
+  excludeIds?: string[];
+  latitude?: number;
+  longitude?: number;
+  radius?: number;
+  limit?: number;
+}
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Scalable DB-backed candidate retrieval for huge catalogs (10k-500k+ products):
+ * fetches targeted in-stock/pre-bookable candidates matching buyer categories, subcategories,
+ * keywords, shops, and server-side user visits/wishlist, plus diverse high-rated fallback.
+ */
+export const getPersonalizedCandidates = async (params: PersonalizedCandidatesParams) => {
+  const {
+    userId,
+    categories = [],
+    subCategories = [],
+    keywords = [],
+    shopIds = [],
+    excludeIds = [],
+    latitude,
+    longitude,
+    radius = 50,
+    limit = 60,
+  } = params;
+
+  const clampedLimit = Math.min(Math.max(Number(limit) || 60, 10), 100);
+  const categorySet = new Set<string>(
+    categories
+      .map((c) => String(c || '').trim().toLowerCase())
+      .filter((c) => c.length >= 2 && c !== 'all')
+      .slice(0, 12)
+  );
+  const subCategoryList = subCategories
+    .map((s) => String(s || '').trim())
+    .filter((s) => s.length >= 2)
+    .slice(0, 15);
+  const keywordList = keywords
+    .map((k) => String(k || '').trim())
+    .filter((k) => k.length >= 2)
+    .slice(0, 10);
+  const shopIdSet = new Set<string>(
+    shopIds.map((s) => String(s || '').trim()).filter((id) => UUID_REGEX.test(id)).slice(0, 10)
+  );
+  const validExcludeIds = excludeIds
+    .map((id) => String(id || '').trim())
+    .filter((id) => UUID_REGEX.test(id))
+    .slice(0, 40);
+
+  // Merge logged-in buyer's server-side category visits & wishlist interests seamlessly
+  if (userId && UUID_REGEX.test(userId)) {
+    const [visits, wishlistRows] = await Promise.all([
+      prisma.userCategoryVisit.findMany({
+        where: { userId },
+        orderBy: { visitCount: 'desc' },
+        take: 6,
+      }).catch(() => []),
+      prisma.wishlist.findMany({
+        where: { userId },
+        take: 10,
+        orderBy: { createdAt: 'desc' },
+        include: { product: { select: { category: true, subCategory: true, shopId: true } } },
+      }).catch(() => []),
+    ]);
+
+    for (const v of visits as any[]) {
+      const cat = String(v?.category || '').trim().toLowerCase();
+      if (cat && cat !== 'all') categorySet.add(cat);
+    }
+    for (const w of wishlistRows as any[]) {
+      const p = w?.product;
+      if (!p) continue;
+      if (p.category) categorySet.add(String(p.category).trim().toLowerCase());
+      if (p.subCategory && subCategoryList.length < 18) subCategoryList.push(String(p.subCategory).trim());
+      if (p.shopId && UUID_REGEX.test(p.shopId)) shopIdSet.add(p.shopId);
+    }
+  }
+
+  // Expand canonical category keys to stored aliases for accurate indexed SQL lookup
+  const expandedCategories = new Set<string>();
+  for (const catKey of categorySet) {
+    expandedCategories.add(catKey);
+    const aliases = SEARCH_CATEGORY_ALIASES[catKey];
+    if (aliases) {
+      for (const a of aliases) expandedCategories.add(a);
+    }
+  }
+
+  const orClauses: any[] = [];
+  for (const alias of Array.from(expandedCategories).slice(0, 40)) {
+    orClauses.push({ category: { equals: alias, mode: 'insensitive' as const } });
+  }
+  for (const sub of subCategoryList) {
+    orClauses.push({ subCategory: { contains: sub, mode: 'insensitive' as const } });
+  }
+  for (const kw of keywordList) {
+    orClauses.push({ name: { contains: kw, mode: 'insensitive' as const } });
+    orClauses.push({ brand: { contains: kw, mode: 'insensitive' as const } });
+    orClauses.push({ subCategory: { contains: kw, mode: 'insensitive' as const } });
+  }
+  if (shopIdSet.size > 0) {
+    orClauses.push({ shopId: { in: Array.from(shopIdSet) } });
+  }
+  if (keywordList.length > 0) {
+    orClauses.push({ tags: { hasSome: keywordList.map((k) => k.toLowerCase()) } });
+  }
+
+  const hasGeo = latitude != null && longitude != null && !(latitude === 0 && longitude === 0);
+  const shopWhereBase: any = { isActive: true };
+  if (hasGeo) {
+    const bbox = getBoundingBox(latitude!, longitude!, Math.max(1, Number(radius) || 50));
+    shopWhereBase.latitude = { gte: bbox.minLat, lte: bbox.maxLat };
+    shopWhereBase.longitude = { gte: bbox.minLng, lte: bbox.maxLng };
+  }
+
+  const baseActiveWhere: any = {
+    isActive: true,
+    OR: [{ inStock: true }, { allowPrebook: true }],
+    shop: shopWhereBase,
+    ...(validExcludeIds.length > 0 ? { id: { notIn: validExcludeIds } } : {}),
+  };
+
+  const productInclude = {
+    shop: {
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        latitude: true,
+        longitude: true,
+        address: true,
+        city: true,
+        averageRating: true,
+        isVerified: true,
+        isOpen: true,
+        deliveryEnabled: true,
+        logo: true,
+        coverImage: true,
+      },
+    },
+  };
+
+  let targeted: any[] = [];
+  if (orClauses.length > 0) {
+    targeted = await prisma.product.findMany({
+      where: {
+        ...baseActiveWhere,
+        AND: [{ OR: orClauses }],
+      },
+      include: productInclude,
+      orderBy: [{ inStock: 'desc' }, { averageRating: 'desc' }, { orderCount: 'desc' }, { createdAt: 'desc' }],
+      take: clampedLimit,
+    });
+  }
+
+  // Fallback fill with diverse nearby popular/top-rated active stock when targeted pool < limit
+  let discovery: any[] = [];
+  if (targeted.length < clampedLimit) {
+    const takenIds = targeted.map((p) => p.id);
+    discovery = await prisma.product.findMany({
+      where: {
+        ...baseActiveWhere,
+        id: { notIn: [...validExcludeIds, ...takenIds] },
+      },
+      include: productInclude,
+      orderBy: [{ inStock: 'desc' }, { averageRating: 'desc' }, { orderCount: 'desc' }, { createdAt: 'desc' }],
+      take: clampedLimit - targeted.length,
+    });
+  }
+
+  const formatRow = (item: any) => {
+    const normalized = normalizeProductImages(item);
+    const itemLat = item.shop?.latitude;
+    const itemLng = item.shop?.longitude;
+    const itemHasGeo =
+      typeof itemLat === 'number' &&
+      typeof itemLng === 'number' &&
+      (itemLat !== 0 || itemLng !== 0);
+    const distKm =
+      hasGeo && itemHasGeo
+        ? Number(haversineDistance(latitude!, longitude!, itemLat, itemLng).toFixed(1))
+        : undefined;
+
+    return {
+      ...normalized,
+      shopDistance_km: distKm,
+      distance_km: distKm,
+    };
+  };
+
+  const combined = [...targeted, ...discovery].map(formatRow);
+  return {
+    products: combined,
+    targetedCount: targeted.length,
+    total: combined.length,
+  };
 };

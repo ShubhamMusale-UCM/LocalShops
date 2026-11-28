@@ -277,6 +277,32 @@ export class ProductController {
       res.status(error.statusCode || 500).json({ error: error.message });
     }
   }
+
+  async getPersonalizedCandidates(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const lat = body.lat !== undefined ? Number(body.lat) : undefined;
+      const lng = body.lng !== undefined ? Number(body.lng) : undefined;
+      const radius = body.radius !== undefined ? Number(body.radius) : undefined;
+      const limit = body.limit !== undefined ? Number(body.limit) : 60;
+
+      const result = await productService.getPersonalizedCandidates({
+        userId: req.user?.id,
+        categories: Array.isArray(body.categories) ? body.categories : [],
+        subCategories: Array.isArray(body.subCategories) ? body.subCategories : [],
+        keywords: Array.isArray(body.keywords) ? body.keywords : [],
+        shopIds: Array.isArray(body.shopIds) ? body.shopIds : [],
+        excludeIds: Array.isArray(body.excludeIds) ? body.excludeIds : [],
+        latitude: Number.isFinite(lat) ? lat : undefined,
+        longitude: Number.isFinite(lng) ? lng : undefined,
+        radius: Number.isFinite(radius) && radius! > 0 ? radius : undefined,
+        limit: Number.isFinite(limit) ? limit : 60,
+      });
+      res.json(result);
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ error: error.message || 'Failed to fetch personalized products' });
+    }
+  }
 }
 
 export default new ProductController();
